@@ -1,0 +1,3 @@
+aiofiles
+python-telegram-bot
+async_lru
