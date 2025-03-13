@@ -1,0 +1,107 @@
+import logging
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler, filters, ConversationHandler,
+    CallbackQueryHandler
+)
+from config import (
+    ASSIGN_REQUEST, CREATE_REQUEST_DESC, CREATE_REQUEST_LOCATION,
+    CREATE_REQUEST_PHOTOS, ENTER_NAME, ENTER_PHONE, TELEGRAM_API_TOKEN,
+    ADMIN_IDS, DELIVERY_IDS
+)
+from handlers.user_handler import UserHandler
+from handlers.client_handler import ClientHandler
+from handlers.admin_handler import AdminHandler
+from handlers.delivery_handler import DeliveryHandler
+from utils import ensure_photos_dir
+
+# Настройка логирования
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+def main():
+    # Создание экземпляров обработчиков
+    user_handler = UserHandler()
+    client_handler = ClientHandler()
+    admin_handler = AdminHandler()
+    delivery_handler = DeliveryHandler()
+
+    # Создание приложения
+    application = Application.builder().token(TELEGRAM_API_TOKEN).build()
+
+    # Обработчики команд
+    application.add_handler(CommandHandler("start", user_handler.start))
+
+    # Обработчик регистрации
+    application.add_handler(MessageHandler(filters.CONTACT, user_handler.handle_contact))
+
+    # Обработчики для клиента
+    application.add_handler(ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^Создать заявку$"), client_handler.create_request)],
+        states={
+            CREATE_REQUEST_DESC: [MessageHandler(filters.TEXT & ~filters.COMMAND, client_handler.handle_request_desc)],
+            CREATE_REQUEST_PHOTOS: [
+                MessageHandler(filters.PHOTO, client_handler.handle_request_photos),
+                CommandHandler("done", client_handler.done_photos)
+            ],
+            CREATE_REQUEST_LOCATION: [
+                MessageHandler(filters.LOCATION, client_handler.handle_request_location),
+            ],
+        },
+        fallbacks=[CommandHandler("cancel", client_handler.cancel_request)],
+    ))
+    application.add_handler(MessageHandler(filters.Regex("^Мои заявки$"), client_handler.show_client_requests))
+    application.add_handler(MessageHandler(filters.Regex("^Мой профиль$"), client_handler.show_client_profile))
+
+    # Обработчики для администратора
+    application.add_handler(MessageHandler(filters.Regex("^Просмотр заявок$"), admin_handler.view_requests))
+    application.add_handler(ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^Привязать к СЦ$"), admin_handler.assign_request)],
+        states={
+            ASSIGN_REQUEST: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_handler.handle_assign_request)],
+        },
+        fallbacks=[CommandHandler("cancel", admin_handler.cancel_request)],
+    ))
+    application.add_handler(CallbackQueryHandler(admin_handler.handle_assign_sc_confirm, pattern="^assign_sc_confirm_"))
+
+    application.add_handler(MessageHandler(
+        filters.Regex("^Список СЦ$") & filters.User(user_id=ADMIN_IDS), 
+        admin_handler.view_service_centers
+    ))
+    # Обработчики для доставщика
+    delivery_handler = DeliveryHandler()
+    application.add_handler(CallbackQueryHandler(delivery_handler.accept_delivery, pattern="^accept_delivery_"))
+    application.add_handler(CallbackQueryHandler(delivery_handler.handle_confirm_pickup, pattern=r'^picked_up_'))
+    application.add_handler(CallbackQueryHandler(delivery_handler.handle_client_confirmation, pattern=r'^client_(confirm|deny)_'))
+    application.add_handler(CallbackQueryHandler(delivery_handler.handle_confirm_pickup, pattern="^confirm_pickup_"))
+    application.add_handler(CallbackQueryHandler(delivery_handler.handle_delivered_to_sc, pattern="^delivered_to_sc_"))
+    application.add_handler(MessageHandler(filters.Regex("^Просмотр задач доставки$"), delivery_handler.show_delivery_tasks))
+    application.add_handler(ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^Профиль доставщика$"), delivery_handler.show_delivery_profile)],
+        states={
+            ENTER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, delivery_handler.enter_name)],
+            ENTER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, delivery_handler.enter_phone)],
+        },
+        fallbacks=[],
+    ))
+    application.add_handler(CallbackQueryHandler(delivery_handler.accept_delivery, pattern="^accept_delivery_"))
+    # Добавление обработчиков меню для разных ролей
+    application.add_handler(MessageHandler(filters.Regex("^Меню клиента$"), user_handler.show_client_menu))
+    application.add_handler(MessageHandler(filters.Regex("^Админская панель$"), user_handler.show_admin_menu))
+    application.add_handler(MessageHandler(filters.Regex("^Меню доставщика$"), user_handler.show_delivery_menu))
+
+    # Установка данных бота
+    application.bot_data["admin_ids"] = ADMIN_IDS
+    application.bot_data["delivery_ids"] = DELIVERY_IDS
+
+    # Убедимся, что директория для фотографий существует
+    ensure_photos_dir()
+
+    # Запуск бота
+    application.run_polling()
+
+
+if __name__ == '__main__':
+    main()
