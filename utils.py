@@ -6,6 +6,7 @@ from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 def ensure_photos_dir():
     if not os.path.exists(PHOTOS_DIR):
         os.makedirs(PHOTOS_DIR)
+
 async def notify_admin(bot, request_id, requests_data, admin_ids):
     request = requests_data[request_id]
     location = request.get('location', {})

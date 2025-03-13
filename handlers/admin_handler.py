@@ -5,7 +5,7 @@ from telegram.ext import CallbackContext, ConversationHandler
 from telegram.error import BadRequest
 from .base_handler import BaseHandler
 from database import load_delivery_tasks, load_requests, load_service_centers, load_users, save_delivery_tasks, save_requests
-from config import ASSIGN_REQUEST, ADMIN_IDS, DELIVERY_IDS
+from config import ASSIGN_REQUEST, ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK, ORDER_STATUS_ASSIGNED_TO_SC
 from utils import notify_admin, notify_delivery
 logger = logging.getLogger(__name__)
 
@@ -13,79 +13,108 @@ class AdminHandler(BaseHandler):
 
 
     async def handle_assign_sc(self, update: Update, context: CallbackContext):
+        """Обработка выбора заявки для привязки к СЦ"""
         query = update.callback_query
         await query.answer()
     
-        logger.info(f"Received callback query: {query.data}")
+        try:
+            parts = query.data.split('_')
+            logger.info(f"Callback data parts: {parts}")
+            
+            if len(parts) < 3:
+                await query.edit_message_text("Неверный формат данных")
+                return ConversationHandler.END
+
+            # Проверяем, является ли это подтверждением
+            if 'confirm' in parts:
+                request_id = parts[3]  # Берем ID заявки после 'confirm'
+            else:
+                request_id = parts[2]  # Берем ID заявки напрямую
+            
+            logger.info(f"Processing request_id: {request_id}")
+            
+            requests_data = load_requests()
+            logger.info(f"Available requests: {list(requests_data.keys())}")
+            
+            if request_id not in requests_data:
+                await query.edit_message_text(f"Заявка #{request_id} не найдена")
+                return ConversationHandler.END
+
+            service_centers = load_service_centers()
+            if not service_centers:
+                await query.edit_message_text("Нет доступных сервисных центров.")
+                return ConversationHandler.END
     
-        parts = query.data.split('_')
-        if len(parts) < 3:
-            logger.error(f"Invalid data format: {query.data}")
-            await query.edit_message_text("Неверный формат данных")
-            return
+            keyboard = []
+            for sc_id, sc_data in service_centers.items():
+                callback_data = f"assign_sc_confirm_{request_id}_{sc_id}"
+                logger.info(f"Creating button with callback_data: {callback_data}")
+                keyboard.append([
+                    InlineKeyboardButton(
+                        f"{sc_data['name']} - {sc_data.get('address', 'Адрес не указан')}", 
+                        callback_data=callback_data
+                    )
+                ])
     
-        request_id = parts[2]
-    
-        requests_data = load_requests()
-        service_centers = load_service_centers()
-    
-        if request_id not in requests_data:
-            logger.error(f"Request {request_id} not found")
-            await query.edit_message_text(f"Заявка #{request_id} не найдена")
-            return
-    
-        # Создаем клавиатуру с доступными сервисными центрами
-        keyboard = []
-        for sc in service_centers:
-            keyboard.append([InlineKeyboardButton(sc['name'], callback_data=f"assign_sc_confirm_{request_id}_{sc['id']}")])
-    
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(
-            f"Выберите сервисный центр для заявки #{request_id}:",
-            reply_markup=reply_markup
-        )
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                f"Выберите сервисный центр для заявки #{request_id}:",
+                reply_markup=reply_markup
+            )
+            return ASSIGN_REQUEST
+        
+        except Exception as e:
+            logger.error(f"Error in handle_assign_sc: {e}")
+            await query.edit_message_text(f"Произошла ошибка при обработке заявки: {str(e)}")
+            return ConversationHandler.END
 
 
     async def handle_assign_sc_confirm(self, update: Update, context: CallbackContext):
+        """Подтверждение привязки заявки к СЦ"""
         query = update.callback_query
         await query.answer()
 
         logger.info(f"Received callback query: {query.data}")
 
-        parts = query.data.split('_')
-        if len(parts) < 5:  # Проверяем, что есть все необходимые части
-            logger.error(f"Invalid data format: {query.data}")
-            await query.edit_message_text("Неверный формат данных")
-            return
+        try:
+            parts = query.data.split('_')
+            if len(parts) < 5:
+                logger.error(f"Invalid data format: {query.data}")
+                await query.edit_message_text("Неверный формат данных")
+                return
 
-        request_id = parts[3]  # Изменено с parts[2] на parts[3]
-        sc_id = parts[4]      # Изменено с parts[3] на parts[4]
+            request_id = parts[3]
+            sc_id = parts[4]
 
-        requests_data = load_requests()
-        service_centers = load_service_centers()
+            requests_data = load_requests()
+            service_centers = load_service_centers()
 
-        if request_id not in requests_data:
-            logger.error(f"Request {request_id} not found")
-            await query.edit_message_text(f"Заявка #{request_id} не найдена")
-            return
-    
-        sc_name = next((sc['name'] for sc in service_centers if str(sc['id']) == str(sc_id)), None)
-        if not sc_name:
-            logger.error(f"Service center {sc_id} not found")
-            await query.edit_message_text(f"Сервисный центр с ID {sc_id} не найден")
-            return
-    
-        requests_data[request_id]['assigned_sc'] = sc_id
-        requests_data[request_id]['status'] = 'Привязан к СЦ'
-        save_requests(requests_data)
-    
-        new_text = f"Заявка #{request_id} привязана к СЦ {sc_name}."
-        await query.edit_message_text(new_text)
-    
-        # Создаем задачу доставки
-        await self.create_delivery_task(update, context, request_id, sc_name)
-    
-        logger.info(f"Request {request_id} successfully assigned to SC {sc_id}")
+            if request_id not in requests_data:
+                logger.error(f"Request {request_id} not found")
+                await query.edit_message_text(f"Заявка #{request_id} не найдена")
+                return
+
+            if sc_id not in service_centers:
+                logger.error(f"Service center {sc_id} not found")
+                await query.edit_message_text(f"Сервисный центр с ID {sc_id} не найден")
+                return
+
+            sc_data = service_centers[sc_id]
+            requests_data[request_id].update({
+                'assigned_sc': sc_id,
+                'status': ORDER_STATUS_ASSIGNED_TO_SC
+            })
+            save_requests(requests_data)
+
+            new_text = f"Заявка #{request_id} привязана к СЦ {sc_data['name']}."
+            await query.edit_message_text(new_text)
+
+            task_id = await self.create_delivery_task(update, context, request_id, sc_data['name'])
+            logger.info(f"Request {request_id} successfully assigned to SC {sc_id} and delivery task {task_id} created")
+
+        except Exception as e:
+            logger.error(f"Error in handle_assign_sc_confirm: {e}")
+            await query.edit_message_text("Произошла ошибка при привязке заявки к СЦ")
 
 
     async def update_delivery_info(self, context: CallbackContext, chat_id: int, message_id: int, request_id: str, delivery_info: dict):
@@ -123,11 +152,11 @@ class AdminHandler(BaseHandler):
         save_delivery_tasks(delivery_tasks)
         
         try:
-            await self.notify_delivery(context.bot, task_id, delivery_task)
+            for delivery_id in DELIVERY_IDS:
+                await notify_delivery(context.bot, delivery_id, task_id, request_id, sc_name)
             logger.info(f"Delivery task {task_id} created and notified successfully")
         except Exception as e:
             logger.error(f"Failed to notify delivery for task {task_id}: {e}")
-        
         return task_id
 
 
@@ -209,30 +238,39 @@ class AdminHandler(BaseHandler):
 
 
     async def assign_request(self, update: Update, context: CallbackContext):
-        await update.message.reply_text("Введите номер заявки для привязки к СЦ:")
-        return ASSIGN_REQUEST
+        """Начало процесса привязки заявки к СЦ"""
+        try:
+            requests_dict = load_requests()
+            if not requests_dict:
+                await update.message.reply_text("Нет активных заявок для привязки.")
+                return ConversationHandler.END
 
-
-    async def handle_assign_request(self, update: Update, context: CallbackContext):
-        request_id = update.message.text.strip()
-        
-        requests_data = load_requests()
-        if request_id in requests_data:
-            service_centers = load_service_centers()
             keyboard = []
-            for sc in service_centers:
-                keyboard.append([InlineKeyboardButton(sc['name'], 
-                               callback_data=f"assign_sc_{request_id}_{sc['id']}")])
-            
+            for req_id, req_data in requests_dict.items():
+                if not req_data.get('assigned_sc'):  # Показываем только неназначенные заявки
+                    status = req_data.get('status', 'Статус не указан')
+                    desc = req_data.get('description', 'Нет описания')[:30] + '...'
+                    button_text = f"Заявка #{req_id} - {status} - {desc}"
+                    keyboard.append([InlineKeyboardButton(
+                        button_text, 
+                        callback_data=f"assign_sc_{req_id}"
+                    )])
+
+            if not keyboard:
+                await update.message.reply_text("Нет заявок, требующих привязки к СЦ.")
+                return ConversationHandler.END
+
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
-                f"Выберите сервисный центр для заявки #{request_id}:", 
+                "Выберите заявку для привязки к сервисному центру:",
                 reply_markup=reply_markup
             )
-        else:
-            await update.message.reply_text(f"Заявка #{request_id} не найдена")
+            return ASSIGN_REQUEST
         
-        return ConversationHandler.END
+        except Exception as e:
+            logger.error(f"Error in assign_request: {e}")
+            await update.message.reply_text("Произошла ошибка при загрузке заявок.")
+            return ConversationHandler.END
 
 
     async def view_service_centers(self, update: Update, context: CallbackContext):
@@ -247,3 +285,62 @@ class AdminHandler(BaseHandler):
                 reply += f"Адрес: {sc.get('address', 'Не указан')}\n"
                 reply += "-------------------\n"
             await update.message.reply_text(reply)
+
+
+    async def handle_create_delivery(self, update: Update, context: CallbackContext):
+        """Обработчик создания задачи доставки"""
+        query = update.callback_query
+        await query.answer()
+        
+        parts = query.data.split('_')
+        if len(parts) < 3:
+            await query.edit_message_text("Неверный формат данных")
+            return
+        
+        request_id = parts[2]
+        sc_id = parts[3]
+        
+        service_center = await self.service_center_service.get_service_center(sc_id)
+        if not service_center:
+            await query.edit_message_text("Сервисный центр не найден")
+            return
+        
+        task_id = await self.create_delivery_task(update, context, request_id, service_center.name)
+        
+        await query.edit_message_text(
+            f"Задача доставки #{task_id} для заявки #{request_id} создана.\n"
+            f"Доставщики уведомлены."
+        )
+
+
+    async def handle_create_delivery_menu(self, update: Update, context: CallbackContext):
+        """Обработчик кнопки создания задачи доставки из меню"""
+        await update.message.reply_text("Введите номер заявки для создания задачи доставки:")
+        return CREATE_DELIVERY_TASK
+
+
+    async def handle_create_delivery_input(self, update: Update, context: CallbackContext):
+        """Обработчик ввода номера заявки для создания задачи доставки"""
+        request_id = update.message.text.strip()
+        requests_data = load_requests()
+        
+        if request_id not in requests_data:
+            await update.message.reply_text(f"Заявка #{request_id} не найдена")
+            return ConversationHandler.END
+        
+        request = requests_data[request_id]
+        if not request.get('assigned_sc'):
+            await update.message.reply_text("Заявка должна быть сначала привязана к сервисному центру")
+            return ConversationHandler.END
+        
+        service_centers = load_service_centers()
+        sc_id = request['assigned_sc']
+        sc_name = next((sc['name'] for sc in service_centers if str(sc['id']) == str(sc_id)), None)
+        
+        if not sc_name:
+            await update.message.reply_text("Сервисный центр не найден")
+            return ConversationHandler.END
+        
+        task_id = await self.create_delivery_task(update, context, request_id, sc_name)
+        await update.message.reply_text(f"Задача доставки #{task_id} создана. Доставщики уведомлены.")
+        return ConversationHandler.END
