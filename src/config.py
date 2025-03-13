@@ -3,7 +3,8 @@ import os
 # Telegram API
 TELEGRAM_API_TOKEN = "8161286312:AAEJP6NfLW9koP7_EiOnBnsF3T6Ck3OPUF8" # 7921991483:AAHM8c918j5B9rGKiegUsZCt1N89vtePJP4
 ADMIN_IDS = [8195693077] # 6213103612
-DELIVERY_IDS = [7843162799]
+DELIVERY_IDS = [] # 7843162799
+SC_IDS = [993108283]
 
 # Пути к файлам
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")

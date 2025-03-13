@@ -18,6 +18,8 @@ class UserHandler(BaseHandler):
                 return await self.show_admin_menu(update, context)
             elif user.role == "delivery":
                 return await self.show_delivery_menu(update, context)
+            elif user.role == "sc":
+                return await self.show_sc_menu(update, context)
             else:
                 return await self.show_client_menu(update, context)
         else:
@@ -30,6 +32,8 @@ class UserHandler(BaseHandler):
                 return await self.show_admin_menu(update, context)
             elif user.role == "delivery":
                 return await self.show_delivery_menu(update, context)
+            elif user.role == "sc":
+                return await self.show_sc_menu(update, context)
             else:
                 await update.message.reply_text(
                     "Пожалуйста, зарегистрируйтесь. Нажмите кнопку ниже, чтобы поделиться контактом.",
@@ -75,3 +79,11 @@ class UserHandler(BaseHandler):
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         await update.message.reply_text("Меню доставщика:", reply_markup=reply_markup)
+
+    async def show_sc_menu(self, update: Update, context: CallbackContext):
+        """Отображение меню сервисного центра"""
+        keyboard = [
+            ["Заявки", "Профиль сервисного центра"]
+        ]
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        await update.message.reply_text("Меню сервисного центра:", reply_markup=reply_markup)

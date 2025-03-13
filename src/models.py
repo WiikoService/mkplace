@@ -7,7 +7,7 @@ class User:
     id: str
     name: Optional[str] = None
     phone: Optional[str] = None
-    role: str = "client"  # "client", "admin", "delivery"
+    role: str = "client"  # "client", "admin", "delivery, "sc"
 
     @classmethod
     def from_dict(cls, data: dict) -> 'User':
