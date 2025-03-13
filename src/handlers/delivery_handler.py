@@ -1,10 +1,10 @@
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update, ReplyKeyboardMarkup
 from telegram.ext import CallbackContext, ConversationHandler
-from src.handlers.base_handler import BaseHandler
-from src.services.user import UserService
-from src.services.delivery import DeliveryService
-from src.services.notification_service import NotificationService
-from src.config import ENTER_NAME, ENTER_PHONE, ORDER_STATUS_IN_SC, ORDER_STATUS_DELIVERY_TO_SC
+from handlers.base_handler import BaseHandler
+from services.user import UserService
+from services.delivery import DeliveryService
+from services.notification_service import NotificationService
+from config import ENTER_NAME, ENTER_PHONE, ORDER_STATUS_IN_SC, ORDER_STATUS_DELIVERY_TO_SC
 
 
 class DeliveryHandler(BaseHandler):

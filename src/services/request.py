@@ -1,9 +1,9 @@
 from typing import List, Optional, Dict, Any
 
-from src.models import Request, Location
-from src.storage import JsonStorage
-from src.services.notification_service import NotificationService
-from src.config import REQUESTS_JSON, ORDER_STATUS_NEW, ORDER_STATUS_ASSIGNED_TO_SC
+from models import Request, Location
+from storage import JsonStorage
+from services.notification_service import NotificationService
+from config import REQUESTS_JSON, ORDER_STATUS_NEW, ORDER_STATUS_ASSIGNED_TO_SC
 
 
 class RequestService:

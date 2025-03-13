@@ -1,7 +1,7 @@
 from typing import Dict, List, Optional
-from src.models import ServiceCenter
-from src.storage import JsonStorage
-from src.config import SERVICE_CENTERS_JSON
+from models import ServiceCenter
+from storage import JsonStorage
+from config import SERVICE_CENTERS_JSON
 
 
 class ServiceCenterService:

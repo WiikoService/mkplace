@@ -20,7 +20,9 @@ async def save_photo(message: Message, photos_dir: str) -> Optional[str]:
         file_name = f"{uuid.uuid4()}.jpg"
         file_path = os.path.join(photos_dir, file_name)
         # Скачиваем и сохраняем фото
-        file = await message.bot.get_file(file_id)
+        # Получаем бот из application вместо message
+        bot = message.get_bot()
+        file = await bot.get_file(file_id)
         await file.download_to_drive(file_path)
         return file_path
     except Exception as e:

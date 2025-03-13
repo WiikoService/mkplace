@@ -1,6 +1,6 @@
 from typing import List, Optional, Dict, Any
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
-from src.config import ADMIN_IDS, DELIVERY_IDS
+from config import ADMIN_IDS, DELIVERY_IDS
 import logging
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,13 @@ class NotificationService:
         message += f"Статус: {request_data.get('status', 'Новая')}\n"
 
         location_link = request_data.get('location_link', 'Местоположение не указано')
-        message += f"Местоположение: {location_link}\n"
+        location = request_data.get('location', 'Адрес не указан')
+
+        if location_link == 'Местоположение не указано':
+            message += f"Местоположение: {location} (введено вручную)\n"
+        else:
+            message += f"Местоположение: {location_link}\n"
+
         keyboard = [[InlineKeyboardButton("Привязать к СЦ", callback_data=f"assign_sc_{request_id}")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await self.notify_admins(bot, message, reply_markup)

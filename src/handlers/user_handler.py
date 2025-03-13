@@ -1,8 +1,8 @@
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import CallbackContext, ConversationHandler
-from src.handlers.base_handler import BaseHandler
-from src.services.user import UserService
-from src.config import REGISTER
+from handlers.base_handler import BaseHandler
+from services.user import UserService
+from config import REGISTER
 
 
 class UserHandler(BaseHandler):

@@ -1,9 +1,9 @@
 from typing import List, Optional, Dict
-from src.models import DeliveryTask
-from src.storage import JsonStorage
-from src.services.request import RequestService
-from src.services.notification_service import NotificationService
-from src.config import DELIVERY_TASKS_JSON, ORDER_STATUS_DELIVERY_TO_CLIENT
+from models import DeliveryTask
+from storage import JsonStorage
+from services.request import RequestService
+from services.notification_service import NotificationService
+from config import DELIVERY_TASKS_JSON, ORDER_STATUS_DELIVERY_TO_CLIENT
 
 
 class DeliveryService:

@@ -1,11 +1,11 @@
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from telegram.ext import CallbackContext, ConversationHandler
-from src.handlers.base_handler import BaseHandler
-from src.services.user import UserService
-from src.services.request import RequestService
-from src.services.notification_service import NotificationService
-from src.config import CREATE_REQUEST_DESC, CREATE_REQUEST_PHOTOS, CREATE_REQUEST_LOCATION, PHOTOS_DIR
-from src.utils import save_photo
+from handlers.base_handler import BaseHandler
+from services.user import UserService
+from services.request import RequestService
+from services.notification_service import NotificationService
+from config import CREATE_REQUEST_DESC, CREATE_REQUEST_PHOTOS, CREATE_REQUEST_LOCATION, PHOTOS_DIR
+from utils import save_photo
 
 
 class ClientHandler(BaseHandler):
@@ -82,7 +82,7 @@ class ClientHandler(BaseHandler):
         # Уведомление администраторов
         await self.notification_service.notify_about_new_request(update.get_bot(), request.id, request.to_dict())
         # Отправка фотографий администраторам
-        from src.config import ADMIN_IDS
+        from config import ADMIN_IDS
         for admin_id in ADMIN_IDS:
             for photo_path in context.user_data["photos"]:
                 try:
@@ -90,6 +90,9 @@ class ClientHandler(BaseHandler):
                         await update.get_bot().send_photo(chat_id=admin_id, photo=photo)
                 except Exception as e:
                     print(f"Ошибка при отправке фото администратору {admin_id}: {e}")
+        
+        # Отображение меню клиента после создания заявки
+        await self.show_client_menu(update, context)
         return ConversationHandler.END
 
     async def show_user_requests(self, update: Update, context: CallbackContext):

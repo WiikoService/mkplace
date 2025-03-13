@@ -4,15 +4,15 @@ from telegram.ext import (
     Application, CommandHandler, MessageHandler, filters, ConversationHandler,
     CallbackQueryHandler
 )
-from src.config import (
+from config import (
     ASSIGN_REQUEST, CREATE_REQUEST_DESC, CREATE_REQUEST_LOCATION,
     CREATE_REQUEST_PHOTOS, ENTER_NAME, ENTER_PHONE, TELEGRAM_API_TOKEN,
     ADMIN_IDS, DELIVERY_IDS, PHOTOS_DIR
 )
-from src.handlers.user_handler import UserHandler
-from src.handlers.client_handler import ClientHandler
-from src.handlers.admin_handler import AdminHandler
-from src.handlers.delivery_handler import DeliveryHandler
+from handlers.user_handler import UserHandler
+from handlers.client_handler import ClientHandler
+from handlers.admin_handler import AdminHandler
+from handlers.delivery_handler import DeliveryHandler
 
 # Настройка логирования
 logging.basicConfig(
@@ -23,9 +23,6 @@ logger = logging.getLogger(__name__)
 
 
 def main():
-    # Создание директорий для данных
-    os.makedirs(PHOTOS_DIR, exist_ok=True)
-
     # Создание экземпляров обработчиков
     user_handler = UserHandler()
     client_handler = ClientHandler()

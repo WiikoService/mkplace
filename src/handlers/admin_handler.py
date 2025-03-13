@@ -1,13 +1,13 @@
 import logging
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update, ReplyKeyboardMarkup
 from telegram.ext import CallbackContext, ConversationHandler
-from src.handlers.base_handler import BaseHandler
-from src.services.user import UserService
-from src.services.request import RequestService
-from src.services.service_center import ServiceCenterService
-from src.services.delivery import DeliveryService
-from src.services.notification_service import NotificationService
-from src.config import ASSIGN_REQUEST, CREATE_DELIVERY_TASK
+from handlers.base_handler import BaseHandler
+from services.user import UserService
+from services.request import RequestService
+from services.service_center import ServiceCenterService
+from services.delivery import DeliveryService
+from services.notification_service import NotificationService
+from config import ASSIGN_REQUEST, CREATE_DELIVERY_TASK
 
 logger = logging.getLogger(__name__)
 

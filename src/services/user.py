@@ -1,7 +1,7 @@
 from typing import List, Optional, Dict
-from src.models import User
-from src.storage import JsonStorage
-from src.config import USERS_JSON, ADMIN_IDS, DELIVERY_IDS
+from models import User
+from storage import JsonStorage
+from config import USERS_JSON, ADMIN_IDS, DELIVERY_IDS
 
 
 class UserService:
