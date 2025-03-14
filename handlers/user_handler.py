@@ -45,7 +45,7 @@ class UserHandler(BaseHandler):
         users_data[user_id] = ({
             "phone": contact.phone_number,
             "name": contact.first_name,
-            "role": users_data[user_id].get("role", "client")  # Сохраняем существующую роль или устанавливаем "client" по умолчанию
+            "role": users_data[user_id].get("role", "client")
         })
         save_users(users_data)
         
@@ -71,7 +71,8 @@ class UserHandler(BaseHandler):
     
     async def show_delivery_menu(self, update: Update, context: CallbackContext):
         keyboard = [
-            ["Мои задания", "Мой профиль"]
+            ["Доступные задания", "Мои задания"],
+            ["Мой профиль"]
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         await update.message.reply_text("Меню доставщика:", reply_markup=reply_markup)

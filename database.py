@@ -1,6 +1,9 @@
 import json
 import os
 from config import USERS_JSON, REQUESTS_JSON, SERVICE_CENTERS_JSON, DELIVERY_TASKS_JSON
+import logging
+
+logger = logging.getLogger(__name__)
 
 def load_json(filename):
     try:
@@ -32,22 +35,22 @@ def save_service_centers(service_centers_data):
     save_json(service_centers_data, SERVICE_CENTERS_JSON)
 
 def load_delivery_tasks():
-    file_path = 'data/delivery_tasks.json'
-    if not os.path.exists(file_path):
-        return {}
+    """Загрузка задач доставки с правильной кодировкой"""
+    from config import DELIVERY_TASKS_JSON
     try:
-        with open(file_path, 'r', encoding='utf-8') as file:
-            content = file.read()
-            if not content:
-                return {}
-            return json.loads(content)
-    except json.JSONDecodeError:
-        print(f"Error decoding JSON from {file_path}. File might be empty or contain invalid JSON.")
+        with open(DELIVERY_TASKS_JSON, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except FileNotFoundError:
         return {}
     except Exception as e:
-        print(f"Error loading delivery tasks: {e}")
+        logger.error(f"Error loading delivery tasks: {e}")
         return {}
 
-def save_delivery_tasks(tasks):
-    with open(DELIVERY_TASKS_JSON, 'w') as file:
-        json.dump(tasks, file, indent=4)
+def save_delivery_tasks(delivery_tasks):
+    """Сохранение задач доставки с правильной кодировкой"""
+    try:
+        with open(DELIVERY_TASKS_JSON, 'w', encoding='utf-8') as f:
+            json.dump(delivery_tasks, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        logger.error(f"Error saving delivery tasks: {e}")
+        raise
