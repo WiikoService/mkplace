@@ -6,7 +6,7 @@ from telegram.ext import (
 from config import (
     ASSIGN_REQUEST, CREATE_REQUEST_DESC, CREATE_REQUEST_LOCATION,
     CREATE_REQUEST_PHOTOS, ENTER_NAME, ENTER_PHONE, TELEGRAM_API_TOKEN,
-    ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK, DELIVERY_MENU
+    ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK, DELIVERY_MENU, ENTER_CONFIRMATION_CODE
 )
 from handlers.user_handler import UserHandler
 from handlers.client_handler import ClientHandler
@@ -124,9 +124,22 @@ def main():
         pattern="^accept_delivery_"
     ))
 
-    application.add_handler(CallbackQueryHandler(
-        delivery_handler.handle_confirm_pickup,
-        pattern="^confirm_pickup_"
+    application.add_handler(ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                delivery_handler.handle_confirm_pickup,
+                pattern="^confirm_pickup_"
+            )
+        ],
+        states={
+            ENTER_CONFIRMATION_CODE: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    delivery_handler.handle_confirmation_code
+                )
+            ]
+        },
+        fallbacks=[]
     ))
 
     application.add_handler(CallbackQueryHandler(

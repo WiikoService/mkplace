@@ -1,11 +1,18 @@
 import json
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update, ReplyKeyboardMarkup
 from telegram.ext import CallbackContext, ConversationHandler
-from config import ADMIN_IDS, ENTER_NAME, ENTER_PHONE, DELIVERY_MENU
+from config import ADMIN_IDS, ENTER_NAME, ENTER_PHONE, DELIVERY_MENU, ENTER_CONFIRMATION_CODE, SMS_TOKEN
 from handlers.base_handler import BaseHandler
-from database import load_delivery_tasks, load_users, load_requests, save_delivery_tasks, save_requests, save_users
+from database import load_delivery_tasks, load_users, load_requests, save_delivery_tasks, save_requests, save_users, load_service_centers
 from utils import notify_client
 import logging
+import random
+import requests
+
+from smsby import SMSBY
+
+# TODO: отправка смс с кодом - клиенту, ввод кода для проверки в бот, далее - данные СЦ - доставщику.
+# TODO: сделать смс - отдельным методом (не срочно)
 
 logger = logging.getLogger(__name__)
 
@@ -16,69 +23,53 @@ class DeliveryHandler(BaseHandler):
         user_id = str(update.effective_user.id)
         users_data = load_users()
         user = users_data.get(user_id, {})
-        
         if not user.get('name'):
             await update.message.reply_text("Пожалуйста, введите ваше имя:")
             return ENTER_NAME
-        
         if not user.get('phone'):
             await update.message.reply_text("Пожалуйста, введите ваш номер телефона:")
             return ENTER_PHONE
-        
         reply = f"Ваш профиль доставщика:\n\n"
         reply += f"Имя: {user['name']}\n"
         reply += f"Телефон: {user['phone']}\n"
         reply += f"Роль: {user.get('role', 'Доставщик')}\n"
-        
         await update.message.reply_text(reply)
         return ConversationHandler.END
-
 
     async def enter_name(self, update: Update, context: CallbackContext):
         user_id = str(update.effective_user.id)
         name = update.message.text
-        
         users_data = load_users()
         if user_id not in users_data:
             users_data[user_id] = {}
         users_data[user_id]['name'] = name
         save_users(users_data)
-        
         await update.message.reply_text("Спасибо. Теперь, пожалуйста, введите ваш номер телефона:")
         return ENTER_PHONE
-
 
     async def enter_phone(self, update: Update, context: CallbackContext):
         user_id = str(update.effective_user.id)
         phone = update.message.text
-        
         users_data = load_users()
         users_data[user_id]['phone'] = phone
         save_users(users_data)
-        
         await update.message.reply_text("Спасибо. Ваш профиль обновлен.")
         return await self.show_delivery_profile(update, context)
-
 
     async def show_delivery_tasks(self, update: Update, context: CallbackContext):
         delivery_id = str(update.effective_user.id)
         delivery_tasks = load_delivery_tasks()
-        
         my_tasks = [task for task in delivery_tasks 
                     if isinstance(task, dict) and 
                     str(task.get('assigned_delivery_id')) == delivery_id]
-
         if not my_tasks:
             await update.message.reply_text("У вас пока нет активных заданий.")
             return
-
         for task in my_tasks:
             status = task.get('status', 'Статус не указан')
             request_id = task.get('request_id', 'Не указан')
             sc_name = task.get('sc_name', 'Не указан')
-            
             keyboard = []
-            
             # Добавляем кнопки в зависимости от статуса задачи
             if status == 'Доставщик в пути к клиенту':
                 keyboard.append([InlineKeyboardButton(
@@ -90,73 +81,52 @@ class DeliveryHandler(BaseHandler):
                     "Доставлено в СЦ", 
                     callback_data=f"delivered_to_sc_{request_id}"
                 )])
-                
             message = f"Задача доставки #{request_id}\n"
             message += f"Статус: {status}\n"
             message += f"Сервисный центр: {sc_name}\n"
-            
             if keyboard:
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 await update.message.reply_text(message, reply_markup=reply_markup)
             else:
                 await update.message.reply_text(message)
 
-
     async def handle_task_callback(self, update: Update, context: CallbackContext):
         query = update.callback_query
         await query.answer()
-
         task_id = query.data.split('_')[-1]
         # Здесь вы можете загрузить детали задачи и отобразить их
         task_details = f"Детали задачи №{task_id}\n..."  # Замените это на реальные данные
         await query.edit_message_text(text=task_details)
 
-
     async def accept_delivery(self, update: Update, context: CallbackContext):
         query = update.callback_query
         await query.answer()
-    
         request_id = query.data.split('_')[-1]
         requests_data = load_requests()
         delivery_tasks = load_delivery_tasks()
-    
         if request_id in requests_data:
             requests_data[request_id]['status'] = 'Доставщик в пути к клиенту'
             requests_data[request_id]['assigned_delivery'] = str(query.from_user.id)
             save_requests(requests_data)
-    
-            # Обновляем задачу доставки
             for task in delivery_tasks:
                 if isinstance(task, dict) and task.get('request_id') == request_id:
                     task['status'] = 'Доставщик в пути к клиенту'
                     task['assigned_delivery_id'] = str(query.from_user.id)
                     break
             save_delivery_tasks(delivery_tasks)
-    
-            # Получаем координаты клиента
             latitude = requests_data[request_id].get('latitude')
             longitude = requests_data[request_id].get('longitude')
-    
-            # Создаем кнопки
             keyboard = [
-                [InlineKeyboardButton("Подтвердить получение", callback_data=f"confirm_pickup_{request_id}")]
+                [InlineKeyboardButton("Подтвердить получение", callback_data=f"confirm_pickup_{request_id}")],
+                [InlineKeyboardButton("Открыть карту", url=f"https://yandex.ru/maps?rtext=~{latitude}%2C{longitude}&rtt=auto")]
             ]
-    
-            # Добавляем кнопку с ссылкой на Яндекс.Карты, если координаты доступны
-            if latitude and longitude:
-                map_url = f"https://yandex.ru/maps?rtext=~{latitude}%2C{longitude}&rtt=auto"
-                keyboard.append([InlineKeyboardButton("Открыть карту", url=map_url)])
-    
             reply_markup = InlineKeyboardMarkup(keyboard)
-    
             message_text = f"Вы приняли заказ №{request_id}. Статус: Доставщик в пути к клиенту\n"
             if latitude and longitude:
                 message_text += f"Координаты клиента: {latitude}, {longitude}"
             else:
                 message_text += "Координаты клиента недоступны"
-    
             await query.edit_message_text(message_text, reply_markup=reply_markup)
-    
             # Уведомляем клиента
             client_id = requests_data[request_id].get('user_id')
             if client_id:
@@ -164,16 +134,13 @@ class DeliveryHandler(BaseHandler):
                     chat_id=client_id,
                     text=f"Доставщик принял ваш заказ №{request_id} и направляется к вам."
                 )
-    
             # Уведомляем администраторов
             user = load_users().get(str(query.from_user.id), {})
             delivery_name = user.get('name', 'Неизвестный доставщик')
             delivery_phone = user.get('phone', 'Номер не указан')
-    
             admin_message = f"Заказ №{request_id} принят доставщиком.\n"
             admin_message += f"Доставщик: {delivery_name} - +{delivery_phone}\n"
             admin_message += f"Статус: Доставщик в пути к клиенту"
-    
             for admin_id in ADMIN_IDS:
                 try:
                     await context.bot.send_message(
@@ -183,66 +150,113 @@ class DeliveryHandler(BaseHandler):
                     )
                 except Exception as e:
                     print(f"Ошибка при отправке уведомления администратору {admin_id}: {e}")
-    
         else:
             await query.edit_message_text("Произошла ошибка. Заказ не найден.")
 
-
     async def handle_confirm_pickup(self, update: Update, context: CallbackContext):
+        """
+        Обработка подтверждения(отказа) передачи предмета клиентом
+        Отправка смс клиенту с кодом подтверждения
+        TODO: сделать смс - отдельным методом (не срочно)
+        """
         query = update.callback_query
         await query.answer()
-        
         request_id = query.data.split('_')[-1]
         requests_data = load_requests()
         delivery_tasks = load_delivery_tasks()
-        
+        users_data = load_users()
         if request_id in requests_data:
-            # Обновляем статус заявки
             requests_data[request_id]['status'] = 'Ожидает подтверждения клиента'
-            save_requests(requests_data)
-            
-            # Обновляем задачу доставки
+            # обновляем статус задачи
             for task in delivery_tasks:
                 if isinstance(task, dict) and task.get('request_id') == request_id:
                     task['status'] = 'Ожидает подтверждения клиента'
                     break
             save_delivery_tasks(delivery_tasks)
-            
-            # Уведомляем клиента
-            client_id = requests_data[request_id].get('user_id')  # Изменено с 'client_id' на 'user_id'
+            client_id = requests_data[request_id].get('user_id')
+            client_data = users_data.get(str(client_id), {})
             if client_id:
-                keyboard = [
-                    [InlineKeyboardButton("Да, забрал", callback_data=f"client_confirm_{request_id}")],
-                    [InlineKeyboardButton("Нет, не забрал", callback_data=f"client_deny_{request_id}")]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
                 try:
+                    keyboard = [
+                        [InlineKeyboardButton("Да, забрал", callback_data=f"client_confirm_{request_id}")],
+                        [InlineKeyboardButton("Нет, не забрал", callback_data=f"client_deny_{request_id}")]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
                     await context.bot.send_message(
                         chat_id=client_id,
                         text=f"Доставщик сообщает, что забрал ваш предмет по заявке №{request_id}. Подтверждаете?",
                         reply_markup=reply_markup
                     )
+                    # Отправка SMS с кодом
+                    if 'phone' in client_data:
+                        try:
+                            phone = client_data['phone'].replace('+', '')
+                            logger.info(f"Отправка SMS на номер: {phone}")
+                            sms_client = SMSBY(SMS_TOKEN, 'by')
+                            logger.info("Создание объекта пароля...")
+                            password_response = sms_client.create_password_object('numbers', 4)
+                            logger.info(f"Ответ создания пароля: {password_response}")
+                            if 'result' in password_response and 'password_object_id' in password_response['result']:
+                                password_object_id = password_response['result']['password_object_id']
+                                logger.info(f"ID объекта пароля: {password_object_id}")
+                                alphanames = sms_client.get_alphanames()
+                                logger.info(f"Доступные альфа-имена: {alphanames}")
+                                if alphanames:
+                                    alphaname_id = next(iter(alphanames.keys()))
+                                    sms_message = f"Код подтверждения для заявки #{request_id}: %CODE%"
+                                    logger.info(f"Отправка SMS с сообщением: {sms_message}")
+                                    sms_response = sms_client.send_sms_message_with_code(
+                                        password_object_id=password_object_id,
+                                        phone=phone,
+                                        message=sms_message,
+                                        alphaname_id=alphaname_id  # альфа-имя
+                                    )
+                                    logger.info(f"Ответ отправки SMS: {sms_response}")
+                                else:
+                                    logger.error("Нет доступных альфа-имен")
+                                    raise Exception("Нет доступных альфа-имен для отправки SMS")
+                                if 'code' in sms_response:
+                                    requests_data[request_id]['sms_id'] = sms_response.get('sms_id')
+                                    requests_data[request_id]['confirmation_code'] = sms_response['code']
+                                    save_requests(requests_data)
+                                    await context.bot.send_message(
+                                        chat_id=client_id,
+                                        text=f"На ваш номер телефона отправлен код подтверждения. Пожалуйста, введите его:"
+                                    )
+                                    context.user_data['current_request'] = request_id
+                                    return ENTER_CONFIRMATION_CODE
+                                else:
+                                    logger.error(f"Ошибка отправки SMS: нет кода в ответе")
+                                    raise Exception("Не удалось отправить SMS")
+                            else:
+                                logger.error(f"Ошибка создания пароля: {password_response}")
+                                raise Exception("Не удалось создать объект пароля")
+                        except Exception as e:
+                            logger.error(f"Ошибка при отправке SMS: {str(e)}")
+                            await context.bot.send_message(
+                                chat_id=client_id,
+                                text="Извините, возникла проблема с отправкой SMS. Пожалуйста, используйте кнопки подтверждения выше."
+                            )
+                    await query.edit_message_text(
+                        f"Вы подтвердили получение предмета по заявке №{request_id}. "
+                        "Ожидаем подтверждения клиента."
+                    )
                 except Exception as e:
-                    print(f"Ошибка при отправке сообщения клиенту: {e}")
+                    logger.error(f"Ошибка при отправке уведомления: {str(e)}")
+                    await query.edit_message_text("Произошла ошибка при отправке уведомления клиенту.")
+                    return ConversationHandler.END
             else:
-                print(f"ID клиента не найден для заявки {request_id}")
-            
-            await query.edit_message_text(
-                f"Вы подтвердили получение предмета по заявке №{request_id}. Ожидаем подтверждения клиента."
-            )
+                await query.edit_message_text("ID клиента не найден для заявки.")
         else:
             await query.edit_message_text("Произошла ошибка. Заказ не найден.")
-
 
     async def handle_client_confirmation(self, update: Update, context: CallbackContext):
         query = update.callback_query
         await query.answer()
-        
         try:
             action, request_id = query.data.split('_')[1:]
             requests_data = load_requests()
             delivery_tasks = load_delivery_tasks()
-            
             if request_id in requests_data:
                 if action == 'confirm':
                     new_status = 'Доставщик везет в СЦ'
@@ -250,10 +264,8 @@ class DeliveryHandler(BaseHandler):
                 else:
                     new_status = 'Ошибка подтверждения'
                     message = f"Клиент не подтвердил получение предмета по заявке №{request_id}. Свяжитесь с клиентом для уточнения."
-                
                 requests_data[request_id]['status'] = new_status
                 save_requests(requests_data)
-                
                 # Обновляем задачу доставки
                 updated_tasks = []
                 for task in delivery_tasks:
@@ -261,12 +273,10 @@ class DeliveryHandler(BaseHandler):
                         task['status'] = new_status
                     updated_tasks.append(task)
                 save_delivery_tasks(updated_tasks)
-                
                 # Уведомляем доставщика
                 delivery_id = requests_data[request_id].get('assigned_delivery')
                 if delivery_id:
                     await context.bot.send_message(chat_id=delivery_id, text=message)
-                
                 await query.edit_message_text(
                     f"Спасибо за подтверждение. Статус заявки №{request_id}: {new_status}"
                 )
@@ -275,30 +285,23 @@ class DeliveryHandler(BaseHandler):
         except Exception as e:
             await query.edit_message_text("Произошла ошибка при обработке подтверждения.")
 
-
     async def handle_delivered_to_sc(self, update: Update, context: CallbackContext):
         query = update.callback_query
         await query.answer()
-        
         request_id = query.data.split('_')[-1]
         requests_data = load_requests()
-        
         if request_id in requests_data:
             requests_data[request_id]['status'] = 'В Сервисном Центре'
             save_requests(requests_data)
-            
             await query.edit_message_text(f"Отличная работа! Заказ №{request_id} отдан в Сервисный Центр.")
-            
             # Уведомляем клиента
             client_id = requests_data[request_id]['user_id']
             await notify_client(context.bot, client_id, f"Ваш предмет ремонта находится в Сервисном Центре. Ожидайте обратной связи!")
         else:
             await query.edit_message_text("Произошла ошибка. Заказ не найден.")
 
-
     async def update_delivery_messages(self, bot: Bot, task_id: int, task_data: dict):
         from config import DELIVERY_IDS
-        
         for delivery_id in DELIVERY_IDS:
             if delivery_id != task_data['assigned_to']:
                 message = f"Задача доставки #{task_id} принята другим доставщиком.\n"
@@ -310,26 +313,20 @@ class DeliveryHandler(BaseHandler):
     async def show_available_tasks(self, update: Update, context: CallbackContext):
         """Показать доступные задания"""
         logger.info("Вызван метод show_available_tasks")
-        
         try:
             delivery_tasks = load_delivery_tasks()
             logger.info(f"Loaded delivery tasks: {delivery_tasks}")
-            
             if not delivery_tasks:
                 await update.message.reply_text("На данный момент нет доступных задач доставки.")
                 return
-            
             available_tasks = {
                 task_id: task for task_id, task in delivery_tasks.items() 
                 if task.get('status') == "Новая" and not task.get('assigned_delivery_id')
             }
-            
             logger.info(f"Available tasks: {available_tasks}")
-            
             if not available_tasks:
                 await update.message.reply_text("На данный момент нет доступных задач доставки.")
                 return
-            
             for task_id, task in available_tasks.items():
                 keyboard = [[
                     InlineKeyboardButton(
@@ -338,7 +335,6 @@ class DeliveryHandler(BaseHandler):
                     )
                 ]]
                 reply_markup = InlineKeyboardMarkup(keyboard)
-                
                 message = (
                     f"📦 Задача доставки #{task_id}\n"
                     f"Заявка: #{task['request_id']}\n"
@@ -349,36 +345,27 @@ class DeliveryHandler(BaseHandler):
                     f"Телефон: {task['client_phone']}\n"
                     f"Описание: {task['description'][:100]}..."
                 )
-                
                 await update.message.reply_text(message, reply_markup=reply_markup)
-                
         except Exception as e:
             logger.error(f"Ошибка при показе доступных заданий: {e}")
             await update.message.reply_text("Произошла ошибка при загрузке заданий.")
 
     async def show_my_tasks(self, update: Update, context: CallbackContext):
         """Показать мои активные задания"""
-        logger.info("Вызван метод show_my_tasks")
-        
+        logger.info("Вызван метод show_my_tasks")        
         try:
             delivery_id = str(update.effective_user.id)
-            
-            with open('delivery_tasks.json', 'r', encoding='utf-8') as f:
-                delivery_tasks = json.load(f)
-            
+            delivery_tasks = load_delivery_tasks()
             my_tasks = {
                 task_id: task for task_id, task in delivery_tasks.items()
                 if str(task.get('assigned_delivery_id')) == delivery_id
-            }
-            
+            }            
             if not my_tasks:
                 await update.message.reply_text("У вас пока нет активных заданий.")
-                return
-            
+                return            
             for task_id, task in my_tasks.items():
                 status = task.get('status', 'Статус не указан')
                 keyboard = []
-                
                 if status == 'Доставщик в пути к клиенту':
                     keyboard.append([InlineKeyboardButton(
                         "Подтвердить получение", 
@@ -388,8 +375,7 @@ class DeliveryHandler(BaseHandler):
                     keyboard.append([InlineKeyboardButton(
                         "Доставлено в СЦ", 
                         callback_data=f"delivered_to_sc_{task['request_id']}"
-                    )])
-                
+                    )])                
                 message = (
                     f"📦 Задача доставки #{task_id}\n"
                     f"Статус: {status}\n"
@@ -398,14 +384,48 @@ class DeliveryHandler(BaseHandler):
                     f"Клиент: {task['client_name']}\n"
                     f"Телефон: {task['client_phone']}\n"
                     f"Описание: {task['description'][:100]}..."
-                )
-                
+                )                
                 if keyboard:
                     reply_markup = InlineKeyboardMarkup(keyboard)
                     await update.message.reply_text(message, reply_markup=reply_markup)
                 else:
-                    await update.message.reply_text(message)
-                
+                    await update.message.reply_text(message)                
         except Exception as e:
             logger.error(f"Ошибка при показе моих заданий: {e}")
             await update.message.reply_text("Произошла ошибка при загрузке заданий.")
+
+    async def handle_confirmation_code(self, update: Update, context: CallbackContext):
+        """
+        Обработка ввода кода подтверждения
+        """
+        entered_code = update.message.text.strip()
+        request_id = context.user_data.get('current_request')
+        if not request_id:
+            await update.message.reply_text("Ошибка: заявка не найдена.")
+            return ConversationHandler.END
+        requests_data = load_requests()
+        request = requests_data.get(request_id)
+        if not request:
+            await update.message.reply_text("Ошибка: заявка не найдена.")
+            return ConversationHandler.END
+        if entered_code == request.get('confirmation_code'):
+            request['status'] = 'Доставщик везет в СЦ'
+            save_requests(requests_data)
+            sc_id = request.get('assigned_sc')
+            service_centers = load_service_centers()
+            sc_data = service_centers.get(sc_id, {})            
+            # Отправляем адрес СЦ доставщику
+            delivery_id = request.get('assigned_delivery')
+            if delivery_id:
+                sc_message = (
+                    f"✅ Клиент подтвердил получение по заявке #{request_id}\n"
+                    f"Адрес СЦ для доставки:\n"
+                    f"🏢 {sc_data.get('name')}\n"
+                    f"📍 {sc_data.get('address')}"
+                )
+                await context.bot.send_message(chat_id=delivery_id, text=sc_message)
+            await update.message.reply_text("Код подтвержден. Доставщик получил адрес СЦ.")
+            return ConversationHandler.END
+        else:
+            await update.message.reply_text("Неверный код. Попробуйте еще раз:")
+            return ENTER_CONFIRMATION_CODE

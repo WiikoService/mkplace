@@ -1,28 +1,58 @@
 {
     "1": {
         "id": "1",
-        "user_id": "993108283",
-        "user_name": "Станислав",
-        "description": "FYTJFJ",
-        "photos": [
-            "photos/993108283_0.jpg"
-        ],
-        "location": "asdASDDAS",
-        "location_link": "Адрес введен вручную",
-        "status": "Назначена в СЦ",
-        "assigned_sc": "2"
+        "user_id": "6213103612",
+        "user_name": "Сергей WIIKOService",
+        "description": "Тестлц",
+        "photos": [],
+        "location": {
+            "latitude": 54.310901,
+            "longitude": 26.837395
+        },
+        "location_link": "https://yandex.ru/maps?whatshere%5Bpoint%5D=26.837395%2C54.310901&",
+        "status": "Доставщик в пути к клиенту",
+        "assigned_sc": "2",
+        "assigned_delivery": "993108283"
     },
     "2": {
         "id": "2",
-        "user_id": "993108283",
-        "user_name": "Станислав",
-        "description": "KUYEGFWLFEW",
-        "photos": [
-            "photos/993108283_0.jpg"
-        ],
-        "location": "EWFGFEWFEW",
+        "user_id": "6213103612",
+        "user_name": "Сергей WIIKOService",
+        "description": "Лалв",
+        "photos": [],
+        "location": "Минск, ул. Спортивная 6",
         "location_link": "Адрес введен вручную",
-        "status": "Ожидает подтверждения клиента",
+        "status": "Доставщик в пути к клиенту",
+        "assigned_sc": "2",
+        "assigned_delivery": "993108283"
+    },
+    "3": {
+        "id": "3",
+        "user_id": "6213103612",
+        "user_name": "Сергей WIIKOService",
+        "description": "Гпп",
+        "photos": [],
+        "location": {
+            "latitude": 54.310208,
+            "longitude": 26.8357
+        },
+        "location_link": "https://yandex.ru/maps?whatshere%5Bpoint%5D=26.8357%2C54.310208&",
+        "status": "Доставщик в пути к клиенту",
+        "assigned_sc": "1",
+        "assigned_delivery": "993108283"
+    },
+    "4": {
+        "id": "4",
+        "user_id": "6213103612",
+        "user_name": "Сергей WIIKOService",
+        "description": "Лои",
+        "photos": [],
+        "location": {
+            "latitude": 54.296529,
+            "longitude": 26.825934
+        },
+        "location_link": "https://yandex.ru/maps?whatshere%5Bpoint%5D=26.825934%2C54.296529&",
+        "status": "Доставщик в пути к клиенту",
         "assigned_sc": "2",
         "assigned_delivery": "993108283"
     }

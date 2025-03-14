@@ -45,7 +45,7 @@ class UserHandler(BaseHandler):
         users_data[user_id] = ({
             "phone": contact.phone_number,
             "name": contact.first_name,
-            "role": users_data[user_id].get("role", "client")  # Сохраняем существующую роль или устанавливаем "client" по умолчанию
+            "role": users_data[user_id].get("role", "client")
         })
         save_users(users_data)
         

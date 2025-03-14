@@ -1,6 +1,8 @@
 from telegram import Update
 from telegram.ext import CallbackContext
 
+# TODO: сделать базовый конструктор и передавать простейшие аргументы
+
 class BaseHandler:
     def __init__(self):
         pass
