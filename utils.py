@@ -2,6 +2,9 @@
 import os
 from config import PHOTOS_DIR
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
+import logging
+
+logger = logging.getLogger(__name__)
 
 def ensure_photos_dir():
     if not os.path.exists(PHOTOS_DIR):
@@ -36,22 +39,33 @@ async def notify_admin(bot, request_id, requests_data, admin_ids):
 
             
 async def notify_delivery(bot, delivery_id, task_id, request_id, sc_name):
+    """Отправка уведомления доставщику о новой задаче"""
     message = (
-        f"Новая задача доставки!\n\n"
+        f"🆕 Новая задача доставки!\n\n"
         f"Задача №: {task_id}\n"
         f"Заявка №: {request_id}\n"
         f"СЦ: {sc_name}\n"
+        f"Статус: Новая"
     )
     
     keyboard = [
-        [InlineKeyboardButton("Просмотреть задачу", callback_data=f"view_task_{task_id}")]
+        [InlineKeyboardButton(
+            "Принять задачу", 
+            callback_data=f"accept_delivery_{request_id}"
+        )]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     try:
-        await bot.send_message(chat_id=delivery_id, text=message, reply_markup=reply_markup)
+        await bot.send_message(
+            chat_id=delivery_id,
+            text=message,
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
     except Exception as e:
-        print(f"Не удалось отправить уведомление доставщику {delivery_id}: {e}")
+        logger.error(f"Не удалось отправить уведомление доставщику {delivery_id}: {e}")
+        raise
 
 async def notify_client(bot, client_id, message, reply_markup=None):
     try:

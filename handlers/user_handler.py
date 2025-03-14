@@ -71,7 +71,8 @@ class UserHandler(BaseHandler):
     
     async def show_delivery_menu(self, update: Update, context: CallbackContext):
         keyboard = [
-            ["Мои задания", "Мой профиль"]
+            ["Доступные задания", "Мои задания"],
+            ["Мой профиль"]
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         await update.message.reply_text("Меню доставщика:", reply_markup=reply_markup)

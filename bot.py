@@ -6,7 +6,7 @@ from telegram.ext import (
 from config import (
     ASSIGN_REQUEST, CREATE_REQUEST_DESC, CREATE_REQUEST_LOCATION,
     CREATE_REQUEST_PHOTOS, ENTER_NAME, ENTER_PHONE, TELEGRAM_API_TOKEN,
-    ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK
+    ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK, DELIVERY_MENU
 )
 from handlers.user_handler import UserHandler
 from handlers.client_handler import ClientHandler
@@ -79,24 +79,16 @@ def main():
                     admin_handler.handle_assign_sc_confirm,
                     pattern="^assign_sc_confirm_"
                 )
-            ]
-        },
-        fallbacks=[]
-    ))
-    application.add_handler(ConversationHandler(
-        entry_points=[MessageHandler(
-            filters.Regex("^Привязать к СЦ$") & filters.User(user_id=ADMIN_IDS),
-            admin_handler.handle_create_delivery_menu
-        )],
-        states={
+            ],
             CREATE_DELIVERY_TASK: [
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
                     admin_handler.handle_create_delivery_input
                 )
-            ],
+            ]
         },
         fallbacks=[],
+        allow_reentry=True
     ))
     application.add_handler(MessageHandler(
         filters.Regex("^Список СЦ$") & filters.User(user_id=ADMIN_IDS), 
@@ -104,25 +96,47 @@ def main():
     ))
     # Обработчики для доставщика
     delivery_handler = DeliveryHandler()
-    application.add_handler(CallbackQueryHandler(delivery_handler.accept_delivery, pattern="^accept_delivery_"))
-    application.add_handler(CallbackQueryHandler(delivery_handler.handle_confirm_pickup, pattern=r'^picked_up_'))
-    application.add_handler(CallbackQueryHandler(delivery_handler.handle_client_confirmation, pattern=r'^client_(confirm|deny)_'))
-    application.add_handler(CallbackQueryHandler(delivery_handler.handle_confirm_pickup, pattern="^confirm_pickup_"))
-    application.add_handler(CallbackQueryHandler(delivery_handler.handle_delivered_to_sc, pattern="^delivered_to_sc_"))
-    application.add_handler(MessageHandler(filters.Regex("^Просмотр задач доставки$"), delivery_handler.show_delivery_tasks))
-    application.add_handler(ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^Профиль доставщика$"), delivery_handler.show_delivery_profile)],
-        states={
-            ENTER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, delivery_handler.enter_name)],
-            ENTER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, delivery_handler.enter_phone)],
-        },
-        fallbacks=[],
+
+    # Регистрация обработчиков меню доставщика
+    application.add_handler(MessageHandler(
+        filters.Text(["Меню доставщика"]) & filters.User(user_id=DELIVERY_IDS),
+        user_handler.show_delivery_menu
     ))
-    application.add_handler(CallbackQueryHandler(delivery_handler.accept_delivery, pattern="^accept_delivery_"))
+
+    application.add_handler(MessageHandler(
+        filters.Text(["Доступные задания"]) & filters.User(user_id=DELIVERY_IDS),
+        delivery_handler.show_available_tasks
+    ))
+
+    application.add_handler(MessageHandler(
+        filters.Text(["Мои задания"]) & filters.User(user_id=DELIVERY_IDS),
+        delivery_handler.show_my_tasks
+    ))
+
+    application.add_handler(MessageHandler(
+        filters.Text(["Мой профиль"]) & filters.User(user_id=DELIVERY_IDS),
+        delivery_handler.show_delivery_profile
+    ))
+
+    # Обработчики callback-запросов
+    application.add_handler(CallbackQueryHandler(
+        delivery_handler.accept_delivery,
+        pattern="^accept_delivery_"
+    ))
+
+    application.add_handler(CallbackQueryHandler(
+        delivery_handler.handle_confirm_pickup,
+        pattern="^confirm_pickup_"
+    ))
+
+    application.add_handler(CallbackQueryHandler(
+        delivery_handler.handle_delivered_to_sc,
+        pattern="^delivered_to_sc_"
+    ))
+
     # Добавление обработчиков меню для разных ролей
     application.add_handler(MessageHandler(filters.Regex("^Меню клиента$"), user_handler.show_client_menu))
     application.add_handler(MessageHandler(filters.Regex("^Админская панель$"), user_handler.show_admin_menu))
-    application.add_handler(MessageHandler(filters.Regex("^Меню доставщика$"), user_handler.show_delivery_menu))
 
     # Установка данных бота
     application.bot_data["admin_ids"] = ADMIN_IDS

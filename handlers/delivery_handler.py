@@ -1,10 +1,14 @@
 import json
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update, ReplyKeyboardMarkup
 from telegram.ext import CallbackContext, ConversationHandler
-from config import ADMIN_IDS, ENTER_NAME, ENTER_PHONE
+from config import ADMIN_IDS, ENTER_NAME, ENTER_PHONE, DELIVERY_MENU
 from handlers.base_handler import BaseHandler
 from database import load_delivery_tasks, load_users, load_requests, save_delivery_tasks, save_requests, save_users
 from utils import notify_client
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class DeliveryHandler(BaseHandler):
 
@@ -57,27 +61,45 @@ class DeliveryHandler(BaseHandler):
 
 
     async def show_delivery_tasks(self, update: Update, context: CallbackContext):
-        with open('d:\\coding\\newmarketplace\\mkplace\\delivery_tasks.json', 'r', encoding='utf-8') as file:
-            delivery_tasks = json.load(file)
+        delivery_id = str(update.effective_user.id)
+        delivery_tasks = load_delivery_tasks()
+        
+        my_tasks = [task for task in delivery_tasks 
+                    if isinstance(task, dict) and 
+                    str(task.get('assigned_delivery_id')) == delivery_id]
 
-        available_tasks = {id: task for id, task in delivery_tasks.items() if task['status'] == "Новая"}
-
-        if not available_tasks:
-            await update.message.reply_text("На данный момент нет доступных задач доставки.")
+        if not my_tasks:
+            await update.message.reply_text("У вас пока нет активных заданий.")
             return
 
-        for task_id, task in available_tasks.items():
-            keyboard = [
-                [InlineKeyboardButton("Принять задачу", callback_data=f"accept_delivery_{task_id}")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-        
-            message = f"Задача доставки #{task_id}\n"
-            message += f"Статус: {task['status']}\n"
-            message += f"Сервисный центр: {task['sc_name']}\n"
-            message += f"Заявка: #{task['request_id']}"
-
-            await update.message.reply_text(message, reply_markup=reply_markup)
+        for task in my_tasks:
+            status = task.get('status', 'Статус не указан')
+            request_id = task.get('request_id', 'Не указан')
+            sc_name = task.get('sc_name', 'Не указан')
+            
+            keyboard = []
+            
+            # Добавляем кнопки в зависимости от статуса задачи
+            if status == 'Доставщик в пути к клиенту':
+                keyboard.append([InlineKeyboardButton(
+                    "Подтвердить получение", 
+                    callback_data=f"confirm_pickup_{request_id}"
+                )])
+            elif status == 'Доставщик везет в СЦ':
+                keyboard.append([InlineKeyboardButton(
+                    "Доставлено в СЦ", 
+                    callback_data=f"delivered_to_sc_{request_id}"
+                )])
+                
+            message = f"Задача доставки #{request_id}\n"
+            message += f"Статус: {status}\n"
+            message += f"Сервисный центр: {sc_name}\n"
+            
+            if keyboard:
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text(message, reply_markup=reply_markup)
+            else:
+                await update.message.reply_text(message)
 
 
     async def handle_task_callback(self, update: Update, context: CallbackContext):
@@ -216,35 +238,42 @@ class DeliveryHandler(BaseHandler):
         query = update.callback_query
         await query.answer()
         
-        action, request_id = query.data.split('_')[1:]
-        requests_data = load_requests()
-        delivery_tasks = load_delivery_tasks()
-        
-        if request_id in requests_data:
-            if action == 'confirm':
-                new_status = 'Доставщик везет в СЦ'
-                message = f"Клиент подтвердил получение. Вы можете везти предмет в СЦ по заявке №{request_id}."
+        try:
+            action, request_id = query.data.split('_')[1:]
+            requests_data = load_requests()
+            delivery_tasks = load_delivery_tasks()
+            
+            if request_id in requests_data:
+                if action == 'confirm':
+                    new_status = 'Доставщик везет в СЦ'
+                    message = f"Клиент подтвердил получение. Вы можете везти предмет в СЦ по заявке №{request_id}."
+                else:
+                    new_status = 'Ошибка подтверждения'
+                    message = f"Клиент не подтвердил получение предмета по заявке №{request_id}. Свяжитесь с клиентом для уточнения."
+                
+                requests_data[request_id]['status'] = new_status
+                save_requests(requests_data)
+                
+                # Обновляем задачу доставки
+                updated_tasks = []
+                for task in delivery_tasks:
+                    if isinstance(task, dict) and task.get('request_id') == request_id:
+                        task['status'] = new_status
+                    updated_tasks.append(task)
+                save_delivery_tasks(updated_tasks)
+                
+                # Уведомляем доставщика
+                delivery_id = requests_data[request_id].get('assigned_delivery')
+                if delivery_id:
+                    await context.bot.send_message(chat_id=delivery_id, text=message)
+                
+                await query.edit_message_text(
+                    f"Спасибо за подтверждение. Статус заявки №{request_id}: {new_status}"
+                )
             else:
-                new_status = 'Ошибка подтверждения'
-                message = f"Клиент не подтвердил получение предмета по заявке №{request_id}. Свяжитесь с клиентом для уточнения."
-            
-            requests_data[request_id]['status'] = new_status
-            save_requests(requests_data)
-            
-            for task in delivery_tasks:
-                if task.get('request_id') == request_id:
-                    task['status'] = new_status
-                    break
-            save_delivery_tasks(delivery_tasks)
-            
-            # Уведомляем доставщика
-            delivery_id = requests_data[request_id].get('assigned_delivery')
-            if delivery_id:
-                await context.bot.send_message(chat_id=delivery_id, text=message)
-            
-            await query.edit_message_text(f"Спасибо за подтверждение. Статус заявки №{request_id}: {new_status}")
-        else:
-            await query.edit_message_text("Произошла ошибка. Заказ не")
+                await query.edit_message_text("Произошла ошибка. Заявка не найдена.")
+        except Exception as e:
+            await query.edit_message_text("Произошла ошибка при обработке подтверждения.")
 
 
     async def handle_delivered_to_sc(self, update: Update, context: CallbackContext):
@@ -277,3 +306,106 @@ class DeliveryHandler(BaseHandler):
                 message += f"СЦ: {task_data['sc_name']}\n"
                 message += f"Статус: {task_data['status']}"
                 await bot.send_message(chat_id=delivery_id, text=message)
+
+    async def show_available_tasks(self, update: Update, context: CallbackContext):
+        """Показать доступные задания"""
+        logger.info("Вызван метод show_available_tasks")
+        
+        try:
+            delivery_tasks = load_delivery_tasks()
+            logger.info(f"Loaded delivery tasks: {delivery_tasks}")
+            
+            if not delivery_tasks:
+                await update.message.reply_text("На данный момент нет доступных задач доставки.")
+                return
+            
+            available_tasks = {
+                task_id: task for task_id, task in delivery_tasks.items() 
+                if task.get('status') == "Новая" and not task.get('assigned_delivery_id')
+            }
+            
+            logger.info(f"Available tasks: {available_tasks}")
+            
+            if not available_tasks:
+                await update.message.reply_text("На данный момент нет доступных задач доставки.")
+                return
+            
+            for task_id, task in available_tasks.items():
+                keyboard = [[
+                    InlineKeyboardButton(
+                        "Принять задачу", 
+                        callback_data=f"accept_delivery_{task['request_id']}"
+                    )
+                ]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                message = (
+                    f"📦 Задача доставки #{task_id}\n"
+                    f"Заявка: #{task['request_id']}\n"
+                    f"Статус: {task['status']}\n"
+                    f"Сервисный центр: {task['sc_name']}\n"
+                    f"Адрес клиента: {task['client_address']}\n"
+                    f"Клиент: {task['client_name']}\n"
+                    f"Телефон: {task['client_phone']}\n"
+                    f"Описание: {task['description'][:100]}..."
+                )
+                
+                await update.message.reply_text(message, reply_markup=reply_markup)
+                
+        except Exception as e:
+            logger.error(f"Ошибка при показе доступных заданий: {e}")
+            await update.message.reply_text("Произошла ошибка при загрузке заданий.")
+
+    async def show_my_tasks(self, update: Update, context: CallbackContext):
+        """Показать мои активные задания"""
+        logger.info("Вызван метод show_my_tasks")
+        
+        try:
+            delivery_id = str(update.effective_user.id)
+            
+            with open('delivery_tasks.json', 'r', encoding='utf-8') as f:
+                delivery_tasks = json.load(f)
+            
+            my_tasks = {
+                task_id: task for task_id, task in delivery_tasks.items()
+                if str(task.get('assigned_delivery_id')) == delivery_id
+            }
+            
+            if not my_tasks:
+                await update.message.reply_text("У вас пока нет активных заданий.")
+                return
+            
+            for task_id, task in my_tasks.items():
+                status = task.get('status', 'Статус не указан')
+                keyboard = []
+                
+                if status == 'Доставщик в пути к клиенту':
+                    keyboard.append([InlineKeyboardButton(
+                        "Подтвердить получение", 
+                        callback_data=f"confirm_pickup_{task['request_id']}"
+                    )])
+                elif status == 'Доставщик везет в СЦ':
+                    keyboard.append([InlineKeyboardButton(
+                        "Доставлено в СЦ", 
+                        callback_data=f"delivered_to_sc_{task['request_id']}"
+                    )])
+                
+                message = (
+                    f"📦 Задача доставки #{task_id}\n"
+                    f"Статус: {status}\n"
+                    f"Сервисный центр: {task['sc_name']}\n"
+                    f"Адрес клиента: {task['client_address']}\n"
+                    f"Клиент: {task['client_name']}\n"
+                    f"Телефон: {task['client_phone']}\n"
+                    f"Описание: {task['description'][:100]}..."
+                )
+                
+                if keyboard:
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    await update.message.reply_text(message, reply_markup=reply_markup)
+                else:
+                    await update.message.reply_text(message)
+                
+        except Exception as e:
+            logger.error(f"Ошибка при показе моих заданий: {e}")
+            await update.message.reply_text("Произошла ошибка при загрузке заданий.")

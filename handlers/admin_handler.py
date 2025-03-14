@@ -74,30 +74,37 @@ class AdminHandler(BaseHandler):
         query = update.callback_query
         await query.answer()
 
-        logger.info(f"Received callback query: {query.data}")
+        logger.info(f"Received callback query in handle_assign_sc_confirm: {query.data}")
 
         try:
             parts = query.data.split('_')
+            logger.info(f"Parts: {parts}")
+            
             if len(parts) < 5:
                 logger.error(f"Invalid data format: {query.data}")
                 await query.edit_message_text("Неверный формат данных")
-                return
+                return ConversationHandler.END
 
             request_id = parts[3]
             sc_id = parts[4]
+            
+            logger.info(f"Request ID: {request_id}, SC ID: {sc_id}")
 
             requests_data = load_requests()
+            logger.info(f"Loaded requests: {list(requests_data.keys())}")
+            
             service_centers = load_service_centers()
+            logger.info(f"Loaded service centers: {list(service_centers.keys())}")
 
             if request_id not in requests_data:
                 logger.error(f"Request {request_id} not found")
                 await query.edit_message_text(f"Заявка #{request_id} не найдена")
-                return
+                return ConversationHandler.END
 
             if sc_id not in service_centers:
                 logger.error(f"Service center {sc_id} not found")
                 await query.edit_message_text(f"Сервисный центр с ID {sc_id} не найден")
-                return
+                return ConversationHandler.END
 
             sc_data = service_centers[sc_id]
             requests_data[request_id].update({
@@ -105,16 +112,20 @@ class AdminHandler(BaseHandler):
                 'status': ORDER_STATUS_ASSIGNED_TO_SC
             })
             save_requests(requests_data)
+            logger.info(f"Updated request {request_id} with SC {sc_id}")
 
             new_text = f"Заявка #{request_id} привязана к СЦ {sc_data['name']}."
             await query.edit_message_text(new_text)
+            logger.info(f"Message updated for request {request_id}")
 
             task_id = await self.create_delivery_task(update, context, request_id, sc_data['name'])
             logger.info(f"Request {request_id} successfully assigned to SC {sc_id} and delivery task {task_id} created")
+            return ConversationHandler.END
 
         except Exception as e:
             logger.error(f"Error in handle_assign_sc_confirm: {e}")
-            await query.edit_message_text("Произошла ошибка при привязке заявки к СЦ")
+            await query.edit_message_text(f"Произошла ошибка при привязке заявки к СЦ: {str(e)}")
+            return ConversationHandler.END
 
 
     async def update_delivery_info(self, context: CallbackContext, chat_id: int, message_id: int, request_id: str, delivery_info: dict):
@@ -131,47 +142,97 @@ class AdminHandler(BaseHandler):
     
     
     async def create_delivery_task(self, update: Update, context: CallbackContext, request_id: str, sc_name: str):
-        delivery_tasks = load_delivery_tasks()
-        task_id = str(len(delivery_tasks) + 1)
-        
-        requests_data = load_requests()
-        request = requests_data.get(request_id, {})
-        
-        delivery_task = {
-            'task_id': task_id,
-            'request_id': request_id,
-            'status': 'Ожидает',
-            'sc_name': sc_name,
-            'client_address': request.get('location', 'Адрес не указан'),
-            'client_name': request.get('name', 'Имя не указано'),
-            'client_phone': request.get('phone', 'Телефон не указан'),
-            'description': request.get('description', 'Описание отсутствует')
-        }
-        
-        delivery_tasks[task_id] = delivery_task
-        save_delivery_tasks(delivery_tasks)
+        """Создание задачи доставки"""
+        logger.info(f"Creating delivery task for request {request_id} to SC {sc_name}")
         
         try:
+            delivery_tasks = load_delivery_tasks() or {}
+            task_id = str(len(delivery_tasks) + 1)
+            
+            requests_data = load_requests()
+            request = requests_data.get(request_id, {})
+            
+            # Получаем информацию о клиенте
+            client_id = request.get('user_id')
+            client_data = load_users().get(str(client_id), {})
+            
+            # Декодируем значения перед сохранением
+            sc_name = sc_name.encode().decode('utf-8')
+            client_name = client_data.get('name', 'Имя не указано').encode().decode('utf-8')
+            client_address = request.get('location', 'Адрес не указан').encode().decode('utf-8')
+            description = request.get('description', 'Описание отсутствует').encode().decode('utf-8')
+            
+            delivery_task = {
+                'task_id': task_id,
+                'request_id': request_id,
+                'status': 'Новая'.encode().decode('utf-8'),
+                'sc_name': sc_name,
+                'client_address': client_address,
+                'client_name': client_name,
+                'client_phone': client_data.get('phone', 'Телефон не указан'),
+                'description': description,
+                'latitude': request.get('latitude'),
+                'longitude': request.get('longitude'),
+                'assigned_delivery_id': None
+            }
+            
+            delivery_tasks[task_id] = delivery_task
+            
+            # Сохраняем с правильной кодировкой
+            with open('delivery_tasks.json', 'w', encoding='utf-8') as f:
+                json.dump(delivery_tasks, f, ensure_ascii=False, indent=4)
+            
+            logger.info(f"Created delivery task {task_id} for request {request_id}")
+            
+            # Уведомляем доставщиков
+            from config import DELIVERY_IDS
             for delivery_id in DELIVERY_IDS:
-                await notify_delivery(context.bot, delivery_id, task_id, request_id, sc_name)
-            logger.info(f"Delivery task {task_id} created and notified successfully")
+                try:
+                    await notify_delivery(context.bot, delivery_id, task_id, request_id, sc_name)
+                    logger.info(f"Notification sent to delivery {delivery_id}")
+                except Exception as e:
+                    logger.error(f"Failed to notify delivery {delivery_id}: {e}")
+            
+            return task_id
+            
         except Exception as e:
-            logger.error(f"Failed to notify delivery for task {task_id}: {e}")
-        return task_id
+            logger.error(f"Error creating delivery task: {e}")
+            raise
 
 
-    async def notify_delivery(self, bot: Bot, task_id: str, task_data: dict):
-        keyboard = [
-            [InlineKeyboardButton("Принять", callback_data=f"accept_delivery_{task_id}")]
-        ]
+    async def notify_deliveries(self, context: CallbackContext, task_data: dict):
+        """Отправка уведомлений доставщикам о новой задаче"""
+        from config import DELIVERY_IDS
+        
+        message = (
+            f"🆕 Новая задача доставки!\n\n"
+            f"Заявка: #{task_data['request_id']}\n"
+            f"Сервисный центр: {task_data['sc_name']}\n"
+            f"Адрес клиента: {task_data['client_address']}\n"
+            f"Клиент: {task_data['client_name']}\n"
+            f"Телефон: {task_data['client_phone']}\n"
+            f"Описание: {task_data['description']}"
+        )
+        
+        keyboard = [[
+            InlineKeyboardButton(
+                "Принять задачу", 
+                callback_data=f"accept_delivery_{task_data['request_id']}"
+            )
+        ]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         for delivery_id in DELIVERY_IDS:
-            message = f"Новая задача доставки #{task_id}\n"
-            message += f"Заявка: #{task_data['request_id']}\n"
-            message += f"СЦ: {task_data['sc_name']}\n"
-            message += f"Статус: {task_data['status']}"
-            await bot.send_message(chat_id=delivery_id, text=message, reply_markup=reply_markup)
+            try:
+                await context.bot.send_message(
+                    chat_id=delivery_id,
+                    text=message,
+                    reply_markup=reply_markup,
+                    parse_mode='Markdown'
+                )
+                logger.info(f"Notification sent to delivery {delivery_id}")
+            except Exception as e:
+                logger.error(f"Error sending notification to delivery {delivery_id}: {e}")
 
 
     async def handle_accept_delivery(self, update: Update, context: CallbackContext):
@@ -275,15 +336,20 @@ class AdminHandler(BaseHandler):
 
     async def view_service_centers(self, update: Update, context: CallbackContext):
         service_centers = load_service_centers()
+        
+        # Отладочная информация
+        logger.info(f"Loaded service centers: {service_centers}")
+        
         if not service_centers:
             await update.message.reply_text("Список СЦ пуст.")
         else:
             reply = "Список сервисных центров:\n\n"
-            for sc in service_centers:
-                reply += f"ID: {sc['id']}\n"
-                reply += f"Название: {sc['name']}\n"
-                reply += f"Адрес: {sc.get('address', 'Не указан')}\n"
+            for sc_id, sc_data in service_centers.items():  # Перебираем как словарь
+                reply += f"ID: {sc_id}\n"
+                reply += f"Название: {sc_data['name']}\n"
+                reply += f"Адрес: {sc_data.get('address', 'Не указан')}\n"
                 reply += "-------------------\n"
+        
             await update.message.reply_text(reply)
 
 
@@ -300,12 +366,14 @@ class AdminHandler(BaseHandler):
         request_id = parts[2]
         sc_id = parts[3]
         
-        service_center = await self.service_center_service.get_service_center(sc_id)
-        if not service_center:
+        service_centers = load_service_centers()
+        if sc_id not in service_centers:
             await query.edit_message_text("Сервисный центр не найден")
             return
         
-        task_id = await self.create_delivery_task(update, context, request_id, service_center.name)
+        service_center = service_centers[sc_id]
+        
+        task_id = await self.create_delivery_task(update, context, request_id, service_center['name'])
         
         await query.edit_message_text(
             f"Задача доставки #{task_id} для заявки #{request_id} создана.\n"

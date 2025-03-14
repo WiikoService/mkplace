@@ -1,0 +1,15 @@
+{
+    "1": {
+        "task_id": "1",
+        "request_id": "2",
+        "status": "Новая",
+        "sc_name": "СЦ №2",
+        "client_address": "EWFGFEWFEW",
+        "client_name": "Станислав",
+        "client_phone": "+79112411706",
+        "description": "KUYEGFWLFEW",
+        "latitude": null,
+        "longitude": null,
+        "assigned_delivery_id": null
+    }
+}
