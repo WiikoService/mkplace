@@ -3,6 +3,7 @@ import os
 from config import PHOTOS_DIR
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 import logging
+from typing import Union
 
 logger = logging.getLogger(__name__)
 
@@ -38,34 +39,52 @@ async def notify_admin(bot, request_id, requests_data, admin_ids):
             print(f"Не удалось отправить уведомление администратору {admin_id}: {e}")
 
             
-async def notify_delivery(bot, delivery_id, task_id, request_id, sc_name):
-    """Отправка уведомления доставщику о новой задаче"""
-    message = (
-        f"🆕 Новая задача доставки!\n\n"
-        f"Задача №: {task_id}\n"
-        f"Заявка №: {request_id}\n"
-        f"СЦ: {sc_name}\n"
-        f"Статус: Новая"
-    )
+async def notify_delivery(
+    bot, 
+    delivery_ids: Union[list, str], 
+    task_data: dict,
+    detailed: bool = False
+):
+    """
+    Универсальный метод отправки уведомлений доставщикам
+    Args:
+        bot: Telegram bot instance
+        delivery_ids: ID доставщика или список ID
+        task_data: Данные задачи
+        detailed: Отправлять ли подробную информацию
+    """
+    message = f"🆕 Новая задача доставки!\n\n"
+    message += f"Заявка: #{task_data['request_id']}\n"
+    message += f"СЦ: {task_data['sc_name']}\n"
     
-    keyboard = [
-        [InlineKeyboardButton(
+    if detailed:
+        message += f"Адрес клиента: {task_data.get('client_address', 'Не указан')}\n"
+        message += f"Клиент: {task_data.get('client_name', 'Не указан')}\n"
+        message += f"Телефон: {task_data.get('client_phone', 'Не указан')}\n"
+        message += f"Описание: {task_data.get('description', 'Нет описания')}"
+
+    keyboard = [[
+        InlineKeyboardButton(
             "Принять задачу", 
-            callback_data=f"accept_delivery_{request_id}"
-        )]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    try:
-        await bot.send_message(
-            chat_id=delivery_id,
-            text=message,
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
+            callback_data=f"accept_delivery_{task_data['request_id']}"
         )
-    except Exception as e:
-        logger.error(f"Не удалось отправить уведомление доставщику {delivery_id}: {e}")
-        raise
+    ]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    if isinstance(delivery_ids, str):
+        delivery_ids = [delivery_ids]
+
+    for delivery_id in delivery_ids:
+        try:
+            await bot.send_message(
+                chat_id=delivery_id,
+                text=message,
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+            logger.info(f"Уведомление отправлено доставщику {delivery_id}")
+        except Exception as e:
+            logger.error(f"Ошибка отправки уведомления доставщику {delivery_id}: {e}")
 
 async def notify_client(bot, client_id, message, reply_markup=None):
     try:

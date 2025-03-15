@@ -75,5 +75,31 @@
         "latitude": null,
         "longitude": null,
         "assigned_delivery_id": null
+    },
+    "6": {
+        "task_id": "6",
+        "request_id": "5",
+        "status": "Новая",
+        "sc_name": "СЦ №2",
+        "client_address": "ADDRESS",
+        "client_name": "Андрей",
+        "client_phone": "Телефон не указан",
+        "description": "TEST 2",
+        "latitude": null,
+        "longitude": null,
+        "assigned_delivery_id": null
+    },
+    "7": {
+        "task_id": "7",
+        "request_id": "6",
+        "status": "Новая",
+        "sc_name": "СЦ №2",
+        "client_address": "ADDRESS",
+        "client_name": "Андрей",
+        "client_phone": "Телефон не указан",
+        "description": "TEST 3",
+        "latitude": null,
+        "longitude": null,
+        "assigned_delivery_id": null
     }
 }

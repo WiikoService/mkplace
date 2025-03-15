@@ -137,6 +137,10 @@ class AdminHandler(BaseHandler):
         }
         delivery_tasks[task_id] = delivery_task
         save_delivery_tasks(delivery_tasks)
+        
+        # Добавить уведомление доставщиков
+        await notify_delivery(context.bot, DELIVERY_IDS, delivery_task, detailed=True)
+        
         return task_id, delivery_task
 
     async def notify_deliveries(self, context: CallbackContext, task_data: dict):
