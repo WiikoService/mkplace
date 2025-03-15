@@ -11,7 +11,6 @@ import requests
 
 from smsby import SMSBY
 
-# TODO: отправка смс с кодом - клиенту, ввод кода для проверки в бот, далее - данные СЦ - доставщику.
 # TODO: сделать смс - отдельным методом (не срочно)
 
 logger = logging.getLogger(__name__)
@@ -148,14 +147,11 @@ class DeliveryHandler(BaseHandler):
             admin_message += f"Доставщик: {delivery_name} - +{delivery_phone}\n"
             admin_message += f"Статус: Доставщик в пути к клиенту"
             for admin_id in ADMIN_IDS:
-                try:
-                    await context.bot.send_message(
-                        chat_id=admin_id,
-                        text=admin_message,
-                        parse_mode='Markdown'
-                    )
-                except Exception as e:
-                    print(f"Ошибка при отправке уведомления администратору {admin_id}: {e}")
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=admin_message,
+                    parse_mode='Markdown'
+                )
         else:
             await query.edit_message_text("Произошла ошибка. Заказ не найден.")
 
@@ -214,7 +210,6 @@ class DeliveryHandler(BaseHandler):
             action, request_id = query.data.split('_')[1:]
             requests_data = load_requests()
             delivery_tasks = load_delivery_tasks()
-            
             if request_id in requests_data:
                 if action == 'confirm':
                     new_status = 'Доставщик везет в СЦ'
@@ -222,7 +217,6 @@ class DeliveryHandler(BaseHandler):
                     sc_id = requests_data[request_id].get('assigned_sc')
                     service_centers = load_service_centers()
                     sc_data = service_centers.get(sc_id, {})
-                    
                     # Формируем сообщение для доставщика
                     delivery_message = (
                         f"✅ Клиент подтвердил получение по заявке #{request_id}\n"
@@ -233,17 +227,12 @@ class DeliveryHandler(BaseHandler):
                 else:
                     new_status = 'Ошибка подтверждения'
                     delivery_message = f"Клиент не подтвердил получение предмета по заявке #{request_id}. Свяжитесь с клиентом для уточнения."
-
-                # Обновляем статус в requests и delivery_tasks
                 requests_data[request_id]['status'] = new_status
                 save_requests(requests_data)
-
                 for task in delivery_tasks:
                     if isinstance(task, dict) and task.get('request_id') == request_id:
                         task['status'] = new_status
                 save_delivery_tasks(delivery_tasks)
-
-                # Отправляем сообщение доставщику
                 delivery_id = requests_data[request_id].get('assigned_delivery')
                 if delivery_id:
                     await context.bot.send_message(
@@ -251,13 +240,10 @@ class DeliveryHandler(BaseHandler):
                         text=delivery_message,
                         parse_mode='Markdown'
                     )
-
                 await query.edit_message_text(
                     f"Спасибо за подтверждение. Статус заявки №{request_id}: {new_status}"
                 )
-                
                 logger.info(f"Обработано подтверждение клиента для заявки {request_id}. Новый статус: {new_status}")
-                
         except Exception as e:
             logger.error(f"Ошибка при обработке подтверждения клиента: {e}")
             await query.edit_message_text("Произошла ошибка при обработке подтверждения.")

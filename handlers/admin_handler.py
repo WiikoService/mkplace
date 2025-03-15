@@ -141,7 +141,6 @@ class AdminHandler(BaseHandler):
         }
         delivery_tasks[task_id] = delivery_task
         save_delivery_tasks(delivery_tasks)
-        # Добавить уведомление доставщиков
         await notify_delivery(context.bot, DELIVERY_IDS, delivery_task, detailed=True)
         return task_id, delivery_task
 
@@ -322,10 +321,8 @@ class AdminHandler(BaseHandler):
         """Обработка отклонения заявки"""
         query = update.callback_query
         await query.answer()
-        
         parts = query.data.split('_')
         request_id = parts[2]
-        
         keyboard = [
             [
                 InlineKeyboardButton("Да, заблокировать", callback_data=f"block_user_{request_id}_confirm"),
@@ -333,7 +330,6 @@ class AdminHandler(BaseHandler):
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
         requests_data = load_requests()
         request = requests_data.get(request_id)
         if request:
@@ -344,29 +340,21 @@ class AdminHandler(BaseHandler):
                 f"Заявка #{request_id} отклонена.\n\nЗаблокировать клиента {request.get('user_name', 'Неизвестный')}?",
                 reply_markup=reply_markup
             )
-            
-            # Уведомляем клиента
-            try:
-                await context.bot.send_message(
-                    chat_id=request['user_id'],
-                    text=f"Ваша заявка #{request_id} была отклонена администратором."
-                )
-            except Exception as e:
-                logger.error(f"Ошибка при уведомлении клиента: {e}")
+            await context.bot.send_message(
+                chat_id=request['user_id'],
+                text=f"Ваша заявка #{request_id} была отклонена администратором."
+            )
 
     async def handle_block_user(self, update: Update, context: CallbackContext):
         """Обработка блокировки пользователя"""
         query = update.callback_query
         await query.answer()
-        
         parts = query.data.split('_')
         request_id = parts[2]
         action = parts[3]
-        
         if action == 'cancel':
             await query.edit_message_text(f"Заявка #{request_id} отклонена. Клиент не заблокирован.")
             return
-        
         requests_data = load_requests()
         request = requests_data.get(request_id)
         if request and action == 'confirm':
@@ -375,17 +363,11 @@ class AdminHandler(BaseHandler):
             if user_id in users_data:
                 users_data[user_id]['blocked'] = True
                 save_users(users_data)
-                
                 await query.edit_message_text(
                     f"Заявка #{request_id} отклонена.\n"
                     f"Клиент {request.get('user_name', 'Неизвестный')} заблокирован."
                 )
-                
-                # Уведомляем клиента о блокировке
-                try:
-                    await context.bot.send_message(
-                        chat_id=user_id,
-                        text="Ваш аккаунт был заблокирован администратором."
-                    )
-                except Exception as e:
-                    logger.error(f"Ошибка при уведомлении клиента о блокировке: {e}")
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text="Ваш аккаунт был заблокирован администратором."
+                )
