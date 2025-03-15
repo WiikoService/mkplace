@@ -4,7 +4,10 @@ from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update, Re
 from telegram.ext import CallbackContext, ConversationHandler
 from telegram.error import BadRequest
 from .base_handler import BaseHandler
-from database import load_delivery_tasks, load_requests, load_service_centers, load_users, save_delivery_tasks, save_requests
+from database import (
+    load_delivery_tasks, load_requests, load_service_centers,
+    load_users, save_delivery_tasks, save_requests, save_users
+)
 from config import ASSIGN_REQUEST, ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK, ORDER_STATUS_ASSIGNED_TO_SC
 from utils import notify_admin, notify_delivery
 logger = logging.getLogger(__name__)
@@ -102,6 +105,7 @@ class AdminHandler(BaseHandler):
             return ConversationHandler.END
 
     async def update_delivery_info(self, context: CallbackContext, chat_id: int, message_id: int, request_id: str, delivery_info: dict):
+        """Обновление информации о доставщике"""
         new_text = (
             f"Заявка #{request_id} принята доставщиком:\n"
             f"Имя: {delivery_info['name']}\n"
@@ -137,10 +141,7 @@ class AdminHandler(BaseHandler):
         }
         delivery_tasks[task_id] = delivery_task
         save_delivery_tasks(delivery_tasks)
-        
-        # Добавить уведомление доставщиков
         await notify_delivery(context.bot, DELIVERY_IDS, delivery_task, detailed=True)
-        
         return task_id, delivery_task
 
     async def notify_deliveries(self, context: CallbackContext, task_data: dict):
@@ -174,6 +175,7 @@ class AdminHandler(BaseHandler):
                 logger.error(f"Error sending notification to delivery {delivery_id}: {e}")
 
     async def handle_accept_delivery(self, update: Update, context: CallbackContext):
+        """Обработка принятия задачи доставщиком"""
         query = update.callback_query
         await query.answer()
         parts = query.data.split('_')
@@ -214,6 +216,7 @@ class AdminHandler(BaseHandler):
             await query.edit_message_text(f"Задача доставки #{task_id} не найдена")
 
     async def view_requests(self, update: Update, context: CallbackContext):
+        """Просмотр активных заявок"""
         requests_data = load_requests()
         if not requests_data:
             await update.message.reply_text("Нет активных заявок.")
@@ -253,6 +256,7 @@ class AdminHandler(BaseHandler):
         return ASSIGN_REQUEST
 
     async def view_service_centers(self, update: Update, context: CallbackContext):
+        """Просмотр списка сервисных центров"""
         service_centers = load_service_centers()
         logger.info(f"Loaded service centers: {service_centers}")
         if not service_centers:
@@ -312,3 +316,58 @@ class AdminHandler(BaseHandler):
         task_id, task_data = await self.create_delivery_task(update, context, request_id, sc_name)
         await update.message.reply_text(f"Задача доставки #{task_id} создана. Доставщики уведомлены.")
         return ConversationHandler.END
+
+    async def handle_reject_request(self, update: Update, context: CallbackContext):
+        """Обработка отклонения заявки"""
+        query = update.callback_query
+        await query.answer()
+        parts = query.data.split('_')
+        request_id = parts[2]
+        keyboard = [
+            [
+                InlineKeyboardButton("Да, заблокировать", callback_data=f"block_user_{request_id}_confirm"),
+                InlineKeyboardButton("Нет", callback_data=f"block_user_{request_id}_cancel")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        requests_data = load_requests()
+        request = requests_data.get(request_id)
+        if request:
+            request['status'] = 'Отклонена'
+            save_requests(requests_data)
+            
+            await query.edit_message_text(
+                f"Заявка #{request_id} отклонена.\n\nЗаблокировать клиента {request.get('user_name', 'Неизвестный')}?",
+                reply_markup=reply_markup
+            )
+            await context.bot.send_message(
+                chat_id=request['user_id'],
+                text=f"Ваша заявка #{request_id} была отклонена администратором."
+            )
+
+    async def handle_block_user(self, update: Update, context: CallbackContext):
+        """Обработка блокировки пользователя"""
+        query = update.callback_query
+        await query.answer()
+        parts = query.data.split('_')
+        request_id = parts[2]
+        action = parts[3]
+        if action == 'cancel':
+            await query.edit_message_text(f"Заявка #{request_id} отклонена. Клиент не заблокирован.")
+            return
+        requests_data = load_requests()
+        request = requests_data.get(request_id)
+        if request and action == 'confirm':
+            users_data = load_users()
+            user_id = request['user_id']
+            if user_id in users_data:
+                users_data[user_id]['blocked'] = True
+                save_users(users_data)
+                await query.edit_message_text(
+                    f"Заявка #{request_id} отклонена.\n"
+                    f"Клиент {request.get('user_name', 'Неизвестный')} заблокирован."
+                )
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text="Ваш аккаунт был заблокирован администратором."
+                )

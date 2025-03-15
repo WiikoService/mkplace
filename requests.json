@@ -78,5 +78,79 @@
         "location_link": "Адрес введен вручную",
         "status": "Назначена в СЦ",
         "assigned_sc": "2"
+    },
+    "7": {
+        "id": "7",
+        "user_id": "6213103612",
+        "user_name": "Сергей WIIKOService",
+        "description": "Тклс",
+        "photos": [],
+        "location": {
+            "latitude": 54.288839,
+            "longitude": 26.824926
+        },
+        "location_link": "https://yandex.ru/maps?whatshere%5Bpoint%5D=26.824926%2C54.288839&",
+        "status": "Ожидает подтверждения клиента",
+        "assigned_sc": "2",
+        "assigned_delivery": "993108283",
+        "sms_id": 21086139,
+        "confirmation_code": "0053"
+    },
+    "8": {
+        "id": "8",
+        "user_id": "8195693077",
+        "user_name": "Андрей",
+        "description": "TEST4",
+        "photos": [],
+        "location": "ASAA",
+        "location_link": "Адрес введен вручную",
+        "status": "Доставщик везет в СЦ",
+        "assigned_sc": "2",
+        "assigned_delivery": "993108283"
+    },
+    "9": {
+        "id": "9",
+        "user_id": "8195693077",
+        "user_name": "Андрей",
+        "description": "EEE",
+        "photos": [],
+        "location": "EFJFJF",
+        "location_link": "Адрес введен вручную",
+        "status": "Ошибка подтверждения",
+        "assigned_sc": "2",
+        "assigned_delivery": "993108283"
+    },
+    "10": {
+        "id": "10",
+        "user_id": "8195693077",
+        "user_name": "Андрей",
+        "description": "ПЛОХАЯ ЗАЯВКА",
+        "photos": [],
+        "location": "__________________________________________________",
+        "location_link": "Адрес введен вручную",
+        "status": "Новая",
+        "assigned_sc": null
+    },
+    "11": {
+        "id": "11",
+        "user_id": "8195693077",
+        "user_name": "Андрей",
+        "description": "ПЛОХАЯ ЗАЯВКА И БЛОКИРОВКА",
+        "photos": [],
+        "location": "Планета Марс, кратер №1",
+        "location_link": "Адрес введен вручную",
+        "status": "Отклонена",
+        "assigned_sc": null
+    },
+    "12": {
+        "id": "12",
+        "user_id": "8195693077",
+        "user_name": "Андрей",
+        "description": "ПЛОХАЯ ЗАЯВКА С БЛОКИРОВКОЙ",
+        "photos": [],
+        "location": "пыкеотмрплоьргш",
+        "location_link": "Адрес введен вручную",
+        "status": "Отклонена",
+        "assigned_sc": null
     }
 }

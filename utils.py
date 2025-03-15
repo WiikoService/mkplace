@@ -29,7 +29,10 @@ async def notify_admin(bot, request_id, requests_data, admin_ids):
         f"Статус: {request.get('status', 'Не указан')}\n"
         f"Местоположение: {location_link}\n"
     )
-    keyboard = [[InlineKeyboardButton("Привязать к СЦ", callback_data=f"assign_sc_{request_id}")]]
+    keyboard = [
+        [InlineKeyboardButton("Привязать к СЦ", callback_data=f"assign_sc_{request_id}")],
+        [InlineKeyboardButton("Отклонить заявку", callback_data=f"reject_request_{request_id}")]
+    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     for admin_id in admin_ids:
@@ -47,11 +50,6 @@ async def notify_delivery(
 ):
     """
     Универсальный метод отправки уведомлений доставщикам
-    Args:
-        bot: Telegram bot instance
-        delivery_ids: ID доставщика или список ID
-        task_data: Данные задачи
-        detailed: Отправлять ли подробную информацию
     """
     message = f"🆕 Новая задача доставки!\n\n"
     message += f"Заявка: #{task_data['request_id']}\n"

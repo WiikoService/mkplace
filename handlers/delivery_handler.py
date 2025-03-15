@@ -11,7 +11,6 @@ import requests
 
 from smsby import SMSBY
 
-# TODO: отправка смс с кодом - клиенту, ввод кода для проверки в бот, далее - данные СЦ - доставщику.
 # TODO: сделать смс - отдельным методом (не срочно)
 
 logger = logging.getLogger(__name__)
@@ -20,6 +19,7 @@ logger = logging.getLogger(__name__)
 class DeliveryHandler(BaseHandler):
 
     async def show_delivery_profile(self, update: Update, context: CallbackContext):
+        """Отображение профиля доставщика."""
         user_id = str(update.effective_user.id)
         users_data = load_users()
         user = users_data.get(user_id, {})
@@ -37,6 +37,7 @@ class DeliveryHandler(BaseHandler):
         return ConversationHandler.END
 
     async def enter_name(self, update: Update, context: CallbackContext):
+        """Ввод имени доставщика."""
         user_id = str(update.effective_user.id)
         name = update.message.text
         users_data = load_users()
@@ -48,6 +49,7 @@ class DeliveryHandler(BaseHandler):
         return ENTER_PHONE
 
     async def enter_phone(self, update: Update, context: CallbackContext):
+        """Ввод номера телефона доставщика."""
         user_id = str(update.effective_user.id)
         phone = update.message.text
         users_data = load_users()
@@ -57,6 +59,7 @@ class DeliveryHandler(BaseHandler):
         return await self.show_delivery_profile(update, context)
 
     async def show_delivery_tasks(self, update: Update, context: CallbackContext):
+        """Отображение заданий доставщика."""
         delivery_id = str(update.effective_user.id)
         delivery_tasks = load_delivery_tasks()
         my_tasks = [task for task in delivery_tasks 
@@ -91,6 +94,7 @@ class DeliveryHandler(BaseHandler):
                 await update.message.reply_text(message)
 
     async def handle_task_callback(self, update: Update, context: CallbackContext):
+        """Обработка нажатий на кнопки в заданиях доставщика."""
         query = update.callback_query
         await query.answer()
         task_id = query.data.split('_')[-1]
@@ -99,6 +103,7 @@ class DeliveryHandler(BaseHandler):
         await query.edit_message_text(text=task_details)
 
     async def accept_delivery(self, update: Update, context: CallbackContext):
+        """Принятие задачи доставщиком."""
         query = update.callback_query
         await query.answer()
         request_id = query.data.split('_')[-1]
@@ -142,14 +147,11 @@ class DeliveryHandler(BaseHandler):
             admin_message += f"Доставщик: {delivery_name} - +{delivery_phone}\n"
             admin_message += f"Статус: Доставщик в пути к клиенту"
             for admin_id in ADMIN_IDS:
-                try:
-                    await context.bot.send_message(
-                        chat_id=admin_id,
-                        text=admin_message,
-                        parse_mode='Markdown'
-                    )
-                except Exception as e:
-                    print(f"Ошибка при отправке уведомления администратору {admin_id}: {e}")
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=admin_message,
+                    parse_mode='Markdown'
+                )
         else:
             await query.edit_message_text("Произошла ошибка. Заказ не найден.")
 
@@ -187,56 +189,6 @@ class DeliveryHandler(BaseHandler):
                         text=f"Доставщик сообщает, что забрал ваш предмет по заявке №{request_id}. Подтверждаете?",
                         reply_markup=reply_markup
                     )
-                    # Отправка SMS с кодом
-                    if 'phone' in client_data:
-                        try:
-                            phone = client_data['phone'].replace('+', '')
-                            logger.info(f"Отправка SMS на номер: {phone}")
-                            sms_client = SMSBY(SMS_TOKEN, 'by')
-                            logger.info("Создание объекта пароля...")
-                            password_response = sms_client.create_password_object('numbers', 4)
-                            logger.info(f"Ответ создания пароля: {password_response}")
-                            if 'result' in password_response and 'password_object_id' in password_response['result']:
-                                password_object_id = password_response['result']['password_object_id']
-                                logger.info(f"ID объекта пароля: {password_object_id}")
-                                alphanames = sms_client.get_alphanames()
-                                logger.info(f"Доступные альфа-имена: {alphanames}")
-                                if alphanames:
-                                    alphaname_id = next(iter(alphanames.keys()))
-                                    sms_message = f"Код подтверждения для заявки #{request_id}: %CODE%"
-                                    logger.info(f"Отправка SMS с сообщением: {sms_message}")
-                                    sms_response = sms_client.send_sms_message_with_code(
-                                        password_object_id=password_object_id,
-                                        phone=phone,
-                                        message=sms_message,
-                                        alphaname_id=alphaname_id  # альфа-имя
-                                    )
-                                    logger.info(f"Ответ отправки SMS: {sms_response}")
-                                else:
-                                    logger.error("Нет доступных альфа-имен")
-                                    raise Exception("Нет доступных альфа-имен для отправки SMS")
-                                if 'code' in sms_response:
-                                    requests_data[request_id]['sms_id'] = sms_response.get('sms_id')
-                                    requests_data[request_id]['confirmation_code'] = sms_response['code']
-                                    save_requests(requests_data)
-                                    await context.bot.send_message(
-                                        chat_id=client_id,
-                                        text=f"На ваш номер телефона отправлен код подтверждения. Пожалуйста, введите его:"
-                                    )
-                                    context.user_data['current_request'] = request_id
-                                    return ENTER_CONFIRMATION_CODE
-                                else:
-                                    logger.error(f"Ошибка отправки SMS: нет кода в ответе")
-                                    raise Exception("Не удалось отправить SMS")
-                            else:
-                                logger.error(f"Ошибка создания пароля: {password_response}")
-                                raise Exception("Не удалось создать объект пароля")
-                        except Exception as e:
-                            logger.error(f"Ошибка при отправке SMS: {str(e)}")
-                            await context.bot.send_message(
-                                chat_id=client_id,
-                                text="Извините, возникла проблема с отправкой SMS. Пожалуйста, используйте кнопки подтверждения выше."
-                            )
                     await query.edit_message_text(
                         f"Вы подтвердили получение предмета по заявке №{request_id}. "
                         "Ожидаем подтверждения клиента."
@@ -251,6 +203,7 @@ class DeliveryHandler(BaseHandler):
             await query.edit_message_text("Произошла ошибка. Заказ не найден.")
 
     async def handle_client_confirmation(self, update: Update, context: CallbackContext):
+        """Обработка подтверждения(отказа) передачи предмета клиентом."""
         query = update.callback_query
         await query.answer()
         try:
@@ -260,32 +213,43 @@ class DeliveryHandler(BaseHandler):
             if request_id in requests_data:
                 if action == 'confirm':
                     new_status = 'Доставщик везет в СЦ'
-                    message = f"Клиент подтвердил получение. Вы можете везти предмет в СЦ по заявке №{request_id}."
+                    # Получаем данные СЦ
+                    sc_id = requests_data[request_id].get('assigned_sc')
+                    service_centers = load_service_centers()
+                    sc_data = service_centers.get(sc_id, {})
+                    # Формируем сообщение для доставщика
+                    delivery_message = (
+                        f"✅ Клиент подтвердил получение по заявке #{request_id}\n"
+                        f"Адрес СЦ для доставки:\n"
+                        f"🏢 {sc_data.get('name', 'Название не указано')}\n"
+                        f"📍 {sc_data.get('address', 'Адрес не указан')}"
+                    )
                 else:
                     new_status = 'Ошибка подтверждения'
-                    message = f"Клиент не подтвердил получение предмета по заявке №{request_id}. Свяжитесь с клиентом для уточнения."
+                    delivery_message = f"Клиент не подтвердил получение предмета по заявке #{request_id}. Свяжитесь с клиентом для уточнения."
                 requests_data[request_id]['status'] = new_status
                 save_requests(requests_data)
-                # Обновляем задачу доставки
-                updated_tasks = []
                 for task in delivery_tasks:
                     if isinstance(task, dict) and task.get('request_id') == request_id:
                         task['status'] = new_status
-                    updated_tasks.append(task)
-                save_delivery_tasks(updated_tasks)
-                # Уведомляем доставщика
+                save_delivery_tasks(delivery_tasks)
                 delivery_id = requests_data[request_id].get('assigned_delivery')
                 if delivery_id:
-                    await context.bot.send_message(chat_id=delivery_id, text=message)
+                    await context.bot.send_message(
+                        chat_id=delivery_id,
+                        text=delivery_message,
+                        parse_mode='Markdown'
+                    )
                 await query.edit_message_text(
                     f"Спасибо за подтверждение. Статус заявки №{request_id}: {new_status}"
                 )
-            else:
-                await query.edit_message_text("Произошла ошибка. Заявка не найдена.")
+                logger.info(f"Обработано подтверждение клиента для заявки {request_id}. Новый статус: {new_status}")
         except Exception as e:
+            logger.error(f"Ошибка при обработке подтверждения клиента: {e}")
             await query.edit_message_text("Произошла ошибка при обработке подтверждения.")
 
     async def handle_delivered_to_sc(self, update: Update, context: CallbackContext):
+        """Обработка передачи предмета в Сервисный Центр."""
         query = update.callback_query
         await query.answer()
         request_id = query.data.split('_')[-1]
@@ -301,6 +265,7 @@ class DeliveryHandler(BaseHandler):
             await query.edit_message_text("Произошла ошибка. Заказ не найден.")
 
     async def update_delivery_messages(self, bot: Bot, task_id: int, task_data: dict):
+        """Обновление сообщений доставщикам."""
         from config import DELIVERY_IDS
         for delivery_id in DELIVERY_IDS:
             if delivery_id != task_data['assigned_to']:
@@ -352,7 +317,6 @@ class DeliveryHandler(BaseHandler):
 
     async def show_my_tasks(self, update: Update, context: CallbackContext):
         """Показать мои активные задания"""
-        logger.info("Вызван метод show_my_tasks")        
         try:
             delivery_id = str(update.effective_user.id)
             delivery_tasks = load_delivery_tasks()

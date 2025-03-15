@@ -101,5 +101,47 @@
         "latitude": null,
         "longitude": null,
         "assigned_delivery_id": null
+    },
+    "8": {
+        "task_id": "8",
+        "request_id": "7",
+        "status": "Новая",
+        "sc_name": "СЦ №2",
+        "client_address": {
+            "latitude": 54.288839,
+            "longitude": 26.824926
+        },
+        "client_name": "Сергей WIIKOService",
+        "client_phone": "+375292178990",
+        "description": "Тклс",
+        "latitude": null,
+        "longitude": null,
+        "assigned_delivery_id": null
+    },
+    "9": {
+        "task_id": "9",
+        "request_id": "8",
+        "status": "Новая",
+        "sc_name": "СЦ №2",
+        "client_address": "ASAA",
+        "client_name": "Андрей",
+        "client_phone": "Телефон не указан",
+        "description": "TEST4",
+        "latitude": null,
+        "longitude": null,
+        "assigned_delivery_id": null
+    },
+    "10": {
+        "task_id": "10",
+        "request_id": "9",
+        "status": "Новая",
+        "sc_name": "СЦ №2",
+        "client_address": "EFJFJF",
+        "client_name": "Андрей",
+        "client_phone": "Телефон не указан",
+        "description": "EEE",
+        "latitude": null,
+        "longitude": null,
+        "assigned_delivery_id": null
     }
 }
