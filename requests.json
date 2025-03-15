@@ -107,5 +107,17 @@
         "status": "Доставщик везет в СЦ",
         "assigned_sc": "2",
         "assigned_delivery": "993108283"
+    },
+    "9": {
+        "id": "9",
+        "user_id": "8195693077",
+        "user_name": "Андрей",
+        "description": "EEE",
+        "photos": [],
+        "location": "EFJFJF",
+        "location_link": "Адрес введен вручную",
+        "status": "Ошибка подтверждения",
+        "assigned_sc": "2",
+        "assigned_delivery": "993108283"
     }
 }
