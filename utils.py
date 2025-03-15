@@ -20,6 +20,7 @@ async def notify_admin(bot, request_id, requests_data, admin_ids):
         longitude = location['longitude']
         location_link = f"https://yandex.ru/maps?whatshere%5Bpoint%5D={longitude}%2C{latitude}&"
     else:
+        # TODO: переделать на отображение введённого адреса вручную
         location_link = "Местоположение не указано"
 
     message = (
@@ -54,13 +55,11 @@ async def notify_delivery(
     message = f"🆕 Новая задача доставки!\n\n"
     message += f"Заявка: #{task_data['request_id']}\n"
     message += f"СЦ: {task_data['sc_name']}\n"
-    
     if detailed:
         message += f"Адрес клиента: {task_data.get('client_address', 'Не указан')}\n"
         message += f"Клиент: {task_data.get('client_name', 'Не указан')}\n"
         message += f"Телефон: {task_data.get('client_phone', 'Не указан')}\n"
         message += f"Описание: {task_data.get('description', 'Нет описания')}"
-
     keyboard = [[
         InlineKeyboardButton(
             "Принять задачу", 
@@ -68,10 +67,8 @@ async def notify_delivery(
         )
     ]]
     reply_markup = InlineKeyboardMarkup(keyboard)
-
     if isinstance(delivery_ids, str):
         delivery_ids = [delivery_ids]
-
     for delivery_id in delivery_ids:
         try:
             await bot.send_message(
