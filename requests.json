@@ -119,5 +119,38 @@
         "status": "Ошибка подтверждения",
         "assigned_sc": "2",
         "assigned_delivery": "993108283"
+    },
+    "10": {
+        "id": "10",
+        "user_id": "8195693077",
+        "user_name": "Андрей",
+        "description": "ПЛОХАЯ ЗАЯВКА",
+        "photos": [],
+        "location": "__________________________________________________",
+        "location_link": "Адрес введен вручную",
+        "status": "Новая",
+        "assigned_sc": null
+    },
+    "11": {
+        "id": "11",
+        "user_id": "8195693077",
+        "user_name": "Андрей",
+        "description": "ПЛОХАЯ ЗАЯВКА И БЛОКИРОВКА",
+        "photos": [],
+        "location": "Планета Марс, кратер №1",
+        "location_link": "Адрес введен вручную",
+        "status": "Отклонена",
+        "assigned_sc": null
+    },
+    "12": {
+        "id": "12",
+        "user_id": "8195693077",
+        "user_name": "Андрей",
+        "description": "ПЛОХАЯ ЗАЯВКА С БЛОКИРОВКОЙ",
+        "photos": [],
+        "location": "пыкеотмрплоьргш",
+        "location_link": "Адрес введен вручную",
+        "status": "Отклонена",
+        "assigned_sc": null
     }
 }

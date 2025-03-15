@@ -10,6 +10,16 @@ class ClientHandler:
 
     async def create_request(self, update: Update, context: CallbackContext):
         """Создание заявки."""
+        user_id = str(update.effective_user.id)
+        users_data = load_users()
+        user = users_data.get(user_id, {})
+        
+        if user.get('blocked'):
+            await update.message.reply_text(
+                "Извините, но вы не можете создавать заявки, так как ваш аккаунт заблокирован."
+            )
+            return ConversationHandler.END
+        
         await update.message.reply_text("Опишите проблему:")
         return CREATE_REQUEST_DESC
 

@@ -4,7 +4,10 @@ from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update, Re
 from telegram.ext import CallbackContext, ConversationHandler
 from telegram.error import BadRequest
 from .base_handler import BaseHandler
-from database import load_delivery_tasks, load_requests, load_service_centers, load_users, save_delivery_tasks, save_requests
+from database import (
+    load_delivery_tasks, load_requests, load_service_centers,
+    load_users, save_delivery_tasks, save_requests, save_users
+)
 from config import ASSIGN_REQUEST, ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK, ORDER_STATUS_ASSIGNED_TO_SC
 from utils import notify_admin, notify_delivery
 logger = logging.getLogger(__name__)
@@ -314,3 +317,75 @@ class AdminHandler(BaseHandler):
         task_id, task_data = await self.create_delivery_task(update, context, request_id, sc_name)
         await update.message.reply_text(f"Задача доставки #{task_id} создана. Доставщики уведомлены.")
         return ConversationHandler.END
+
+    async def handle_reject_request(self, update: Update, context: CallbackContext):
+        """Обработка отклонения заявки"""
+        query = update.callback_query
+        await query.answer()
+        
+        parts = query.data.split('_')
+        request_id = parts[2]
+        
+        keyboard = [
+            [
+                InlineKeyboardButton("Да, заблокировать", callback_data=f"block_user_{request_id}_confirm"),
+                InlineKeyboardButton("Нет", callback_data=f"block_user_{request_id}_cancel")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        requests_data = load_requests()
+        request = requests_data.get(request_id)
+        if request:
+            request['status'] = 'Отклонена'
+            save_requests(requests_data)
+            
+            await query.edit_message_text(
+                f"Заявка #{request_id} отклонена.\n\nЗаблокировать клиента {request.get('user_name', 'Неизвестный')}?",
+                reply_markup=reply_markup
+            )
+            
+            # Уведомляем клиента
+            try:
+                await context.bot.send_message(
+                    chat_id=request['user_id'],
+                    text=f"Ваша заявка #{request_id} была отклонена администратором."
+                )
+            except Exception as e:
+                logger.error(f"Ошибка при уведомлении клиента: {e}")
+
+    async def handle_block_user(self, update: Update, context: CallbackContext):
+        """Обработка блокировки пользователя"""
+        query = update.callback_query
+        await query.answer()
+        
+        parts = query.data.split('_')
+        request_id = parts[2]
+        action = parts[3]
+        
+        if action == 'cancel':
+            await query.edit_message_text(f"Заявка #{request_id} отклонена. Клиент не заблокирован.")
+            return
+        
+        requests_data = load_requests()
+        request = requests_data.get(request_id)
+        if request and action == 'confirm':
+            users_data = load_users()
+            user_id = request['user_id']
+            if user_id in users_data:
+                users_data[user_id]['blocked'] = True
+                save_users(users_data)
+                
+                await query.edit_message_text(
+                    f"Заявка #{request_id} отклонена.\n"
+                    f"Клиент {request.get('user_name', 'Неизвестный')} заблокирован."
+                )
+                
+                # Уведомляем клиента о блокировке
+                try:
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text="Ваш аккаунт был заблокирован администратором."
+                    )
+                except Exception as e:
+                    logger.error(f"Ошибка при уведомлении клиента о блокировке: {e}")
