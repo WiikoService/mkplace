@@ -9,16 +9,19 @@ from utils import notify_admin
 class ClientHandler:
 
     async def create_request(self, update: Update, context: CallbackContext):
+        """Создание заявки."""
         await update.message.reply_text("Опишите проблему:")
         return CREATE_REQUEST_DESC
 
     async def handle_request_desc(self, update: Update, context: CallbackContext):
+        """Обработка описания заявки"""
         context.user_data["description"] = update.message.text
         await update.message.reply_text("Теперь пришлите фотографии проблемы. Когда закончите, отправьте /done")
         context.user_data["photos"] = []
         return CREATE_REQUEST_PHOTOS
 
     async def handle_request_photos(self, update: Update, context: CallbackContext):
+        """Обработка фотографий заявки."""
         photo = update.message.photo[-1]
         file = await context.bot.get_file(photo.file_id)
         file_name = f"{update.effective_user.id}_{len(context.user_data['photos'])}.jpg"
@@ -28,6 +31,7 @@ class ClientHandler:
         return CREATE_REQUEST_PHOTOS
 
     async def done_photos(self, update: Update, context: CallbackContext):
+        """Обработка завершения фотографий заявки"""
         keyboard = [
             [KeyboardButton(text="Отправить местоположение", request_location=True)],
             [KeyboardButton(text="Ввести адрес вручную")]
@@ -40,6 +44,7 @@ class ClientHandler:
         return CREATE_REQUEST_LOCATION
 
     async def handle_request_location(self, update: Update, context: CallbackContext):
+        """Обработка местоположения заявки."""
         if update.message.location:
             context.user_data["location"] = {
                 "latitude": update.message.location.latitude,
@@ -54,6 +59,7 @@ class ClientHandler:
             return await self.create_request_final(update, context)
 
     async def create_request_final(self, update: Update, context: CallbackContext):
+        """Финальная обработка заявки."""
         requests_data = load_requests()
         request_id = str(len(requests_data) + 1)
         user_id = str(update.effective_user.id)
@@ -88,11 +94,13 @@ class ClientHandler:
 
 
     async def cancel_request(self, update: Update, context: CallbackContext):
+        """Отмена создания заявки."""
         await update.message.reply_text("Создание заявки отменено.", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
 
 
     async def show_client_profile(self, update: Update, context: CallbackContext):
+        """Отображение профиля клиента."""
         user_id = str(update.message.from_user.id)
         users_data = load_users()
         user = users_data.get(user_id, {})
@@ -109,6 +117,7 @@ class ClientHandler:
             await update.message.reply_text(reply)
 
     async def show_client_requests(self, update: Update, context: CallbackContext):
+        """Отображение заявок клиента."""
         user_id = str(update.message.from_user.id)
         requests_data = load_requests()
         user_requests = [req for req in requests_data.values() if req["user_id"] == user_id]

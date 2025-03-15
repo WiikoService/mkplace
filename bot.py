@@ -147,6 +147,11 @@ def main():
         pattern="^delivered_to_sc_"
     ))
 
+    application.add_handler(CallbackQueryHandler(
+        delivery_handler.handle_client_confirmation,
+        pattern="^client_(confirm|deny)_"
+    ))
+
     # Добавление обработчиков меню для разных ролей
     application.add_handler(MessageHandler(filters.Regex("^Меню клиента$"), user_handler.show_client_menu))
     application.add_handler(MessageHandler(filters.Regex("^Админская панель$"), user_handler.show_admin_menu))

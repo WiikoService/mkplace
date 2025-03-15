@@ -102,6 +102,7 @@ class AdminHandler(BaseHandler):
             return ConversationHandler.END
 
     async def update_delivery_info(self, context: CallbackContext, chat_id: int, message_id: int, request_id: str, delivery_info: dict):
+        """Обновление информации о доставщике"""
         new_text = (
             f"Заявка #{request_id} принята доставщиком:\n"
             f"Имя: {delivery_info['name']}\n"
@@ -137,10 +138,8 @@ class AdminHandler(BaseHandler):
         }
         delivery_tasks[task_id] = delivery_task
         save_delivery_tasks(delivery_tasks)
-        
         # Добавить уведомление доставщиков
         await notify_delivery(context.bot, DELIVERY_IDS, delivery_task, detailed=True)
-        
         return task_id, delivery_task
 
     async def notify_deliveries(self, context: CallbackContext, task_data: dict):
@@ -174,6 +173,7 @@ class AdminHandler(BaseHandler):
                 logger.error(f"Error sending notification to delivery {delivery_id}: {e}")
 
     async def handle_accept_delivery(self, update: Update, context: CallbackContext):
+        """Обработка принятия задачи доставщиком"""
         query = update.callback_query
         await query.answer()
         parts = query.data.split('_')
@@ -214,6 +214,7 @@ class AdminHandler(BaseHandler):
             await query.edit_message_text(f"Задача доставки #{task_id} не найдена")
 
     async def view_requests(self, update: Update, context: CallbackContext):
+        """Просмотр активных заявок"""
         requests_data = load_requests()
         if not requests_data:
             await update.message.reply_text("Нет активных заявок.")
@@ -253,6 +254,7 @@ class AdminHandler(BaseHandler):
         return ASSIGN_REQUEST
 
     async def view_service_centers(self, update: Update, context: CallbackContext):
+        """Просмотр списка сервисных центров"""
         service_centers = load_service_centers()
         logger.info(f"Loaded service centers: {service_centers}")
         if not service_centers:
