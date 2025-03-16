@@ -21,5 +21,17 @@
         "location_link": "Адрес введен вручную",
         "status": "Новая",
         "assigned_sc": null
+    },
+    "3": {
+        "id": "3",
+        "user_id": "993108283",
+        "user_name": "Станислав",
+        "description": "пипец",
+        "photos": [],
+        "location": "дома я",
+        "location_link": "Адрес введен вручную",
+        "status": "Новая",
+        "assigned_sc": null,
+        "desired_date": "20:30 10.12.2025"
     }
 }

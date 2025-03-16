@@ -6,7 +6,8 @@ from telegram.ext import (
 from config import (
     ASSIGN_REQUEST, CREATE_REQUEST_DESC, CREATE_REQUEST_LOCATION,
     CREATE_REQUEST_PHOTOS, ENTER_CONFIRMATION_CODE, TELEGRAM_API_TOKEN,
-    ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK, SC_IDS, CREATE_REQUEST_CATEGORY
+    ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK, SC_IDS,
+    CREATE_REQUEST_CATEGORY, CREATE_REQUEST_DATA, CREATE_REQUEST_ADDRESS
 )
 from handlers.user_handler import UserHandler
 from handlers.client_handler import ClientHandler
@@ -59,6 +60,12 @@ def main():
             CREATE_REQUEST_LOCATION: [
                 MessageHandler(filters.LOCATION, client_handler.handle_request_location),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, client_handler.handle_request_location)
+            ],
+            CREATE_REQUEST_ADDRESS: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, client_handler.handle_request_address)
+            ],
+            CREATE_REQUEST_DATA: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, client_handler.handle_desired_date)
             ]
         },
         fallbacks=[CommandHandler("cancel", client_handler.cancel_request)]

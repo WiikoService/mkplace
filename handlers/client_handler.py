@@ -1,8 +1,11 @@
+from datetime import datetime
+
 from telegram import Bot, Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import CallbackContext, ConversationHandler
 from config import (
     ADMIN_IDS, CREATE_REQUEST_DESC, CREATE_REQUEST_PHOTOS,
-    CREATE_REQUEST_LOCATION, PHOTOS_DIR, CREATE_REQUEST_CATEGORY
+    CREATE_REQUEST_LOCATION, PHOTOS_DIR, CREATE_REQUEST_CATEGORY,
+    CREATE_REQUEST_DATA, CREATE_REQUEST_ADDRESS
 )
 from database import load_requests, load_users, save_requests
 import os
@@ -89,10 +92,28 @@ class ClientHandler:
             return await self.create_request_final(update, context)
         elif update.message.text == "Ввести адрес вручную":
             await update.message.reply_text("Пожалуйста, введите адрес:")
-            return CREATE_REQUEST_LOCATION
+            return CREATE_REQUEST_ADDRESS
         else:
             context.user_data["location"] = update.message.text
             return await self.create_request_final(update, context)
+
+    async def handle_request_address(self, update: Update, context: CallbackContext):
+        """Обработка ввода адреса вручную."""
+        context.user_data["location"] = update.message.text
+        await update.message.reply_text("Адрес сохранен. Теперь введите желаемую дату и время в формате HH:MM d.m.Y:")
+        return CREATE_REQUEST_DATA
+
+    async def handle_desired_date(self, update: Update, context: CallbackContext):
+        """Обработка желаемой даты и времени."""
+        desired_date_str = update.message.text
+        try:
+            desired_date = datetime.strptime(desired_date_str, "%H:%M %d.%m.%Y")
+            context.user_data["desired_date"] = desired_date
+            await update.message.reply_text("Желаемая дата и время сохранены.")
+            return await self.create_request_final(update, context)
+        except ValueError:
+            await update.message.reply_text("Неверный формат. Пожалуйста, введите дату в формате HH:MM d.m.Y.")
+            return CREATE_REQUEST_DATA  # Остаемся в этом состоянии для повторного ввода
 
     async def create_request_final(self, update: Update, context: CallbackContext):
         """Финальная обработка заявки."""
@@ -108,6 +129,10 @@ class ClientHandler:
             location_link = f"https://yandex.ru/maps?whatshere%5Bpoint%5D={longitude}%2C{latitude}&"
         else:
             location_link = "Адрес введен вручную"
+        # Добавляем желаемую дату и время, если они есть
+        desired_date = context.user_data.get("desired_date")
+        desired_date_str = desired_date.strftime("%H:%M %d.%m.%Y")
+
         requests_data[request_id] = {
             "id": request_id,
             "user_id": user_id,
@@ -117,7 +142,8 @@ class ClientHandler:
             "location": location,
             "location_link": location_link,
             "status": "Новая",
-            "assigned_sc": None
+            "assigned_sc": None,
+            "desired_date": desired_date_str  # Сохраняем дату и время
         }
         save_requests(requests_data)
         await update.message.reply_text(f"Заявка #{request_id} создана. Администратор уведомлен.", reply_markup=ReplyKeyboardRemove())
