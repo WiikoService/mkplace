@@ -5,8 +5,8 @@ from telegram.ext import (
 )
 from config import (
     ASSIGN_REQUEST, CREATE_REQUEST_DESC, CREATE_REQUEST_LOCATION,
-    CREATE_REQUEST_PHOTOS, ENTER_NAME, ENTER_PHONE, TELEGRAM_API_TOKEN,
-    ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK, DELIVERY_MENU, ENTER_CONFIRMATION_CODE, SC_IDS
+    CREATE_REQUEST_PHOTOS, ENTER_CONFIRMATION_CODE, TELEGRAM_API_TOKEN,
+    ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK, SC_IDS, CREATE_REQUEST_CATEGORY
 )
 from handlers.user_handler import UserHandler
 from handlers.client_handler import ClientHandler
@@ -46,6 +46,9 @@ def main():
             MessageHandler(filters.Regex("^Создать заявку$"), client_handler.create_request)
         ],
         states={
+            CREATE_REQUEST_CATEGORY: [
+                CallbackQueryHandler(client_handler.handle_category)
+            ],
             CREATE_REQUEST_DESC: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, client_handler.handle_request_desc)
             ],

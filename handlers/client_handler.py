@@ -1,12 +1,21 @@
-from telegram import Bot, Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from telegram import Bot, Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import CallbackContext, ConversationHandler
-from config import ADMIN_IDS, CREATE_REQUEST_DESC, CREATE_REQUEST_PHOTOS, CREATE_REQUEST_LOCATION, PHOTOS_DIR
+from config import (
+    ADMIN_IDS, CREATE_REQUEST_DESC, CREATE_REQUEST_PHOTOS,
+    CREATE_REQUEST_LOCATION, PHOTOS_DIR, CREATE_REQUEST_CATEGORY
+)
 from database import load_requests, load_users, save_requests
 import os
 
 from utils import notify_admin
 
 class ClientHandler:
+
+    category = [  # TODO: определить список категорий
+        'Ремонт телефонов', 'Ремонт телевизоров',
+        'Ремонт обуви', 'Ремонт одежды', 'Ремонт мебели',
+        'Ремонт техники', 'Прочее'
+    ]
 
     async def create_request(self, update: Update, context: CallbackContext):
         """Создание заявки."""
@@ -18,13 +27,32 @@ class ClientHandler:
                 "Извините, но вы не можете создавать заявки, так как ваш аккаунт заблокирован."
             )
             return ConversationHandler.END
-        await update.message.reply_text("Опишите проблему:")
+        
+        keyboard = [
+            [InlineKeyboardButton(
+                self.category[i], callback_data=f"category_{i}")
+                ] for i in range(len(self.category))]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text("Выберите категорию:", reply_markup=reply_markup)
+        return CREATE_REQUEST_CATEGORY
+    
+    async def handle_category(self, update: Update, context: CallbackContext):
+        """Обработка выбора категории"""
+        query = update.callback_query
+        await query.answer()
+        category_index = int(query.data.split('_')[1])
+        context.user_data["category"] = self.category[category_index]
+        await query.edit_message_text(text=f"Вы выбрали категорию: {context.user_data['category']}")
+        await query.message.reply_text("Подробно опишите проблему:")
         return CREATE_REQUEST_DESC
 
     async def handle_request_desc(self, update: Update, context: CallbackContext):
-        """Обработка описания заявки"""
+        """Обработка описания проблемы."""
         context.user_data["description"] = update.message.text
-        await update.message.reply_text("Теперь пришлите фотографии проблемы. Когда закончите, отправьте /done")
+        await update.message.reply_text(
+            "Описание проблемы сохранено.\n"
+            "Теперь пришлите фотографии проблемы. Когда закончите, отправьте /done"
+        )
         context.user_data["photos"] = []
         return CREATE_REQUEST_PHOTOS
 
