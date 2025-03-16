@@ -1,11 +1,14 @@
 from datetime import datetime
 
-from telegram import Bot, Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import (
+    Bot, Update, ReplyKeyboardMarkup, KeyboardButton,
+    ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+)
 from telegram.ext import CallbackContext, ConversationHandler
 from config import (
     ADMIN_IDS, CREATE_REQUEST_DESC, CREATE_REQUEST_PHOTOS,
     CREATE_REQUEST_LOCATION, PHOTOS_DIR, CREATE_REQUEST_CATEGORY,
-    CREATE_REQUEST_DATA, CREATE_REQUEST_ADDRESS
+    CREATE_REQUEST_DATA, CREATE_REQUEST_ADDRESS, CREATE_REQUEST_CONFIRMATION
 )
 from database import load_requests, load_users, save_requests
 import os
@@ -100,7 +103,10 @@ class ClientHandler:
     async def handle_request_address(self, update: Update, context: CallbackContext):
         """Обработка ввода адреса вручную."""
         context.user_data["location"] = update.message.text
-        await update.message.reply_text("Адрес сохранен. Теперь введите желаемую дату и время в формате HH:MM d.m.Y:")
+        await update.message.reply_text(
+            "Адрес сохранен.\n"
+            "Теперь введите желаемую дату и время в формате 00:00 01.03.2025:"
+        )
         return CREATE_REQUEST_DATA
 
     async def handle_desired_date(self, update: Update, context: CallbackContext):
@@ -110,16 +116,55 @@ class ClientHandler:
             desired_date = datetime.strptime(desired_date_str, "%H:%M %d.%m.%Y")
             context.user_data["desired_date"] = desired_date
             await update.message.reply_text("Желаемая дата и время сохранены.")
-            return await self.create_request_final(update, context)
+            return await self.show_confirmation(update, context)  # Переход к подтверждению
         except ValueError:
-            await update.message.reply_text("Неверный формат. Пожалуйста, введите дату в формате HH:MM d.m.Y.")
-            return CREATE_REQUEST_DATA  # Остаемся в этом состоянии для повторного ввода
+            await update.message.reply_text("Неверный формат. Пожалуйста, введите дату в формате 00:00 01.03.2025")
+            return CREATE_REQUEST_DATA
 
-    async def create_request_final(self, update: Update, context: CallbackContext):
+    async def show_confirmation(self, update: Update, context: CallbackContext):
+        """Показ сводки данных и запрос подтверждения."""
+        category = context.user_data.get("category", "Не указана")
+        description = context.user_data.get("description", "Не указано")
+        location = context.user_data.get("location", "Не указано")
+        desired_date = context.user_data.get("desired_date", "Не указана")
+
+        if isinstance(location, dict):
+            location_str = f"Широта: {location['latitude']}, Долгота: {location['longitude']}"
+        else:
+            location_str = location
+
+        summary = (
+            f"Категория: {category}\n"
+            f"Описание: {description}\n"
+            f"Адрес: {location_str}\n"
+            f"Желаемая дата и время: {desired_date.strftime('%H:%M %d.%m.%Y')}\n\n"
+            "Подтвердите создание заявки или начните заново."
+        )
+
+        keyboard = [
+            [InlineKeyboardButton("Подтвердить", callback_data="confirm_request")],
+            [InlineKeyboardButton("Изменить", callback_data="restart_request")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(summary, reply_markup=reply_markup)
+        return CREATE_REQUEST_CONFIRMATION
+
+    async def handle_request_confirmation(self, update: Update, context: CallbackContext):
+        """Обработка подтверждения или отмены заявки."""
+        query = update.callback_query
+        await query.answer()
+        if query.data == "confirm_request": 
+            return await self.create_request_final(query, context)
+        elif query.data == "restart_request":
+            await query.message.reply_text("Начинаем заново.")
+            return await self.create_request(update, context)
+
+    async def create_request_final(self, query: CallbackQuery, context: CallbackContext):
         """Финальная обработка заявки."""
         requests_data = load_requests()
         request_id = str(len(requests_data) + 1)
-        user_id = str(update.effective_user.id)
+        user_id = str(query.from_user.id)
         users_data = load_users()
         user_name = users_data.get(user_id, {}).get('name', 'Неизвестный пользователь')
         location = context.user_data["location"]
@@ -129,7 +174,6 @@ class ClientHandler:
             location_link = f"https://yandex.ru/maps?whatshere%5Bpoint%5D={longitude}%2C{latitude}&"
         else:
             location_link = "Адрес введен вручную"
-        # Добавляем желаемую дату и время, если они есть
         desired_date = context.user_data.get("desired_date")
         desired_date_str = desired_date.strftime("%H:%M %d.%m.%Y")
 
@@ -143,10 +187,12 @@ class ClientHandler:
             "location_link": location_link,
             "status": "Новая",
             "assigned_sc": None,
-            "desired_date": desired_date_str  # Сохраняем дату и время
+            "desired_date": desired_date_str
         }
         save_requests(requests_data)
-        await update.message.reply_text(f"Заявка #{request_id} создана. Администратор уведомлен.", reply_markup=ReplyKeyboardRemove())
+        await query.message.reply_text(
+            f"Заявка #{request_id} создана.\n"
+            "Администратор уведомлен.", reply_markup=ReplyKeyboardRemove())
         await notify_admin(context.bot, request_id, requests_data, ADMIN_IDS)
         for admin_id in ADMIN_IDS:
             for photo_path in context.user_data["photos"]:

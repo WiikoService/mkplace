@@ -1,4 +1,5 @@
 import logging
+
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, filters, ConversationHandler,
     CallbackQueryHandler
@@ -7,7 +8,7 @@ from config import (
     ASSIGN_REQUEST, CREATE_REQUEST_DESC, CREATE_REQUEST_LOCATION,
     CREATE_REQUEST_PHOTOS, ENTER_CONFIRMATION_CODE, TELEGRAM_API_TOKEN,
     ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK, SC_IDS,
-    CREATE_REQUEST_CATEGORY, CREATE_REQUEST_DATA, CREATE_REQUEST_ADDRESS
+    CREATE_REQUEST_CATEGORY, CREATE_REQUEST_DATA, CREATE_REQUEST_ADDRESS, CREATE_REQUEST_CONFIRMATION
 )
 from handlers.user_handler import UserHandler
 from handlers.client_handler import ClientHandler
@@ -66,6 +67,9 @@ def main():
             ],
             CREATE_REQUEST_DATA: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, client_handler.handle_desired_date)
+            ],
+            CREATE_REQUEST_CONFIRMATION: [
+                CallbackQueryHandler(client_handler.handle_request_confirmation)
             ]
         },
         fallbacks=[CommandHandler("cancel", client_handler.cancel_request)]
