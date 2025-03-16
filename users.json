@@ -20,12 +20,12 @@
         "role": "delivery"
     },
     "8195693077": {
-        "role": "client",
+        "role": "delivery",
         "name": "Андрей"
     },
     "993108283": {
         "phone": "+79112411706",
         "name": "Станислав",
-        "role": "admin"
+        "role": "sc"
     }
 }

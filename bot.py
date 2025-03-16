@@ -6,12 +6,14 @@ from telegram.ext import (
 from config import (
     ASSIGN_REQUEST, CREATE_REQUEST_DESC, CREATE_REQUEST_LOCATION,
     CREATE_REQUEST_PHOTOS, ENTER_NAME, ENTER_PHONE, TELEGRAM_API_TOKEN,
-    ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK, DELIVERY_MENU, ENTER_CONFIRMATION_CODE
+    ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK, DELIVERY_MENU, ENTER_CONFIRMATION_CODE, SC_IDS
 )
 from handlers.user_handler import UserHandler
 from handlers.client_handler import ClientHandler
 from handlers.admin_handler import AdminHandler
 from handlers.delivery_handler import DeliveryHandler
+from handlers.sc_handler import SCHandler
+
 from utils import ensure_photos_dir
 
 # Настройка логирования
@@ -27,6 +29,7 @@ def main():
     client_handler = ClientHandler()
     admin_handler = AdminHandler()
     delivery_handler = DeliveryHandler()
+    sc_handler = SCHandler()
 
     # Создание приложения
     application = Application.builder().token(TELEGRAM_API_TOKEN).build()
@@ -97,7 +100,6 @@ def main():
     # Обработчики для доставщика
     delivery_handler = DeliveryHandler()
 
-    # Регистрация обработчиков меню доставщика
     application.add_handler(MessageHandler(
         filters.Text(["Меню доставщика"]) & filters.User(user_id=DELIVERY_IDS),
         user_handler.show_delivery_menu
@@ -116,6 +118,17 @@ def main():
     application.add_handler(MessageHandler(
         filters.Text(["Мой профиль"]) & filters.User(user_id=DELIVERY_IDS),
         delivery_handler.show_delivery_profile
+    ))
+
+    # Обработчики для СЦ
+    application.add_handler(CallbackQueryHandler(
+        sc_handler.handle_item_acceptance,
+        pattern="^(accept|reject)_item_"
+    ))
+
+    application.add_handler(MessageHandler(
+        filters.PHOTO & filters.User(user_id=SC_IDS),
+        sc_handler.handle_photo_upload
     ))
 
     # Обработчики callback-запросов
@@ -142,14 +155,32 @@ def main():
         fallbacks=[]
     ))
 
-    application.add_handler(CallbackQueryHandler(
-        delivery_handler.handle_delivered_to_sc,
-        pattern="^delivered_to_sc_"
-    ))
+    delivery_photos_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                delivery_handler.handle_delivered_to_sc,
+                pattern=r"delivered_to_sc_\d+"
+            )
+        ],
+        states={
+            CREATE_REQUEST_PHOTOS: [
+                MessageHandler(filters.PHOTO, delivery_handler.handle_delivery_photo),
+                CommandHandler("done", delivery_handler.handle_delivery_photos_done)
+            ]
+        },
+        fallbacks=[]
+    )
+
+    application.add_handler(delivery_photos_handler)
 
     application.add_handler(CallbackQueryHandler(
         delivery_handler.handle_client_confirmation,
         pattern="^client_(confirm|deny)_"
+    ))
+
+    application.add_handler(MessageHandler(
+        filters.Text(["Передать в СЦ"]) & filters.User(user_id=DELIVERY_IDS),
+        delivery_handler.handle_transfer_to_sc
     ))
 
     application.add_handler(CallbackQueryHandler(
@@ -172,7 +203,6 @@ def main():
 
     # Убедимся, что директория для фотографий существует
     ensure_photos_dir()
-
     # Запуск бота
     application.run_polling()
 

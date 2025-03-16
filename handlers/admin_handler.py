@@ -335,7 +335,6 @@ class AdminHandler(BaseHandler):
         if request:
             request['status'] = 'Отклонена'
             save_requests(requests_data)
-            
             await query.edit_message_text(
                 f"Заявка #{request_id} отклонена.\n\nЗаблокировать клиента {request.get('user_name', 'Неизвестный')}?",
                 reply_markup=reply_markup

@@ -18,7 +18,7 @@
     "2": {
         "task_id": "2",
         "request_id": "1",
-        "status": "Новая",
+        "status": "Доставщик в пути. К СЦ",
         "sc_name": "СЦ №2",
         "client_address": {
             "latitude": 54.310901,
@@ -29,7 +29,7 @@
         "description": "Тестлц",
         "latitude": null,
         "longitude": null,
-        "assigned_delivery_id": null
+        "assigned_delivery_id": "8195693077"
     },
     "3": {
         "task_id": "3",
@@ -134,12 +134,65 @@
     "10": {
         "task_id": "10",
         "request_id": "9",
-        "status": "Новая",
+        "status": "Доставщик в пути. К СЦ",
         "sc_name": "СЦ №2",
         "client_address": "EFJFJF",
         "client_name": "Андрей",
         "client_phone": "Телефон не указан",
         "description": "EEE",
+        "latitude": null,
+        "longitude": null,
+        "assigned_delivery_id": null,
+        "is_active": true
+    },
+    "11": {
+        "task_id": "11",
+        "request_id": "13",
+        "status": "Доставщик в пути. К СЦ",
+        "sc_name": "СЦ №2",
+        "client_address": "TEST",
+        "client_name": "Андрей",
+        "client_phone": "Телефон не указан",
+        "description": "TEST -> SC",
+        "latitude": null,
+        "longitude": null,
+        "assigned_delivery_id": null
+    },
+    "12": {
+        "task_id": "12",
+        "request_id": "14",
+        "status": "Доставщик в пути. К СЦ",
+        "sc_name": "СЦ №2",
+        "client_address": "NGJNGJ",
+        "client_name": "Андрей",
+        "client_phone": "Телефон не указан",
+        "description": "TEST > SC",
+        "latitude": null,
+        "longitude": null,
+        "assigned_delivery_id": "8195693077"
+    },
+    "13": {
+        "task_id": "13",
+        "request_id": "15",
+        "status": "Доставщик в пути. К СЦ",
+        "sc_name": "СЦ №2",
+        "client_address": "4",
+        "client_name": "Андрей",
+        "client_phone": "Телефон не указан",
+        "description": "TEST DEVILERY -> SC",
+        "latitude": null,
+        "longitude": null,
+        "assigned_delivery_id": "8195693077"
+    },
+    "14": {
+        "task_id": "14",
+        "request_id": "1",
+        "status": "Новая",
+        "sc_name": "СЦ №1",
+        "client_address": "TEST",
+        "client_name": "Станислав",
+        "client_phone": "+79112411706",
+        "description": "TEST",
         "latitude": null,
         "longitude": null,
         "assigned_delivery_id": null
