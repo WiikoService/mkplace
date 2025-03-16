@@ -86,7 +86,9 @@ class UserHandler(BaseHandler):
 
     async def show_sc_menu(self, update: Update, context: CallbackContext):
         keyboard = [
-            ["Мои заявки"]
+            ["Мои заявки", "Отправить в доставку"],
+            ["Связаться с администратором"],
+            ["Документы"]
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         await update.message.reply_text("Меню СЦ:", reply_markup=reply_markup)
