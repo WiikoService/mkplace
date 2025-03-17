@@ -13,29 +13,28 @@ def ensure_photos_dir():
 
 async def notify_admin(bot, request_id, requests_data, admin_ids):
     request = requests_data[request_id]
-    location = request.get('location', {})
-    
+    location = request.get('location', None)
     if isinstance(location, dict) and 'latitude' in location and 'longitude' in location:
         latitude = location['latitude']
         longitude = location['longitude']
         location_link = f"https://yandex.ru/maps?whatshere%5Bpoint%5D={longitude}%2C{latitude}&"
+        location_display = f"Ссылка на карту: {location_link}"
     else:
-        # TODO: переделать на отображение введённого адреса вручную
-        location_link = "Местоположение не указано"
-
+        # Если координаты отсутствуют, используем текстовое представление местоположения
+        location_display = request.get('location_display', 'Местоположение не указано')
     message = (
-        f"Новая заявка #{request_id}\n"
+        f"Новая заявка #{request_id}\n\n"
         f"Клиент: {request.get('user_name', 'Неизвестный')}\n"
         f"Описание: {request.get('description', 'Нет описания')}\n"
         f"Статус: {request.get('status', 'Не указан')}\n"
-        f"Местоположение: {location_link}\n"
+        f"Местоположение: {location_display}\n"
+        f"Желаемая дата: {request.get('desired_date', 'Не указана')}\n"
     )
     keyboard = [
         [InlineKeyboardButton("Привязать к СЦ", callback_data=f"assign_sc_{request_id}")],
         [InlineKeyboardButton("Отклонить заявку", callback_data=f"reject_request_{request_id}")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
     for admin_id in admin_ids:
         try:
             await bot.send_message(chat_id=admin_id, text=message, reply_markup=reply_markup)
@@ -54,12 +53,13 @@ async def notify_delivery(
     """
     message = f"🆕 Новая задача доставки!\n\n"
     message += f"Заявка: #{task_data['request_id']}\n"
-    message += f"СЦ: {task_data['sc_name']}\n"
+    message += f"СЦ: {task_data['sc_name']}\n\n"
     if detailed:
         message += f"Адрес клиента: {task_data.get('client_address', 'Не указан')}\n"
         message += f"Клиент: {task_data.get('client_name', 'Не указан')}\n"
         message += f"Телефон: {task_data.get('client_phone', 'Не указан')}\n"
         message += f"Описание: {task_data.get('description', 'Нет описания')}"
+        message += f"Желаемая дата: {task_data.get('desired_date', 'Не указана')}\n"
     keyboard = [[
         InlineKeyboardButton(
             "Принять задачу", 
