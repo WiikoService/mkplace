@@ -1,11 +1,17 @@
 import json
 import os
-from config import USERS_JSON, REQUESTS_JSON, SERVICE_CENTERS_JSON, DELIVERY_TASKS_JSON
+from config import USERS_JSON, REQUESTS_JSON, SERVICE_CENTERS_JSON, DELIVERY_TASKS_JSON, DATA_DIR
 import logging
 
 logger = logging.getLogger(__name__)
 
+def ensure_data_dir():
+    """Проверка существования директории data и её создание при необходимости"""
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR)
+
 def load_json(filename):
+    ensure_data_dir()  # Добавляем проверку перед загрузкой
     try:
         with open(filename, 'r', encoding='utf-8') as file:
             return json.load(file)
@@ -13,6 +19,7 @@ def load_json(filename):
         return {}  # Возвращаем пустой словарь, если файл не найден или пуст
 
 def save_json(data, filename):
+    ensure_data_dir()  # Добавляем проверку перед сохранением
     with open(filename, 'w', encoding='utf-8') as file:
         json.dump(data, file, ensure_ascii=False, indent=4)
 

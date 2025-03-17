@@ -5,7 +5,8 @@ from config import (
     ADMIN_IDS, ENTER_NAME, ENTER_PHONE, DELIVERY_MENU,
     ENTER_CONFIRMATION_CODE, SMS_TOKEN, SC_IDS,
     ORDER_STATUS_DELIVERY_TO_SC, ORDER_STATUS_DELIVERY_TO_CLIENT,
-    ORDER_STATUS_CLIENT_REJECTED, ORDER_STATUS_WAITING_SC, CREATE_REQUEST_PHOTOS
+    ORDER_STATUS_CLIENT_REJECTED, ORDER_STATUS_WAITING_SC, CREATE_REQUEST_PHOTOS,
+    DATA_DIR, USERS_JSON, REQUESTS_JSON, DELIVERY_TASKS_JSON
 )
 from handlers.base_handler import BaseHandler
 from database import load_delivery_tasks, load_users, load_requests, save_delivery_tasks, save_requests, save_users, load_service_centers
@@ -73,17 +74,14 @@ class DeliveryHandler(BaseHandler):
                 if isinstance(task, dict) and 
                 str(task.get('assigned_delivery_id')) == delivery_id
             }
-            
             if not my_tasks:
                 await update.message.reply_text("У вас пока нет активных заданий.")
                 return
-            
             for task_id, task in my_tasks.items():
                 status = task.get('status', 'Статус не указан')
                 request_id = task.get('request_id', 'Не указан')
                 sc_name = task.get('sc_name', 'Не указан')
                 keyboard = []
-                
                 if status == ORDER_STATUS_DELIVERY_TO_CLIENT:
                     keyboard.append([InlineKeyboardButton(
                         "Подтвердить получение", 
@@ -94,7 +92,6 @@ class DeliveryHandler(BaseHandler):
                         "Доставлено в СЦ", 
                         callback_data=f"delivered_to_sc_{request_id}"
                     )])
-                
                 message = (
                     f"📦 Задача доставки #{task_id}\n"
                     f"Статус: {status}\n"
@@ -104,13 +101,11 @@ class DeliveryHandler(BaseHandler):
                     f"Телефон: {task.get('client_phone', 'Не указан')}\n"
                     f"Описание: {task.get('description', '')[:100]}..."
                 )
-                
                 if keyboard:
                     reply_markup = InlineKeyboardMarkup(keyboard)
                     await update.message.reply_text(message, reply_markup=reply_markup)
                 else:
                     await update.message.reply_text(message)
-                
         except Exception as e:
             logger.error(f"Ошибка при показе заданий: {e}")
             await update.message.reply_text("Произошла ошибка при загрузке заданий.")
@@ -284,21 +279,17 @@ class DeliveryHandler(BaseHandler):
             action, request_id = query.data.split('_')[1:]
             requests_data = load_requests()
             delivery_tasks = load_delivery_tasks()
-            
             if request_id in requests_data:
                 if action == 'confirm':
                     new_status = ORDER_STATUS_DELIVERY_TO_SC
-                    
                     # Получаем delivery_id из requests
                     delivery_id = requests_data[request_id].get('assigned_delivery')
-                    
                     # Обновляем статус в requests
                     requests_data[request_id].update({
                         'status': new_status,
                         'assigned_delivery': delivery_id
                     })
                     save_requests(requests_data)
-                    
                     # Обновляем статус в delivery_tasks
                     task_updated = False
                     for task_id, task in delivery_tasks.items():
@@ -310,17 +301,13 @@ class DeliveryHandler(BaseHandler):
                             task_updated = True
                             logger.info(f"Обновлена задача {task_id}: {task}")
                             break
-                    
                     if not task_updated:
                         logger.error(f"Задача для заявки {request_id} не найдена в delivery_tasks")
-                    
                     save_delivery_tasks(delivery_tasks)
-                    
                     # Получаем данные СЦ
                     sc_id = requests_data[request_id].get('assigned_sc')
                     service_centers = load_service_centers()
                     sc_data = service_centers.get(sc_id, {})
-                    
                     if delivery_id:
                         delivery_message = (
                             f"✅ Клиент подтвердил получение по заявке #{request_id}\n"
@@ -335,7 +322,6 @@ class DeliveryHandler(BaseHandler):
                         logger.info(f"Отправлено сообщение доставщику {delivery_id}")
                 else:
                     new_status = ORDER_STATUS_CLIENT_REJECTED
-                
                 await query.edit_message_text(
                     f"Спасибо за подтверждение. Статус заявки №{request_id}: {new_status}"
                 )
@@ -348,7 +334,6 @@ class DeliveryHandler(BaseHandler):
         query = update.callback_query
         await query.answer()
         request_id = query.data.split('_')[-1]
-        
         await query.edit_message_text(
             "Пожалуйста, сделайте фото товара перед передачей в СЦ. "
             "Когда закончите, отправьте /done"
@@ -361,13 +346,11 @@ class DeliveryHandler(BaseHandler):
         """Обработка фотографий от доставщика"""
         if 'photos_to_sc' not in context.user_data:
             return
-        
         photo = update.message.photo[-1]
         photo_file = await context.bot.get_file(photo.file_id)
         photo_path = f"photos/delivery_to_sc_{len(context.user_data['photos_to_sc'])}_{context.user_data['current_request']}.jpg"
         await photo_file.download_to_drive(photo_path)
         context.user_data['photos_to_sc'].append(photo_path)
-        
         await update.message.reply_text("Фото добавлено. Отправьте /done когда закончите.")
         return CREATE_REQUEST_PHOTOS
 
@@ -376,28 +359,23 @@ class DeliveryHandler(BaseHandler):
         try:
             request_id = context.user_data.get('current_request')
             photos = context.user_data.get('photos_to_sc', [])
-            
             if not photos:
                 await update.message.reply_text("Необходимо добавить хотя бы одно фото!")
                 return CREATE_REQUEST_PHOTOS
-            
             requests_data = load_requests()
             delivery_tasks = load_delivery_tasks()
-            
             # Обновляем статус и сохраняем фото
             requests_data[request_id].update({
                 'status': ORDER_STATUS_WAITING_SC,
                 'delivery_photos': photos
             })
             save_requests(requests_data)
-            
             # Обновляем статус в delivery_tasks
             for task in delivery_tasks.values():
                 if isinstance(task, dict) and task.get('request_id') == request_id:
                     task['status'] = ORDER_STATUS_WAITING_SC
                     break
             save_delivery_tasks(delivery_tasks)
-            
             # Уведомляем СЦ
             sc_message = (
                 f"🆕 Новый товар доставлен!\n"
@@ -405,13 +383,11 @@ class DeliveryHandler(BaseHandler):
                 f"Описание: {requests_data[request_id].get('description', 'Нет описания')}\n"
                 f"Статус: Ожидает приёмки"
             )
-            
             keyboard = [[
                 InlineKeyboardButton("Принять товар", callback_data=f"accept_item_{request_id}"),
                 InlineKeyboardButton("Отказать в приёме", callback_data=f"reject_item_{request_id}")
             ]]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
             # Отправляем фото и сообщение в СЦ
             for admin_id in SC_IDS:
                 try:
@@ -424,11 +400,9 @@ class DeliveryHandler(BaseHandler):
                     )
                 except Exception as e:
                     logger.error(f"Ошибка отправки уведомления СЦ {admin_id}: {e}")
-            
             # Очищаем данные
             del context.user_data['photos_to_sc']
             del context.user_data['current_request']
-            
             await update.message.reply_text("✅ Фотографии загружены, ожидаем подтверждения от СЦ.")
             return ConversationHandler.END
             
@@ -493,32 +467,26 @@ class DeliveryHandler(BaseHandler):
         try:
             delivery_id = str(update.effective_user.id)
             delivery_tasks = load_delivery_tasks()
-            
             logger.info(f"Проверка задач для доставщика {delivery_id}")
             logger.info(f"Все задачи: {delivery_tasks}")
-            
             active_tasks = {
                 task_id: task for task_id, task in delivery_tasks.items()
                 if isinstance(task, dict) and 
                 str(task.get('assigned_delivery_id')) == delivery_id and
                 task.get('status') in [ORDER_STATUS_DELIVERY_TO_CLIENT, ORDER_STATUS_DELIVERY_TO_SC]
             }
-            
             if not active_tasks:
                 logger.info(f"Нет активных задач для доставщика {delivery_id}. Текущие задачи: {delivery_tasks}")
                 await update.message.reply_text("У вас пока нет активных заданий.")
                 return
-            
             for task_id, task in active_tasks.items():
                 status = task.get('status', 'Статус не указан')
                 keyboard = []
-                
                 if status == ORDER_STATUS_DELIVERY_TO_SC:
                     keyboard.append([InlineKeyboardButton(
                         "Передать в СЦ", 
                         callback_data=f"delivered_to_sc_{task['request_id']}"
                     )])
-                
                 message = (
                     f"📦 Задача доставки #{task_id}\n"
                     f"Заявка: #{task['request_id']}\n"
@@ -526,7 +494,6 @@ class DeliveryHandler(BaseHandler):
                     f"СЦ: {task.get('sc_name', 'Не указан')}\n"
                     f"Описание: {task.get('description', '')[:100]}..."
                 )
-                
                 reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
                 await update.message.reply_text(message, reply_markup=reply_markup)
             
@@ -541,25 +508,20 @@ class DeliveryHandler(BaseHandler):
         if not request_id:
             await update.message.reply_text("Ошибка: заявка не найдена.")
             return ConversationHandler.END
-
         requests_data = load_requests()
         delivery_tasks = load_delivery_tasks()
-        
         request = requests_data.get(request_id)
         if not request:
             await update.message.reply_text("Ошибка: заявка не найдена.")
             return ConversationHandler.END
-        
         if entered_code == request.get('confirmation_code'):
             delivery_id = str(update.effective_user.id)
-            
             # Обновляем статус в requests
             request.update({
                 'status': ORDER_STATUS_DELIVERY_TO_SC,
                 'assigned_delivery': delivery_id
             })
             save_requests(requests_data)
-            
             # Обновляем статус в delivery_tasks
             for task_id, task in delivery_tasks.items():
                 if isinstance(task, dict) and task.get('request_id') == request_id:
@@ -570,12 +532,10 @@ class DeliveryHandler(BaseHandler):
                     logger.info(f"Обновлена задача {task_id}: {task}")
                     break
             save_delivery_tasks(delivery_tasks)
-            
             # Отправляем адрес СЦ
             sc_id = request.get('assigned_sc')
             service_centers = load_service_centers()
             sc_data = service_centers.get(sc_id, {})
-            
             sc_message = (
                 f"✅ Клиент подтвердил получение по заявке #{request_id}\n"
                 f"Адрес СЦ для доставки:\n"
@@ -583,7 +543,6 @@ class DeliveryHandler(BaseHandler):
                 f"📍 {sc_data.get('address')}"
             )
             await context.bot.send_message(chat_id=delivery_id, text=sc_message)
-            
             await update.message.reply_text("Код подтвержден. Доставщик получил адрес СЦ.")
             return ConversationHandler.END
         else:
@@ -596,22 +555,18 @@ class DeliveryHandler(BaseHandler):
             delivery_id = str(update.effective_user.id)
             delivery_tasks = load_delivery_tasks()
             requests_data = load_requests()
-            
             logger.info(f"Проверка задач доставщика {delivery_id}")
             logger.info(f"Текущие задачи: {delivery_tasks}")
-            
             active_tasks = {
                 task_id: task for task_id, task in delivery_tasks.items()
                 if isinstance(task, dict) and
                 str(task.get('assigned_delivery_id')) == delivery_id and
                 task.get('status') == ORDER_STATUS_DELIVERY_TO_SC
             }
-            
             if not active_tasks:
                 logger.info(f"Нет активных задач для доставщика {delivery_id}")
                 await update.message.reply_text("У вас нет активных заданий для передачи в СЦ.")
                 return
-            
             for task_id, task in active_tasks.items():
                 request_id = task.get('request_id')
                 if request_id in requests_data:
@@ -630,7 +585,6 @@ class DeliveryHandler(BaseHandler):
                         f"Описание: {task.get('description', '')[:100]}..."
                     )
                     await update.message.reply_text(message, reply_markup=reply_markup)
-                
         except Exception as e:
             logger.error(f"Ошибка при показе заданий для передачи в СЦ: {e}")
             await update.message.reply_text("Произошла ошибка при загрузке заданий.")

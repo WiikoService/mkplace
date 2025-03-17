@@ -8,9 +8,15 @@ from database import (
     load_delivery_tasks, load_requests, load_service_centers,
     load_users, save_delivery_tasks, save_requests, save_users
 )
-from config import ASSIGN_REQUEST, ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK, ORDER_STATUS_ASSIGNED_TO_SC
+from config import (
+    ASSIGN_REQUEST, ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK,
+    ORDER_STATUS_ASSIGNED_TO_SC, DATA_DIR, USERS_JSON, REQUESTS_JSON,
+    SERVICE_CENTERS_JSON, DELIVERY_TASKS_JSON
+)
 from utils import notify_admin, notify_delivery
 logger = logging.getLogger(__name__)
+
+#TODO: Согласование цены
 
 class AdminHandler(BaseHandler):
 

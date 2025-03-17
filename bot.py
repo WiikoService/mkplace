@@ -8,7 +8,7 @@ from config import (
     ASSIGN_REQUEST, CREATE_REQUEST_DESC, CREATE_REQUEST_LOCATION,
     CREATE_REQUEST_PHOTOS, ENTER_CONFIRMATION_CODE, TELEGRAM_API_TOKEN,
     ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK, SC_IDS,
-    CREATE_REQUEST_CATEGORY, CREATE_REQUEST_DATA, CREATE_REQUEST_ADDRESS, CREATE_REQUEST_CONFIRMATION
+    CREATE_REQUEST_CATEGORY, CREATE_REQUEST_DATA, CREATE_REQUEST_ADDRESS, CREATE_REQUEST_CONFIRMATION, DATA_DIR
 )
 from handlers.user_handler import UserHandler
 from handlers.client_handler import ClientHandler
@@ -16,6 +16,7 @@ from handlers.admin_handler import AdminHandler
 from handlers.delivery_handler import DeliveryHandler
 from handlers.sc_handler import SCHandler
 
+from database import ensure_data_dir
 from utils import ensure_photos_dir
 
 # Настройка логирования
@@ -215,8 +216,9 @@ def main():
     application.bot_data["admin_ids"] = ADMIN_IDS
     application.bot_data["delivery_ids"] = DELIVERY_IDS
 
-    # Убедимся, что директория для фотографий существует
+    # Убедимся, что директории существуют
     ensure_photos_dir()
+    ensure_data_dir()
     # Запуск бота
     application.run_polling()
 
