@@ -135,15 +135,35 @@ def main():
         delivery_handler.show_delivery_profile
     ))
 
-    # Обработчики для СЦ
+    # Обработчики для СЦ - изменяем порядок и фильтры
+    
+    # Сначала регистрируем ConversationHandler для фотографий
+    sc_photos_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                sc_handler.handle_item_acceptance,
+                pattern="^accept_item_"
+            )
+        ],
+        states={
+            CREATE_REQUEST_PHOTOS: [
+                MessageHandler(filters.PHOTO, sc_handler.handle_photo_upload),
+                CommandHandler("done", sc_handler.handle_photos_done)
+            ]
+        },
+        fallbacks=[CommandHandler("cancel", sc_handler.cancel)]
+    )
+    application.add_handler(sc_photos_handler)
+    
+    # Затем регистрируем обработчики для отказа
     application.add_handler(CallbackQueryHandler(
         sc_handler.handle_item_acceptance,
-        pattern="^(accept|reject)_item_"
+        pattern="^reject_item_"
     ))
-
-    application.add_handler(MessageHandler(
-        filters.PHOTO & filters.User(user_id=SC_IDS),
-        sc_handler.handle_photo_upload
+    
+    application.add_handler(CallbackQueryHandler(
+        sc_handler.handle_reject_reason,
+        pattern="^reject_reason_"
     ))
 
     # Обработчики callback-запросов

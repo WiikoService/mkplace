@@ -137,8 +137,12 @@ class ClientHandler:
         description = context.user_data.get("description", "Не указано")
         location = context.user_data.get("location", "Не указано")
         desired_date = context.user_data.get("desired_date", "Не указана")
+
         if isinstance(location, dict):
-            location_str = f"Широта: {location['latitude']}, Долгота: {location['longitude']}"
+            if location.get("type") == "coordinates":
+                location_str = f"Широта: {location.get('latitude', 'N/A')}, Долгота: {location.get('longitude', 'N/A')}"
+            else:
+                location_str = location.get("address", "Адрес не указан")
         else:
             location_str = location
 
@@ -146,7 +150,7 @@ class ClientHandler:
             f"Категория: {category}\n"
             f"Описание: {description}\n"
             f"Адрес: {location_str}\n"
-            f"Желаемая дата и время: {desired_date.strftime('%H:%M %d.%m.%Y')}\n\n"
+            f"Желаемая дата и время: {desired_date.strftime('%H:%M %d.%m.%Y') if isinstance(desired_date, datetime) else 'Не указана'}\n\n"
             "Подтвердите создание заявки или начните заново."
         )
         keyboard = [
@@ -156,6 +160,7 @@ class ClientHandler:
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(summary, reply_markup=reply_markup)
         return CREATE_REQUEST_CONFIRMATION
+
 
     async def handle_request_confirmation(self, update: Update, context: CallbackContext):
         """Обработка подтверждения или отмены заявки."""
