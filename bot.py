@@ -7,7 +7,7 @@ from telegram.ext import (
 from config import (
     ASSIGN_REQUEST, CREATE_REQUEST_DESC, CREATE_REQUEST_LOCATION,
     CREATE_REQUEST_PHOTOS, ENTER_CONFIRMATION_CODE, TELEGRAM_API_TOKEN,
-    ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK, SC_IDS,
+    ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK,
     CREATE_REQUEST_CATEGORY, CREATE_REQUEST_DATA, CREATE_REQUEST_ADDRESS, CREATE_REQUEST_CONFIRMATION, DATA_DIR,
     SC_MANAGEMENT_ADD_NAME, SC_MANAGEMENT_ADD_ADDRESS, SC_MANAGEMENT_ADD_PHONE
 )
@@ -48,9 +48,9 @@ def main():
     # Обработчик регистрации
     application.add_handler(MessageHandler(filters.CONTACT, user_handler.handle_contact))
 
-    # Обработчики для СЦ (должны быть зарегистрированы ДО обработчиков клиента)
+    # Обработчики для СЦ
     application.add_handler(MessageHandler(
-        filters.Text(["Мои заявки"]) & filters.User(user_id=SC_IDS),
+        filters.Text(["Мои заявки"]) & filters.ChatType.PRIVATE,
         sc_handler.show_sc_requests
     ))
 
@@ -80,21 +80,21 @@ def main():
     
     # Обработчик для текста сообщения в чате
     application.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND & filters.User(user_id=SC_IDS),
+        filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
         sc_handler.handle_chat_message,
         block=False
     ))
     
     # Обработчик для текста комментария
     application.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND & filters.User(user_id=SC_IDS),
+        filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
         sc_handler.handle_comment_text,
         block=False
     ))
     
     # Обработчики для клиента (регистрируются ПОСЛЕ обработчиков СЦ)
     application.add_handler(MessageHandler(
-        filters.Text(["Мои заявки"]) & ~filters.User(user_id=SC_IDS),
+        filters.Text(["Мои заявки"]) & ~filters.ChatType.PRIVATE,
         client_handler.show_client_requests
     ))
     application.add_handler(MessageHandler(filters.Regex("^Мой профиль$"), client_handler.show_client_profile))
@@ -169,14 +169,14 @@ def main():
     ))
 
     application.add_handler(MessageHandler(
-        filters.PHOTO & filters.User(user_id=SC_IDS),
+        filters.PHOTO & filters.ChatType.PRIVATE,
         sc_item_handler.handle_photo_upload
     ))
 
     application.add_handler(CommandHandler(
         "done", 
         sc_item_handler.handle_photos_done, 
-        filters.User(user_id=SC_IDS)
+        filters.ChatType.PRIVATE
     ))
 
     # Добавление обработчиков меню для разных ролей

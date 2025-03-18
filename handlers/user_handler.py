@@ -2,14 +2,13 @@ from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import CallbackContext, ConversationHandler
 from handlers.base_handler import BaseHandler
 from database import load_users, save_users, load_service_centers
-from config import ADMIN_IDS, DELIVERY_IDS, SC_IDS, REGISTER
+from config import ADMIN_IDS, DELIVERY_IDS, REGISTER
 
 class UserHandler(BaseHandler):
 
     async def start(self, update: Update, context: CallbackContext):
         """
-        Маршрутизация по ролям и привязка к спискам
-        Можно тестировать один id по двум ролям
+        Маршрутизация по ролям
         """
         user_id = str(update.message.from_user.id)
         users_data = load_users()
@@ -21,8 +20,6 @@ class UserHandler(BaseHandler):
             elif role == "delivery":
                 return await self.show_delivery_menu(update, context)
             elif role == "sc":
-                if int(user_id) not in SC_IDS:
-                    SC_IDS.append(int(user_id))
                 return await self.show_sc_menu(update, context)
             else:
                 return await self.show_client_menu(update, context)
@@ -35,10 +32,6 @@ class UserHandler(BaseHandler):
                 users_data[user_id] = {"role": "delivery", "name": update.message.from_user.first_name}
                 save_users(users_data)
                 return await self.show_delivery_menu(update, context)
-            elif int(user_id) in SC_IDS:
-                users_data[user_id] = {"role": "sc", "name": update.message.from_user.first_name}
-                save_users(users_data)
-                return await self.show_sc_menu(update, context)
             else:
                 await update.message.reply_text(
                     "Пожалуйста, зарегистрируйтесь. Нажмите кнопку ниже, чтобы поделиться контактом.",
@@ -57,24 +50,18 @@ class UserHandler(BaseHandler):
             phone_number = phone_number[1:]
         
         # Проверяем, не является ли этот номер номером сервисного центра
-        is_sc_representative = False
-        sc_name = None
-        sc_id = None
         service_centers = load_service_centers()
+        sc_id = None
+        sc_name = None
         
         for center_id, center_data in service_centers.items():
             center_phone = center_data.get('phone', '')
-            # Приводим номер телефона СЦ к тому же формату
             if center_phone.startswith('+'):
                 center_phone = center_phone[1:]
                 
             if center_phone == phone_number:
-                is_sc_representative = True
-                sc_name = center_data.get('name')
                 sc_id = center_id
-                # Добавляем пользователя в список представителей СЦ
-                if int(user_id) not in SC_IDS:
-                    SC_IDS.append(int(user_id))
+                sc_name = center_data.get('name')
                 break
         
         # Определяем роль пользователя
@@ -83,7 +70,7 @@ class UserHandler(BaseHandler):
             role = "admin"
         elif int(user_id) in DELIVERY_IDS:
             role = "delivery"
-        elif is_sc_representative or int(user_id) in SC_IDS:
+        elif sc_id:  # Если нашли соответствующий СЦ
             role = "sc"
         
         # Создаем базовые данные пользователя
@@ -95,11 +82,11 @@ class UserHandler(BaseHandler):
         
         # Если это представитель СЦ, добавляем данные СЦ
         if role == "sc":
-            if sc_id:  # Если нашли СЦ по номеру телефона
+            if sc_id:
                 user_data["sc_id"] = sc_id
                 user_data["sc_name"] = sc_name
                 message = f"Спасибо, {contact.first_name}! Вы зарегистрированы как представитель СЦ '{sc_name}'."
-            else:  # Если СЦ не найден, но пользователь в SC_IDS
+            else:
                 message = "Вы зарегистрированы как представитель СЦ. Администратор назначит вам конкретный СЦ."
         else:
             message = f"Спасибо, {contact.first_name}! Вы успешно зарегистрированы."
@@ -108,7 +95,6 @@ class UserHandler(BaseHandler):
         users_data[user_id] = user_data
         save_users(users_data)
         
-        # Отправляем сообщение
         await update.message.reply_text(message)
         
         # Показываем соответствующее меню

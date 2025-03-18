@@ -3,7 +3,7 @@ from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update, Re
 from telegram.ext import CallbackContext, ConversationHandler
 from config import (
     ADMIN_IDS, ENTER_NAME, ENTER_PHONE, DELIVERY_MENU,
-    ENTER_CONFIRMATION_CODE, SMS_TOKEN, SC_IDS,
+    ENTER_CONFIRMATION_CODE, SMS_TOKEN,
     ORDER_STATUS_DELIVERY_TO_SC, ORDER_STATUS_DELIVERY_TO_CLIENT,
     ORDER_STATUS_CLIENT_REJECTED, ORDER_STATUS_WAITING_SC, CREATE_REQUEST_PHOTOS,
     DATA_DIR, USERS_JSON, REQUESTS_JSON, DELIVERY_TASKS_JSON
@@ -391,6 +391,7 @@ class DeliveryHandler(BaseHandler):
             ]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             # Отправляем фото и сообщение в СЦ
+            #TODO: избавиться от SC_IDS
             for admin_id in SC_IDS:
                 try:
                     media_group = [InputMediaPhoto(open(photo, 'rb')) for photo in photos]
