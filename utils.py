@@ -54,14 +54,12 @@ async def notify_delivery(
     message = f"🆕 Новая задача доставки!\n\n"
     message += f"Заявка: #{task_data['request_id']}\n"
     message += f"СЦ: {task_data['sc_name']}\n\n"
-    
     if detailed:
         message += f"Адрес клиента: {task_data.get('client_address', 'Не указан')}\n"
         message += f"Клиент: {task_data.get('client_name', 'Не указан')}\n"
         message += f"Телефон: {task_data.get('client_phone', 'Не указан')}\n"
         message += f"Описание: {task_data.get('description', 'Нет описания')}\n"
         message += f"Желаемая дата: {task_data.get('desired_date', 'Не указана')}\n"
-    
     keyboard = [[
         InlineKeyboardButton(
             "Принять задачу", 
@@ -69,10 +67,8 @@ async def notify_delivery(
         )
     ]]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
     if isinstance(delivery_ids, str):
         delivery_ids = [delivery_ids]
-    
     for delivery_id in delivery_ids:
         try:
             # Отправляем сообщение
@@ -83,7 +79,6 @@ async def notify_delivery(
                 parse_mode='Markdown'
             )
             logger.info(f"Уведомление отправлено доставщику {delivery_id}")
-
             # Отправляем фотографии, если они есть
             if 'delivery_photos' in task_data and task_data['delivery_photos']:
                 for photo_path in task_data['delivery_photos']:

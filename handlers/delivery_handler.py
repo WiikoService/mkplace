@@ -17,7 +17,7 @@ import requests
 
 from smsby import SMSBY
 
-# TODO: сделать смс - отдельным методом (не срочно)
+# TODO: сделать смс - отдельным методом (не срочно) ИЛИ сделать отдельным потоком
 
 logger = logging.getLogger(__name__)
 
@@ -172,6 +172,7 @@ class DeliveryHandler(BaseHandler):
         else:
             await query.edit_message_text("Произошла ошибка. Заказ не найден.")
 
+# уведомление СЦ
     async def handle_confirm_pickup(self, update: Update, context: CallbackContext):
         """
         Обработка подтверждения(отказа) передачи предмета клиентом
@@ -354,6 +355,7 @@ class DeliveryHandler(BaseHandler):
         await update.message.reply_text("Фото добавлено. Отправьте /done когда закончите.")
         return CREATE_REQUEST_PHOTOS
 
+# добавить уведомление клиенту
     async def handle_delivery_photos_done(self, update: Update, context: CallbackContext):
         """Завершение отправки фотографий и уведомление СЦ"""
         try:

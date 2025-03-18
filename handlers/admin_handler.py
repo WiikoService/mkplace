@@ -132,10 +132,8 @@ class AdminHandler(BaseHandler):
         request = requests_data.get(request_id, {})
         client_id = request.get('user_id')
         client_data = load_users().get(str(client_id), {})
-        
         # Извлекаем фотографии из заявки
         delivery_photos = request.get('photos', [])
-
         delivery_task = {
             'task_id': task_id,
             'request_id': request_id,

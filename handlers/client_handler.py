@@ -137,7 +137,6 @@ class ClientHandler:
         description = context.user_data.get("description", "Не указано")
         location = context.user_data.get("location", "Не указано")
         desired_date = context.user_data.get("desired_date", "Не указана")
-
         if isinstance(location, dict):
             if location.get("type") == "coordinates":
                 location_str = f"Широта: {location.get('latitude', 'N/A')}, Долгота: {location.get('longitude', 'N/A')}"
@@ -145,7 +144,6 @@ class ClientHandler:
                 location_str = location.get("address", "Адрес не указан")
         else:
             location_str = location
-
         summary = (
             f"Категория: {category}\n"
             f"Описание: {description}\n"
@@ -180,7 +178,6 @@ class ClientHandler:
         users_data = load_users()
         user_name = users_data.get(user_id, {}).get('name', 'Неизвестный пользователь')
         location = context.user_data["location"]
-        
         if isinstance(location, dict):
             if location.get("type") == "coordinates":
                 latitude = location["latitude"]
@@ -193,10 +190,8 @@ class ClientHandler:
         else:
             location_display = location
             location_link = "Адрес введен вручную"
-
         desired_date = context.user_data.get("desired_date")
         desired_date_str = desired_date.strftime("%H:%M %d.%m.%Y")
-        
         requests_data[request_id] = {
             "id": request_id,
             "user_id": user_id,
@@ -256,7 +251,6 @@ class ClientHandler:
                 reply += f"Заявка #{req['id']}\n"
                 reply += f"Статус: {req['status']}\n"
                 reply += f"Описание: {req['description'][:50]}...\n"
-                
                 location = req.get('location', {})
                 if isinstance(location, dict):
                     if location.get("type") == "coordinates":
@@ -265,9 +259,7 @@ class ClientHandler:
                         reply += f"Адрес: {location.get('address', 'Не указан')}\n"
                 else:
                     reply += f"Адрес: {location}\n"
-                
-                reply += "\n"
-            
+                reply += f"Желаемая дата и время: {req.get('desired_date', 'Не указана')}\n\n"
             await update.message.reply_text(reply)
 
     async def show_documents(self, update: Update, context: CallbackContext):
