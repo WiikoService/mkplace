@@ -86,27 +86,32 @@ class UserHandler(BaseHandler):
         elif is_sc_representative or int(user_id) in SC_IDS:
             role = "sc"
         
-        # Обновляем данные пользователя
-        users_data[user_id] = {
+        # Создаем базовые данные пользователя
+        user_data = {
             "phone": phone_number,
             "name": contact.first_name,
             "role": role
         }
         
-        # Если это представитель СЦ, добавляем связь с конкретным СЦ
-        if is_sc_representative and sc_id:
-            users_data[user_id]["sc_id"] = sc_id
-            users_data[user_id]["sc_name"] = sc_name
-            await update.message.reply_text(
-                f"Спасибо, {contact.first_name}! Вы зарегистрированы как представитель СЦ '{sc_name}'."
-            )
-            return await self.show_sc_menu(update, context)
+        # Если это представитель СЦ, добавляем данные СЦ
+        if role == "sc":
+            if sc_id:  # Если нашли СЦ по номеру телефона
+                user_data["sc_id"] = sc_id
+                user_data["sc_name"] = sc_name
+                message = f"Спасибо, {contact.first_name}! Вы зарегистрированы как представитель СЦ '{sc_name}'."
+            else:  # Если СЦ не найден, но пользователь в SC_IDS
+                message = "Вы зарегистрированы как представитель СЦ. Администратор назначит вам конкретный СЦ."
         else:
-            await update.message.reply_text(f"Спасибо, {contact.first_name}! Вы успешно зарегистрированы.")
-            
+            message = f"Спасибо, {contact.first_name}! Вы успешно зарегистрированы."
+        
+        # Сохраняем данные пользователя
+        users_data[user_id] = user_data
         save_users(users_data)
         
-        # Показываем соответствующее меню в зависимости от роли
+        # Отправляем сообщение
+        await update.message.reply_text(message)
+        
+        # Показываем соответствующее меню
         if role == "admin":
             return await self.show_admin_menu(update, context)
         elif role == "delivery":
