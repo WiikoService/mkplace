@@ -270,3 +270,9 @@ class SCHandler(BaseHandler):
         # Вызываем метод просмотра списка заявок
         await query.delete_message()
         await self.show_sc_requests(update, context)
+
+    def get_sc_ids(self):
+        """Получение списка ID пользователей с ролью СЦ"""
+        users_data = load_users()
+        return [int(user_id) for user_id, user_info in users_data.items() 
+                if user_info.get('role') == 'sc']

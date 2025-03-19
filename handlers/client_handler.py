@@ -15,6 +15,9 @@ from database import load_requests, load_users, save_requests
 import os
 
 from utils import notify_admin
+import logging
+
+logger = logging.getLogger(__name__)
 
 class ClientHandler:
 
@@ -29,6 +32,7 @@ class ClientHandler:
         user_id = str(update.effective_user.id)
         users_data = load_users()
         user = users_data.get(user_id, {})
+        logger.info(f"Пользователь {user_id} пытается создать заявку.")
         if user.get('blocked'):
             await update.message.reply_text(
                 "Извините, но вы не можете создавать заявки, так как ваш аккаунт заблокирован."

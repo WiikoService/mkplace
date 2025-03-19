@@ -14,6 +14,7 @@ from utils import notify_client
 import logging
 import random
 import requests
+from telegram.error import BadRequest
 
 from smsby import SMSBY
 
@@ -23,6 +24,14 @@ logger = logging.getLogger(__name__)
 
 
 class DeliveryHandler(BaseHandler):
+
+    async def show_delivery_menu(self, update: Update, context: CallbackContext):
+        keyboard = [
+            ["Доступные задания", "Мои задания"],
+            ["Передать в СЦ", "Мой профиль"]
+        ]
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        await update.message.reply_text("Меню доставщика:", reply_markup=reply_markup)
 
     async def show_delivery_profile(self, update: Update, context: CallbackContext):
         """Отображение профиля доставщика."""
@@ -127,8 +136,14 @@ class DeliveryHandler(BaseHandler):
         requests_data = load_requests()
         delivery_tasks = load_delivery_tasks()
         if request_id in requests_data:
-            requests_data[request_id]['status'] = 'Доставщик в пути к клиенту'
+            # Проверяем, не была ли задача уже принята
+            if requests_data[request_id].get('assigned_delivery'):
+                await query.edit_message_text("Эта задача уже принята другим доставщиком.")
+                return
+
+            # Обновляем данные заявки
             requests_data[request_id]['assigned_delivery'] = str(query.from_user.id)
+            requests_data[request_id]['status'] = 'Принято доставщиком'
             save_requests(requests_data)
             for task in delivery_tasks:
                 if isinstance(task, dict) and task.get('request_id') == request_id:
@@ -160,9 +175,31 @@ class DeliveryHandler(BaseHandler):
             user = load_users().get(str(query.from_user.id), {})
             delivery_name = user.get('name', 'Неизвестный доставщик')
             delivery_phone = user.get('phone', 'Номер не указан')
-            admin_message = f"Заказ №{request_id} принят доставщиком.\n"
-            admin_message += f"Доставщик: {delivery_name} - +{delivery_phone}\n"
-            admin_message += f"Статус: Доставщик в пути к клиенту"
+
+            # Формируем новый текст сообщения
+            message_text = (
+                f"Заявка #{request_id}\n"
+                f"Статус: Принято доставщиком\n"
+                f"Доставщик: {delivery_name}\n"
+                f"Телефон: +{delivery_phone}"
+            )
+
+            try:
+                # Обновляем сообщение с новой информацией
+                await query.edit_message_text(
+                    text=message_text,
+                    reply_markup=None  # Убираем кнопки после принятия заказа
+                )
+            except BadRequest as e:
+                if "Message is not modified" not in str(e):
+                    raise e
+
+            # Уведомляем администраторов
+            admin_message = (
+                f"Заказ #{request_id} принят доставщиком.\n"
+                f"Доставщик: {delivery_name} - +{delivery_phone}\n"
+                f"Статус: Доставщик в пути к клиенту"
+            )
             for admin_id in ADMIN_IDS:
                 await context.bot.send_message(
                     chat_id=admin_id,
@@ -376,6 +413,7 @@ class DeliveryHandler(BaseHandler):
             for task in delivery_tasks.values():
                 if isinstance(task, dict) and task.get('request_id') == request_id:
                     task['status'] = ORDER_STATUS_WAITING_SC
+                    sc_name = task.get('sc_name')  # Получаем имя СЦ из задачи
                     break
             save_delivery_tasks(delivery_tasks)
             # Уведомляем СЦ
@@ -390,19 +428,28 @@ class DeliveryHandler(BaseHandler):
                 InlineKeyboardButton("Отказать в приёме", callback_data=f"reject_item_{request_id}")
             ]]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            # Отправляем фото и сообщение в СЦ
-            #TODO: избавиться от SC_IDS
-            for admin_id in SC_IDS:
+            
+            # Загружаем пользователей и находим sc_id по sc_name
+            users_data = load_users()
+            sc_id = None
+            
+            for user_id, user_info in users_data.items():
+                if user_info.get('sc_name') == sc_name:
+                    sc_id = user_id
+                    break
+            
+            if sc_id:
                 try:
                     media_group = [InputMediaPhoto(open(photo, 'rb')) for photo in photos]
-                    await context.bot.send_media_group(chat_id=admin_id, media=media_group)
+                    await context.bot.send_media_group(chat_id=sc_id, media=media_group)
                     await context.bot.send_message(
-                        chat_id=admin_id,
+                        chat_id=sc_id,
                         text=sc_message,
                         reply_markup=reply_markup
                     )
                 except Exception as e:
-                    logger.error(f"Ошибка отправки уведомления СЦ {admin_id}: {e}")
+                    logger.error(f"Ошибка отправки уведомления СЦ {sc_id}: {e}")
+            
             # Очищаем данные
             del context.user_data['photos_to_sc']
             del context.user_data['current_request']

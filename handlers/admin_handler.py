@@ -36,7 +36,6 @@ class AdminHandler(BaseHandler):
                 request_id = parts[2]
             logger.info(f"Processing request_id: {request_id}")
             requests_data = load_requests()
-            logger.info(f"Available requests: {list(requests_data.keys())}")
             if request_id not in requests_data:
                 await query.edit_message_text(f"Заявка #{request_id} не найдена")
                 return ConversationHandler.END
@@ -104,6 +103,11 @@ class AdminHandler(BaseHandler):
             logger.info(f"Message updated for request {request_id}")
             task_id, task_data = await self.create_delivery_task(update, context, request_id, sc_data['name'])
             logger.info(f"Request {request_id} successfully assigned to SC {sc_id} and delivery task {task_id} created")
+            # Уведомляем клиента
+            await context.bot.send_message(
+                chat_id=sc_data['user_id'],
+                text=f"Заявка #{request_id} привязана к СЦ {sc_data['name']}."
+            )
             return ConversationHandler.END
         except Exception as e:
             logger.error(f"Error in handle_assign_sc_confirm: {e}")
@@ -272,8 +276,8 @@ class AdminHandler(BaseHandler):
             await update.message.reply_text("Список СЦ пуст.")
         else:
             reply = "Список сервисных центров:\n\n"
-            for sc_id, sc_data in service_centers.items():
-                reply += f"ID: {sc_id}\n"
+            for id, sc_data in service_centers.items():
+                reply += f"ID: {id}\n"
                 reply += f"Название: {sc_data['name']}\n"
                 reply += f"Адрес: {sc_data.get('address', 'Не указан')}\n"
                 reply += "-------------------\n"        

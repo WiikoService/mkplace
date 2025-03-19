@@ -88,6 +88,7 @@ async def notify_delivery(
         except Exception as e:
             logger.error(f"Ошибка отправки уведомления доставщику {delivery_id}: {e}")
 
+
 async def notify_client(bot, client_id, message, reply_markup=None):
     try:
         await bot.send_message(chat_id=client_id, text=message, reply_markup=reply_markup)

@@ -140,5 +140,3 @@ class UserHandler(BaseHandler):
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         await update.message.reply_text("Меню СЦ:", reply_markup=reply_markup)
-
-    
