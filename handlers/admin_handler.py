@@ -76,39 +76,55 @@ class AdminHandler(BaseHandler):
                 logger.error(f"Invalid data format: {query.data}")
                 await query.edit_message_text("Неверный формат данных")
                 return ConversationHandler.END
+
             request_id = parts[3]
             sc_id = parts[4]
             logger.info(f"Request ID: {request_id}, SC ID: {sc_id}")
+
+            # Загрузка данных
             requests_data = load_requests()
-            logger.info(f"Loaded requests: {list(requests_data.keys())}")
             service_centers = load_service_centers()
-            logger.info(f"Loaded service centers: {list(service_centers.keys())}")
+
+            # Проверки
             if request_id not in requests_data:
                 logger.error(f"Request {request_id} not found")
                 await query.edit_message_text(f"Заявка #{request_id} не найдена")
                 return ConversationHandler.END
+
             if sc_id not in service_centers:
                 logger.error(f"Service center {sc_id} not found")
                 await query.edit_message_text(f"Сервисный центр с ID {sc_id} не найден")
                 return ConversationHandler.END
+
             sc_data = service_centers[sc_id]
+
+            # Обновление заявки
             requests_data[request_id].update({
                 'assigned_sc': sc_id,
                 'status': ORDER_STATUS_ASSIGNED_TO_SC
             })
             save_requests(requests_data)
             logger.info(f"Updated request {request_id} with SC {sc_id}")
-            new_text = f"Заявка #{request_id} привязана к СЦ {sc_data['name']}."
+
+            # Уведомление администратора
+            new_text = f"✅ Заявка #{request_id} привязана к СЦ {sc_data['name']}."
             await query.edit_message_text(new_text)
             logger.info(f"Message updated for request {request_id}")
+
+            # Создание задачи доставки
             task_id, task_data = await self.create_delivery_task(update, context, request_id, sc_data['name'])
             logger.info(f"Request {request_id} successfully assigned to SC {sc_id} and delivery task {task_id} created")
-            # Уведомляем клиента
-            await context.bot.send_message(
-                chat_id=sc_data['user_id'],
-                text=f"Заявка #{request_id} привязана к СЦ {sc_data['name']}."
-            )
+
+            # Уведомление клиента (если нужно)
+            client_id = requests_data[request_id].get('user_id')
+            if client_id:
+                await context.bot.send_message(
+                    chat_id=client_id,
+                    text=f"Ваша заявка #{request_id} привязана к СЦ {sc_data['name']}."
+                )
+
             return ConversationHandler.END
+
         except Exception as e:
             logger.error(f"Error in handle_assign_sc_confirm: {e}")
             await query.edit_message_text(f"Произошла ошибка при привязке заявки к СЦ: {str(e)}")

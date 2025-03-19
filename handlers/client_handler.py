@@ -9,9 +9,9 @@ from config import (
     ADMIN_IDS, CREATE_REQUEST_DESC, CREATE_REQUEST_PHOTOS,
     CREATE_REQUEST_LOCATION, PHOTOS_DIR, CREATE_REQUEST_CATEGORY,
     CREATE_REQUEST_DATA, CREATE_REQUEST_ADDRESS, CREATE_REQUEST_CONFIRMATION,
-    DATA_DIR, USERS_JSON, REQUESTS_JSON
+    DATA_DIR, USERS_JSON, REQUESTS_JSON, ORDER_STATUS_DELIVERY_TO_SC, ORDER_STATUS_CLIENT_REJECTED
 )
-from database import load_requests, load_users, save_requests
+from database import load_requests, load_users, save_requests, load_delivery_tasks, save_delivery_tasks
 import os
 
 from utils import notify_admin
@@ -288,3 +288,51 @@ class ClientHandler:
             message += f"Описание: {request_data[request_id]['description'][:50]}...\n"
             message += f"Статус: {request_data[request_id]['status']}"
             await bot.send_message(chat_id=admin_id, text=message)
+
+    async def handle_client_confirmation(self, update: Update, context: CallbackContext):
+        """Обработка подтверждения или отказа передачи предмета клиентом."""
+        query = update.callback_query
+        await query.answer()
+        try:
+            action, request_id = query.data.split('_')[1:]
+            requests_data = load_requests()
+            delivery_tasks = load_delivery_tasks()
+            
+            if request_id in requests_data:
+                if action == 'confirm':
+                    new_status = ORDER_STATUS_DELIVERY_TO_SC
+                    delivery_id = requests_data[request_id].get('assigned_delivery')
+                    
+                    # Обновляем статус в requests
+                    requests_data[request_id].update({
+                        'status': new_status,
+                        'assigned_delivery': delivery_id
+                    })
+                    save_requests(requests_data)
+                    
+                    # Обновляем статус в delivery_tasks
+                    for task in delivery_tasks:
+                        if isinstance(task, dict) and task.get('request_id') == request_id:
+                            task['status'] = new_status
+                            task['assigned_delivery_id'] = delivery_id
+                            break
+                    save_delivery_tasks(delivery_tasks)
+                    
+                    # Уведомляем доставщика
+                    delivery_message = (
+                        f"✅ Клиент подтвердил получение по заявке #{request_id}."
+                    )
+                    await context.bot.send_message(chat_id=delivery_id, text=delivery_message)
+                    
+                    await query.edit_message_text("Спасибо за подтверждение.")
+                else:
+                    # Обработка отказа
+                    new_status = ORDER_STATUS_CLIENT_REJECTED
+                    requests_data[request_id]['status'] = new_status
+                    save_requests(requests_data)
+                    await query.edit_message_text("Вы отказались от получения товара.")
+            else:
+                await query.edit_message_text("Заявка не найдена.")
+        except Exception as e:
+            logger.error(f"Ошибка при обработке подтверждения клиента: {e}")
+            await query.edit_message_text("Произошла ошибка при обработке подтверждения.")

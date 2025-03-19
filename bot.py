@@ -106,6 +106,12 @@ def register_client_handlers(application, client_handler):
                 CallbackQueryHandler(
                     client_handler.handle_request_confirmation
                 )
+            ],
+            CREATE_REQUEST_DELIVERY: [
+                CallbackQueryHandler(
+                    client_handler.handle_client_confirmation,
+                    pattern=r"^client_(confirm|deny)_(\d+)$"  # Регистрация нового обработчика
+                )
             ]
         },
         fallbacks=[
@@ -242,8 +248,8 @@ def register_admin_handlers(application, admin_handler, sc_management_handler):
     
     # Управление СЦ
     application.add_handler(MessageHandler(filters.Regex("^Управление СЦ$"), sc_management_handler.show_sc_management))
-    
-    # Удаление СЦ
+
+    application.add_handler(MessageHandler(filters.Regex("^Добавить СЦ$"), sc_management_handler.handle_add_sc_start))
     application.add_handler(MessageHandler(filters.Regex("^Удалить СЦ$"), sc_management_handler.handle_delete_sc))
     application.add_handler(CallbackQueryHandler(sc_management_handler.handle_delete_sc_confirm, pattern="^delete_sc_[0-9]+"))
     application.add_handler(CallbackQueryHandler(sc_management_handler.handle_delete_sc_final, pattern="^delete_sc_confirmed_[0-9]+|delete_sc_cancel$"))
