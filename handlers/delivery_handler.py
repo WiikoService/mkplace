@@ -168,7 +168,7 @@ class DeliveryHandler(BaseHandler):
             client_id = requests_data[request_id].get('user_id')
             if client_id:
                 await context.bot.send_message(
-                    chat_id=client_id,
+                    chat_id=int(client_id),
                     text=f"Доставщик принял ваш заказ №{request_id} и направляется к вам."
                 )
             # Уведомляем администраторов
