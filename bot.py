@@ -16,6 +16,7 @@ from handlers.client_handler import ClientHandler
 from handlers.admin_handler import AdminHandler
 from handlers.delivery_handler import DeliveryHandler
 from handlers.sc_handler import SCHandler
+from handlers.sc_item_handler import SCItemHandler
 from handlers.admin_sc_management_handler import SCManagementHandler
 
 from database import ensure_data_dir
@@ -36,17 +37,46 @@ def main():
     delivery_handler = DeliveryHandler()
     sc_handler = SCHandler()
     sc_management_handler = SCManagementHandler()
+    sc_item_handler = SCItemHandler()
 
     # Создание приложения
     application = Application.builder().token(TELEGRAM_API_TOKEN).build()
 
-    # Обработчики команд
-    application.add_handler(CommandHandler("start", user_handler.start))
+    # Регистрация обработчиков
+    register_client_handlers(application, client_handler, user_handler)
+    register_admin_handlers(application, admin_handler, user_handler, sc_management_handler)
+    register_delivery_handlers(application, delivery_handler, user_handler)
+    register_sc_handlers(application, sc_handler, sc_item_handler)
+    register_callbacks(application, delivery_handler, admin_handler, user_handler, sc_management_handler)
 
-    # Обработчик регистрации
+    # Обработчики команд (общие для всех)
+    application.add_handler(CommandHandler("start", user_handler.start))
     application.add_handler(MessageHandler(filters.CONTACT, user_handler.handle_contact))
 
+    # Установка данных бота
+    application.bot_data["admin_ids"] = ADMIN_IDS
+    application.bot_data["delivery_ids"] = DELIVERY_IDS
+
+    # Убедимся, что директории существуют
+    ensure_photos_dir()
+    ensure_data_dir()
+
+    # Запуск бота
+    application.run_polling()
+
+
+def register_client_handlers(application, client_handler, user_handler):
+
     # Обработчики для клиента
+
+    # Обработчик меню клиента
+    application.add_handler(
+        MessageHandler(
+            filters.Regex("^Меню клиента$"),
+            user_handler.show_client_menu
+        )
+    )
+
     application.add_handler(ConversationHandler(
         entry_points=[
             MessageHandler(filters.Regex("^Создать заявку$"), client_handler.create_request)
@@ -81,6 +111,9 @@ def main():
     application.add_handler(MessageHandler(filters.Regex("^Мои заявки$"), client_handler.show_client_requests))
     application.add_handler(MessageHandler(filters.Regex("^Мой профиль$"), client_handler.show_client_profile))
 
+
+def register_admin_handlers(application, admin_handler, user_handler, sc_management_handler):
+
     # Обработчики для администратора
     application.add_handler(MessageHandler(filters.Regex("^Просмотр заявок$"), admin_handler.view_requests))
     application.add_handler(ConversationHandler(
@@ -109,7 +142,7 @@ def main():
             ]
         },
         fallbacks=[],
-        allow_reentry=True
+        allow_reentry=True,
     ))
     application.add_handler(MessageHandler(
         filters.Regex("^Управление СЦ$") & filters.User(user_id=ADMIN_IDS),
@@ -123,8 +156,58 @@ def main():
         filters.Regex("^Админская панель$") & filters.User(user_id=ADMIN_IDS),
         user_handler.show_admin_menu
     ))
+
+    # Обработчик удаления СЦ
+    application.add_handler(MessageHandler(
+        filters.Regex("^Удалить СЦ$") & filters.User(user_id=ADMIN_IDS),
+        sc_management_handler.handle_delete_sc
+    ))
+
+    # Обработчики для подтверждения удаления СЦ
+    application.add_handler(CallbackQueryHandler(
+        sc_management_handler.handle_delete_sc_confirm,
+        pattern="^delete_sc_[0-9]+"
+    ))
+
+    application.add_handler(CallbackQueryHandler(
+        sc_management_handler.handle_delete_sc_final,
+        pattern="^delete_sc_confirmed_[0-9]+|delete_sc_cancel$"
+    ))
+
+    # Обработчик добавления СЦ
+    application.add_handler(ConversationHandler(
+        entry_points=[
+            MessageHandler(
+                filters.Regex("^Добавить СЦ$") & filters.User(user_id=ADMIN_IDS),
+                sc_management_handler.handle_add_sc_start
+            )
+        ],
+        states={
+            SC_MANAGEMENT_ADD_NAME: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    sc_management_handler.handle_add_sc_name
+                )
+            ],
+            SC_MANAGEMENT_ADD_ADDRESS: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    sc_management_handler.handle_add_sc_address
+                )
+            ],
+            SC_MANAGEMENT_ADD_PHONE: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    sc_management_handler.handle_add_sc_phone
+                )
+            ]
+        },
+        fallbacks=[CommandHandler("cancel", sc_management_handler.cancel)]
+    ))
+
+
+def register_delivery_handlers(application, delivery_handler, user_handler):
     # Обработчики для доставщика
-    delivery_handler = DeliveryHandler()
 
     application.add_handler(MessageHandler(
         filters.Text(["Меню доставщика"]) & filters.User(user_id=DELIVERY_IDS),
@@ -146,37 +229,41 @@ def main():
         delivery_handler.show_delivery_profile
     ))
 
+
+def register_sc_handlers(application, sc_handler, sc_item_handler):
     # Обработчики для СЦ - изменяем порядок и фильтры
-    
+
     # Сначала регистрируем ConversationHandler для фотографий
     sc_photos_handler = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(
-                sc_handler.handle_item_acceptance,
+                sc_item_handler.handle_item_acceptance,
                 pattern="^accept_item_"
             )
         ],
         states={
             CREATE_REQUEST_PHOTOS: [
-                MessageHandler(filters.PHOTO, sc_handler.handle_photo_upload),
-                CommandHandler("done", sc_handler.handle_photos_done)
+                MessageHandler(filters.PHOTO, sc_item_handler.handle_photo_upload),
+                CommandHandler("done", sc_item_handler.handle_photos_done)
             ]
         },
-        fallbacks=[CommandHandler("cancel", sc_handler.cancel)]
+        fallbacks=[]
     )
     application.add_handler(sc_photos_handler)
-    
+
     # Затем регистрируем обработчики для отказа
     application.add_handler(CallbackQueryHandler(
-        sc_handler.handle_item_acceptance,
+        sc_item_handler.handle_item_acceptance,
         pattern="^reject_item_"
     ))
-    
+
     application.add_handler(CallbackQueryHandler(
-        sc_handler.handle_reject_reason,
+        sc_item_handler.handle_reject_reason,
         pattern="^reject_reason_"
     ))
 
+
+def register_callbacks(application, delivery_handler, admin_handler, user_handler, sc_management_handler):
     # Обработчики callback-запросов
     application.add_handler(CallbackQueryHandler(
         delivery_handler.accept_delivery,
@@ -238,67 +325,6 @@ def main():
         admin_handler.handle_block_user,
         pattern="^block_user_"
     ))
-
-    # Добавление обработчиков меню для разных ролей
-    application.add_handler(MessageHandler(filters.Regex("^Меню клиента$"), user_handler.show_client_menu))
-
-    # Обработчик добавления СЦ
-    application.add_handler(ConversationHandler(
-        entry_points=[
-            MessageHandler(
-                filters.Regex("^Добавить СЦ$") & filters.User(user_id=ADMIN_IDS),
-                sc_management_handler.handle_add_sc_start
-            )
-        ],
-        states={
-            SC_MANAGEMENT_ADD_NAME: [
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
-                    sc_management_handler.handle_add_sc_name
-                )
-            ],
-            SC_MANAGEMENT_ADD_ADDRESS: [
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
-                    sc_management_handler.handle_add_sc_address
-                )
-            ],
-            SC_MANAGEMENT_ADD_PHONE: [
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
-                    sc_management_handler.handle_add_sc_phone
-                )
-            ]
-        },
-        fallbacks=[CommandHandler("cancel", sc_management_handler.cancel)]
-    ))
-    
-    # Обработчик удаления СЦ
-    application.add_handler(MessageHandler(
-        filters.Regex("^Удалить СЦ$") & filters.User(user_id=ADMIN_IDS),
-        sc_management_handler.handle_delete_sc
-    ))
-    
-    # Обработчики для подтверждения удаления СЦ
-    application.add_handler(CallbackQueryHandler(
-        sc_management_handler.handle_delete_sc_confirm,
-        pattern="^delete_sc_[0-9]+"
-    ))
-    
-    application.add_handler(CallbackQueryHandler(
-        sc_management_handler.handle_delete_sc_final,
-        pattern="^delete_sc_confirmed_[0-9]+|delete_sc_cancel$"
-    ))
-
-    # Установка данных бота
-    application.bot_data["admin_ids"] = ADMIN_IDS
-    application.bot_data["delivery_ids"] = DELIVERY_IDS
-
-    # Убедимся, что директории существуют
-    ensure_photos_dir()
-    ensure_data_dir()
-    # Запуск бота
-    application.run_polling()
 
 
 if __name__ == '__main__':

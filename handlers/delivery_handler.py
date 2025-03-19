@@ -574,7 +574,7 @@ class DeliveryHandler(BaseHandler):
                 if request_id in requests_data:
                     keyboard = [[
                         InlineKeyboardButton(
-                            "Передать в СЦ", 
+                            "Передать в СЦ",
                             callback_data=f"delivered_to_sc_{request_id}"
                         )
                     ]]
