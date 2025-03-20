@@ -22,12 +22,12 @@ from handlers.admin_sc_management_handler import SCManagementHandler
 from database import ensure_data_dir
 from utils import ensure_photos_dir
 
-# Настройка логирования
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
 
 def main():
     # Создание экземпляров обработчиков
@@ -231,7 +231,9 @@ def register_delivery_handlers(application, delivery_handler, user_handler):
 
 
 def register_sc_handlers(application, sc_handler, sc_item_handler):
-    # Обработчики для СЦ - изменяем порядок и фильтры
+    # Обработчики для СЦ
+
+    application.add_handler(MessageHandler(filters.Regex("^Меню СЦ$"), sc_handler.show_sc_menu))
 
     # Сначала регистрируем ConversationHandler для фотографий
     sc_photos_handler = ConversationHandler(
@@ -261,6 +263,26 @@ def register_sc_handlers(application, sc_handler, sc_item_handler):
         sc_item_handler.handle_reject_reason,
         pattern="^reject_reason_"
     ))
+
+    # Обработчик списка заявок
+    application.add_handler(
+        MessageHandler(filters.Text("Заявки центра"), sc_handler.set_sc_requests)
+    )
+
+    # Обработчик выбора заявки
+    application.add_handler(
+        CallbackQueryHandler(
+            sc_handler.choose_requests,
+            pattern=r"^sc_request_"
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            sc_handler.handle_back_to_list,
+            pattern="^sc_back_to_list$"
+        )
+    )
 
 
 def register_callbacks(application, delivery_handler, admin_handler, user_handler, sc_management_handler):

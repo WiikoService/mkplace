@@ -7,9 +7,11 @@ from typing import Union
 
 logger = logging.getLogger(__name__)
 
+
 def ensure_photos_dir():
     if not os.path.exists(PHOTOS_DIR):
         os.makedirs(PHOTOS_DIR)
+
 
 async def notify_admin(bot, request_id, requests_data, admin_ids):
     request = requests_data[request_id]
@@ -41,7 +43,7 @@ async def notify_admin(bot, request_id, requests_data, admin_ids):
         except Exception as e:
             print(f"Не удалось отправить уведомление администратору {admin_id}: {e}")
 
-            
+
 async def notify_delivery(
     bot, 
     delivery_ids: Union[list, str], 
@@ -87,6 +89,7 @@ async def notify_delivery(
                         logger.info(f"Фото отправлено доставщику {delivery_id} для заявки {task_data['request_id']}")
         except Exception as e:
             logger.error(f"Ошибка отправки уведомления доставщику {delivery_id}: {e}")
+
 
 async def notify_client(bot, client_id, message, reply_markup=None):
     try:

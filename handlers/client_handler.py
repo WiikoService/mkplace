@@ -1,20 +1,21 @@
+import os
 from datetime import datetime
 
+from telegram.ext import CallbackContext, ConversationHandler
 from telegram import (
     Bot, Update, ReplyKeyboardMarkup, KeyboardButton,
-    ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+    ReplyKeyboardRemove, InlineKeyboardMarkup,
+    InlineKeyboardButton, CallbackQuery
 )
-from telegram.ext import CallbackContext, ConversationHandler
+
 from config import (
     ADMIN_IDS, CREATE_REQUEST_DESC, CREATE_REQUEST_PHOTOS,
     CREATE_REQUEST_LOCATION, PHOTOS_DIR, CREATE_REQUEST_CATEGORY,
     CREATE_REQUEST_DATA, CREATE_REQUEST_ADDRESS, CREATE_REQUEST_CONFIRMATION,
-    DATA_DIR, USERS_JSON, REQUESTS_JSON
 )
 from database import load_requests, load_users, save_requests
-import os
-
 from utils import notify_admin
+
 
 class ClientHandler:
 
@@ -41,7 +42,7 @@ class ClientHandler:
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text("Выберите категорию:", reply_markup=reply_markup)
         return CREATE_REQUEST_CATEGORY
-    
+
     async def handle_category(self, update: Update, context: CallbackContext):
         """Обработка выбора категории"""
         query = update.callback_query
@@ -158,7 +159,6 @@ class ClientHandler:
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(summary, reply_markup=reply_markup)
         return CREATE_REQUEST_CONFIRMATION
-
 
     async def handle_request_confirmation(self, update: Update, context: CallbackContext):
         """Обработка подтверждения или отмены заявки."""

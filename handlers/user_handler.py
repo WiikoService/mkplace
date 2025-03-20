@@ -1,8 +1,9 @@
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
-from telegram.ext import CallbackContext, ConversationHandler
+from telegram.ext import CallbackContext
 from handlers.base_handler import BaseHandler
 from database import load_users, save_users, load_service_centers
 from config import ADMIN_IDS, DELIVERY_IDS, SC_IDS, REGISTER
+
 
 class UserHandler(BaseHandler):
 
@@ -42,7 +43,8 @@ class UserHandler(BaseHandler):
             else:
                 await update.message.reply_text(
                     "Пожалуйста, зарегистрируйтесь. Нажмите кнопку ниже, чтобы поделиться контактом.",
-                    reply_markup=ReplyKeyboardMarkup([[KeyboardButton("Отправить контакт", request_contact=True)]], one_time_keyboard=True)
+                    reply_markup=ReplyKeyboardMarkup(
+                        [[KeyboardButton("Отправить контакт", request_contact=True)]], one_time_keyboard=True)
                 )
                 return REGISTER
 
@@ -50,62 +52,51 @@ class UserHandler(BaseHandler):
         contact = update.message.contact
         user_id = str(update.message.from_user.id)
         users_data = load_users()
-        phone_number = contact.phone_number
-        
-        # Если номер начинается с +, удаляем его для согласованности формата
-        if phone_number.startswith('+'):
-            phone_number = phone_number[1:]
-        
-        # Проверяем, не является ли этот номер номером сервисного центра
-        is_sc_representative = False
-        sc_name = None
+        phone_number = contact.phone_number.lstrip('+')  # Убираем "+"
+
+        # Проверяем, является ли этот номер номером сервисного центра
         sc_id = None
+        sc_name = None
         service_centers = load_service_centers()
-        
+
         for center_id, center_data in service_centers.items():
-            center_phone = center_data.get('phone', '')
-            # Приводим номер телефона СЦ к тому же формату
-            if center_phone.startswith('+'):
-                center_phone = center_phone[1:]
-                
+            center_phone = center_data.get('phone', '').lstrip('+')
             if center_phone == phone_number:
-                is_sc_representative = True
-                sc_name = center_data.get('name')
                 sc_id = center_id
-                # Добавляем пользователя в список представителей СЦ
-                if int(user_id) not in SC_IDS:
-                    SC_IDS.append(int(user_id))
-                break
-        
+                sc_name = center_data.get('name')
+                break  # Нашли соответствие, прерываем цикл
+
         # Определяем роль пользователя
-        role = "client"  # По умолчанию
         if int(user_id) in ADMIN_IDS:
             role = "admin"
         elif int(user_id) in DELIVERY_IDS:
             role = "delivery"
-        elif is_sc_representative or int(user_id) in SC_IDS:
+        elif sc_id:
             role = "sc"
-        
+        else:
+            role = "client"
+
         # Обновляем данные пользователя
         users_data[user_id] = {
             "phone": phone_number,
             "name": contact.first_name,
             "role": role
         }
-        
-        # Если это представитель СЦ, добавляем связь с конкретным СЦ
-        if is_sc_representative and sc_id:
+
+        # Привязываем к СЦ, если нашли соответствие
+        if role == "sc" and sc_id:
             users_data[user_id]["sc_id"] = sc_id
             users_data[user_id]["sc_name"] = sc_name
-            await update.message.reply_text(
-                f"Спасибо, {contact.first_name}! Вы зарегистрированы как представитель СЦ '{sc_name}'."
-            )
+
+        save_users(users_data)  # Сохраняем данные пользователя
+
+        # Отправляем подтверждающее сообщение
+        if role == "sc" and sc_id:
+            await update.message.reply_text(f"Спасибо, {contact.first_name}! Вы зарегистрированы как представитель СЦ '{sc_name}'.")
             return await self.show_sc_menu(update, context)
         else:
             await update.message.reply_text(f"Спасибо, {contact.first_name}! Вы успешно зарегистрированы.")
-            
-        save_users(users_data)
-        
+
         # Показываем соответствующее меню в зависимости от роли
         if role == "admin":
             return await self.show_admin_menu(update, context)
@@ -123,7 +114,7 @@ class UserHandler(BaseHandler):
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         await update.message.reply_text("Меню клиента:", reply_markup=reply_markup)
-    
+
     async def show_admin_menu(self, update: Update, context: CallbackContext):
         keyboard = [
             ["Просмотр заявок", "Привязать к СЦ"],
@@ -143,11 +134,9 @@ class UserHandler(BaseHandler):
 
     async def show_sc_menu(self, update: Update, context: CallbackContext):
         keyboard = [
-            ["Мои заявки", "Отправить в доставку"],
+            ["Заявки центра", "Отправить в доставку"],
             ["Связаться с администратором"],
             ["Документы"]
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         await update.message.reply_text("Меню СЦ:", reply_markup=reply_markup)
-
-    
