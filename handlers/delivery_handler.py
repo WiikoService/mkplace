@@ -1,16 +1,13 @@
-import json
-from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update, ReplyKeyboardMarkup, InputMediaPhoto
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update, InputMediaPhoto
 from telegram.ext import CallbackContext, ConversationHandler
 from config import (
-    ADMIN_IDS, ENTER_NAME, ENTER_PHONE, DELIVERY_MENU,
+    ADMIN_IDS, ENTER_NAME, ENTER_PHONE,
     ENTER_CONFIRMATION_CODE, SMS_TOKEN, SC_IDS,
     ORDER_STATUS_DELIVERY_TO_SC, ORDER_STATUS_DELIVERY_TO_CLIENT,
-    ORDER_STATUS_CLIENT_REJECTED, ORDER_STATUS_WAITING_SC, CREATE_REQUEST_PHOTOS,
-    DATA_DIR, USERS_JSON, REQUESTS_JSON, DELIVERY_TASKS_JSON
+    ORDER_STATUS_CLIENT_REJECTED, ORDER_STATUS_WAITING_SC, CREATE_REQUEST_PHOTOS
 )
 from handlers.base_handler import BaseHandler
 from database import load_delivery_tasks, load_users, load_requests, save_delivery_tasks, save_requests, save_users, load_service_centers
-from utils import notify_client
 import logging
 import random
 import requests
@@ -162,7 +159,7 @@ class DeliveryHandler(BaseHandler):
             delivery_phone = user.get('phone', 'Номер не указан')
             admin_message = f"Заказ №{request_id} принят доставщиком.\n"
             admin_message += f"Доставщик: {delivery_name} - +{delivery_phone}\n"
-            admin_message += f"Статус: Доставщик в пути к клиенту"
+            admin_message += "Статус: Доставщик в пути к клиенту"
             for admin_id in ADMIN_IDS:
                 await context.bot.send_message(
                     chat_id=admin_id,
@@ -407,7 +404,6 @@ class DeliveryHandler(BaseHandler):
             del context.user_data['current_request']
             await update.message.reply_text("✅ Фотографии загружены, ожидаем подтверждения от СЦ.")
             return ConversationHandler.END
-            
         except Exception as e:
             logger.error(f"Ошибка при завершении загрузки фото: {e}")
             await update.message.reply_text("Произошла ошибка при обработке фотографий.")
@@ -498,7 +494,6 @@ class DeliveryHandler(BaseHandler):
                 )
                 reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
                 await update.message.reply_text(message, reply_markup=reply_markup)
-            
         except Exception as e:
             logger.error(f"Ошибка при показе заданий: {e}")
             await update.message.reply_text("Произошла ошибка при загрузке заданий.")
@@ -574,7 +569,7 @@ class DeliveryHandler(BaseHandler):
                 if request_id in requests_data:
                     keyboard = [[
                         InlineKeyboardButton(
-                            "Передать в СЦ", 
+                            "Передать в СЦ",
                             callback_data=f"delivered_to_sc_{request_id}"
                         )
                     ]]

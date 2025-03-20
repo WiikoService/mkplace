@@ -1,8 +1,6 @@
-import json
 import logging
-from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update, ReplyKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackContext, ConversationHandler
-from telegram.error import BadRequest
 from .base_handler import BaseHandler
 from database import (
     load_delivery_tasks, load_requests, load_service_centers,
@@ -10,13 +8,13 @@ from database import (
 )
 from config import (
     ASSIGN_REQUEST, ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK,
-    ORDER_STATUS_ASSIGNED_TO_SC, DATA_DIR, USERS_JSON, REQUESTS_JSON,
-    SERVICE_CENTERS_JSON, DELIVERY_TASKS_JSON
+    ORDER_STATUS_ASSIGNED_TO_SC
 )
-from utils import notify_admin, notify_delivery
+from utils import notify_delivery
 logger = logging.getLogger(__name__)
 
-#TODO: Согласование цены
+#  TODO: Согласование цены
+
 
 class AdminHandler(BaseHandler):
 
@@ -122,7 +120,7 @@ class AdminHandler(BaseHandler):
             message_id=message_id,
             text=new_text
         )
-    
+
     async def create_delivery_task(self, update: Update, context: CallbackContext, request_id: str, sc_name: str):
         """Создание задачи доставки"""
         logger.info(f"Creating delivery task for request {request_id} to SC {sc_name}")

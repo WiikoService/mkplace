@@ -1,4 +1,4 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import CallbackContext, ConversationHandler
 from config import SC_IDS, ADMIN_IDS, ORDER_STATUS_IN_SC, CREATE_REQUEST_PHOTOS
 from handlers.base_handler import BaseHandler
@@ -8,159 +8,131 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class SCHandler(BaseHandler):
-    
-    async def handle_item_acceptance(self, update: Update, context: CallbackContext):
-        """Обработка принятия товара СЦ"""
-        query = update.callback_query
-        await query.answer()
-        logger.info("Обработка принятия товара. Получен запрос от: %s", query.from_user.id)
-        logger.info("Callback data: %s", query.data)
-        # Правильно разбираем callback_data
-        parts = query.data.split('_')
-        action = parts[0]  # accept или reject
-        request_id = parts[-1]
-        logger.info("Действие: %s, ID заявки: %s", action, request_id)
-        requests_data = load_requests()
-        if request_id not in requests_data:
-            logger.error("Заявка не найдена: %s", request_id)
-            await query.edit_message_text("Заявка не найдена.")
-            return ConversationHandler.END
-        if action == "accept":
-            logger.info("Принятие товара по заявке: %s", request_id)
-            await query.edit_message_text(
-                "Пожалуйста, сделайте фото товара и отправьте его в чат.\n"
-                "Когда закончите, отправьте /done"
-            )
-            context.user_data['awaiting_photo_sc'] = request_id
-            logger.info("Установлен awaiting_photo_sc: %s", request_id)
-            return CREATE_REQUEST_PHOTOS
-        elif action == "reject":
-            logger.info("Отказ в приёмке товара по заявке: %s", request_id)
-            keyboard = [[
-                InlineKeyboardButton(
-                    "Указать причину отказа",
-                    callback_data=f"reject_reason_{request_id}"
-                )
-            ]]
+
+    async def show_sc_menu(self, update: Update, context: CallbackContext):
+        keyboard = [
+            ["Заявки центра", "Отправить в доставку"],
+            ["Связаться с администратором"],
+            ["Документы"]
+        ]
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        await update.message.reply_text("Меню СЦ:", reply_markup=reply_markup)
+
+    async def set_sc_requests(self, update: Update, context: CallbackContext):
+        """Показывает список заявок сервисного центра"""
+        try:
+            logger.info('set_sc_requests set_sc_requests set_sc_requests')
+            # Получаем информацию о текущем пользователе
+            user_id = str(update.effective_user.id)
+            users_data = load_users()
+            current_user = users_data.get(user_id, {})
+
+            # Проверяем, что пользователь принадлежит к СЦ
+            if current_user.get('role') != 'sc' or 'sc_id' not in current_user:
+                await update.effective_message.reply_text("❌ Доступ запрещен!")
+                return ConversationHandler.END
+
+            sc_id = current_user['sc_id']
+
+            # Загружаем и фильтруем заявки
+            requests_data = load_requests()
+            sc_requests = {
+                req_id: req 
+                for req_id, req in requests_data.items() 
+                if str(req.get('assigned_sc')) == sc_id
+            }
+
+            if not sc_requests:
+                await update.effective_message.reply_text("📭 Нет активных заявок для вашего сервисного центра")
+                return ConversationHandler.END
+
+            # Сохраняем заявки в контекст
+            context.user_data['sc_requests'] = sc_requests
+
+            # Создаем клавиатуру
+            keyboard = [
+                [InlineKeyboardButton(
+                    f"Заявка #{req_id} - {req['description'][:20]}...",
+                    callback_data=f"sc_request_{req_id}"
+                )]
+                for req_id, req in sc_requests.items()
+            ]
+
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text(
-                "Пожалуйста, укажите причину отказа в приёме товара:",
+
+            await update.effective_message.reply_text(
+                "📋 Список заявок вашего сервисного центра:",
                 reply_markup=reply_markup
             )
+
             return ConversationHandler.END
 
-    async def handle_photo_upload(self, update: Update, context: CallbackContext):
-        """Обработка загрузки фото товара"""
-        logger.info("Получено фото от пользователя: %s", update.effective_user.id)
-        request_id = context.user_data.get('awaiting_photo_sc')
-        logger.info("awaiting_photo_sc из контекста: %s", request_id)
-        if not request_id:
-            logger.error("Ошибка: заявка не найдена в контексте")
-            await update.message.reply_text("Ошибка: заявка не найдена.")
-            return ConversationHandler.END
-        requests_data = load_requests()
-        if request_id not in requests_data:
-            logger.error("Заявка не найдена в базе: %s", request_id)
-            await update.message.reply_text("Заявка не найдена.")
-            return ConversationHandler.END
-        logger.info("Получено фото для заявки: %s", request_id)
-        # Сохраняем фото
-        photo = update.message.photo[-1]
-        photo_file = await context.bot.get_file(photo.file_id)
-        photo_path = f"photos/sc_acceptance_{request_id}_{len(context.user_data.get('sc_photos', []))}.jpg"
-        await photo_file.download_to_drive(photo_path)        
-        # Сохраняем путь к фото в контексте
-        if 'sc_photos' not in context.user_data:
-            context.user_data['sc_photos'] = [] 
-        context.user_data['sc_photos'].append(photo_path)
-        logger.info("Фото добавлено для заявки: %s, путь: %s", request_id, photo_path)
-        await update.message.reply_text("Фото добавлено. Отправьте /done когда закончите.")
-        return CREATE_REQUEST_PHOTOS
-
-    async def handle_photos_done(self, update: Update, context: CallbackContext):
-        """Завершение загрузки фотографий СЦ"""
-        try:
-            request_id = context.user_data.get('awaiting_photo_sc')
-            photos = context.user_data.get('sc_photos', [])
-            if not photos:
-                logger.warning("Необходимо добавить хотя бы одно фото для заявки: %s", request_id)
-                await update.message.reply_text("Необходимо добавить хотя бы одно фото!")
-                return ConversationHandler.END
-            logger.info("Завершение загрузки фотографий для заявки: %s", request_id)
-            # Обновляем статус заявки и сохраняем фото
-            requests_data = load_requests()
-            requests_data[request_id].update({
-                'status': ORDER_STATUS_IN_SC,
-                'sc_acceptance_photos': photos
-            })
-            save_requests(requests_data)
-            # Обновляем статус в delivery_tasks
-            delivery_tasks = load_delivery_tasks()
-            for task in delivery_tasks.values():
-                if isinstance(task, dict) and task.get('request_id') == request_id:
-                    task['status'] = ORDER_STATUS_IN_SC
-                    break
-            save_delivery_tasks(delivery_tasks)
-            # Уведомляем клиента
-            client_id = requests_data[request_id]['user_id']
-            await notify_client(
-                context.bot,
-                client_id,
-                "Ваш товар принят Сервисным Центром и готов к диагностике."
-            )
-            logger.info("Клиент уведомлён о принятии товара по заявке: %s", request_id)
-            # Уведомляем админа
-            for admin_id in ADMIN_IDS:
-                for photo_path in photos:
-                    with open(photo_path, 'rb') as photo_file:
-                        await context.bot.send_photo(
-                            chat_id=admin_id,
-                            photo=photo_file,
-                            caption=f"Товар по заявке #{request_id} принят СЦ"
-                        )
-            logger.info("Администраторы уведомлены о принятии товара по заявке: %s", request_id)
-            # Очищаем данные контекста
-            del context.user_data['awaiting_photo_sc']
-            del context.user_data['sc_photos']
-            await update.message.reply_text("✅ Товар принят в работу.")
-            return ConversationHandler.END
         except Exception as e:
-            logger.error(f"Ошибка при завершении приемки товара: {e}")
-            await update.message.reply_text("Произошла ошибка при обработке приемки.")
+            logger.error(f"Ошибка при показе заявок СЦ: {e}")
+            await update.effective_message.reply_text("⚠️ Произошла ошибка при загрузке заявок")
             return ConversationHandler.END
 
-    async def handle_reject_reason(self, update: Update, context: CallbackContext):
-        """Обработка причины отказа в приеме товара"""
+    async def choose_requests(self, update: Update, context: CallbackContext):
+        """Обработчик выбора заявки"""
         query = update.callback_query
         await query.answer()
+
         request_id = query.data.split('_')[-1]
-        requests_data = load_requests()
-        logger.info("Обработка причины отказа для заявки: %s", request_id)
-        if request_id not in requests_data:
-            logger.error("Заявка не найдена: %s", request_id)
-            await query.edit_message_text("Заявка не найдена.")
+        sc_requests = context.user_data.get('sc_requests', {})
+
+        if request_id not in sc_requests:
+            await query.edit_message_text("❌ Заявка не найдена")
             return
-        # Обновляем статус заявки
-        requests_data[request_id]['status'] = "Отказано в приёмке СЦ"
-        save_requests(requests_data)
-        # Уведомляем клиента
-        client_id = requests_data[request_id]['user_id']
-        await notify_client(
-            context.bot,
-            client_id,
-            "СЦ отказал в приёмке вашего товара. Пожалуйста, свяжитесь с администратором."
+
+        request_data = sc_requests[request_id]
+
+        message_text = (
+            f"📌 Заявка #{request_id}\n"
+            f"🔧 Статус: {request_data['status']}\n"
+            f"👤 Клиент: {request_data['user_name']}\n"
+            f"📞 Телефон: {request_data.get('client_phone', 'не указан')}\n"
+            f"📝 Описание: {request_data['description']}\n"
+            f"🏠 Адрес: {request_data['location_display']}"
         )
-        logger.info("Клиент уведомлён об отказе в приёмке товара по заявке: %s", request_id)
-        # Уведомляем админа
-        for admin_id in ADMIN_IDS:
-            await context.bot.send_message(
-                chat_id=admin_id,
-                text=f"СЦ отказал в приёмке товара по заявке #{request_id}"
-            )
-        await query.edit_message_text("Отказ в приёмке товара зарегистрирован.")
+
+        keyboard = [
+            [InlineKeyboardButton("💬 Чат с клиентом", callback_data=f"sc_chat_{request_id}")],
+            [InlineKeyboardButton("📝 Комментарий", callback_data=f"sc_comment_{request_id}")],
+            [InlineKeyboardButton("🔙 Вернуться к списку", callback_data="sc_back_to_list")]
+        ]
+
+        await query.edit_message_text(message_text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    async def handle_back_to_list(self, update: Update, context: CallbackContext):
+        """Возвращает пользователя к списку заявок"""
+        query = update.callback_query
+        await query.answer()
+        await self.set_sc_requests(update, context)
+
+    async def assign_to_delivery():
+        """
+        Назначить товар в доставку
+        TODO: метод аналогричен админскому, назначаем доставку из СЦ
+        """
+        pass
+
+    async def call_to_admin():
+        """
+        Связаться с админом
+
+        надо подумать (не срочно)
+        """
+        pass
+
+    async def docs():
+        """
+        отображение документов в разработке в целом
+        """
+        pass
 
     async def cancel(self, update: Update, context: CallbackContext):
-        """Отмена операции"""
+        """Отмена операции."""
         await update.message.reply_text("Операция отменена.")
         return ConversationHandler.END
