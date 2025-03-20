@@ -284,6 +284,69 @@ def register_sc_handlers(application, sc_handler, sc_item_handler):
         )
     )
 
+    application.add_handler(ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                sc_handler.sc_to_user_chat,
+                pattern=r"^sc_chat_"
+            )
+        ],
+        states={
+            'HANDLE_SC_CHAT': [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, sc_handler.handle_sc_chat),
+                CallbackQueryHandler(
+                    sc_handler.close_chat,
+                    pattern=r"^close_chat_"
+                )
+            ]
+        },
+        fallbacks=[
+            CommandHandler('cancel', sc_handler.close_chat)
+        ],
+        map_to_parent={
+            ConversationHandler.END: ConversationHandler.END
+        }
+    ))
+
+    # Чат клиента
+    application.add_handler(ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                sc_handler.handle_client_reply,
+                pattern=r"^client_reply_"
+            )
+        ],
+        states={
+            'HANDLE_CLIENT_REPLY': [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND, 
+                    sc_handler.handle_client_message
+                ),
+                CallbackQueryHandler(
+                    lambda u,c: ConversationHandler.END,
+                    pattern="^cancel"
+                )
+            ]
+        },
+        fallbacks=[
+            CommandHandler('cancel', lambda u,c: ConversationHandler.END)
+        ],
+        map_to_parent={
+            ConversationHandler.END: ConversationHandler.END
+        }
+    ))
+
+    # Обработчик закрытия чата
+    application.add_handler(CallbackQueryHandler(
+        sc_handler.close_chat,
+        pattern=r"^close_chat_"
+    ))
+
+    application.add_handler(CallbackQueryHandler(
+        sc_handler.show_chat_history,
+        pattern=r"^chat_history_"
+    ))
+
 
 def register_callbacks(application, delivery_handler, admin_handler, user_handler, sc_management_handler):
     # Обработчики callback-запросов

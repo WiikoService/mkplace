@@ -5,6 +5,34 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+CHAT_HISTORY_FILE = "data/chat_sc_client.json"
+
+def ensure_chat_history_file():
+    """Создает файл для истории чата, если он не существует"""
+    if not os.path.exists(CHAT_HISTORY_FILE):
+        os.makedirs(os.path.dirname(CHAT_HISTORY_FILE), exist_ok=True)
+        with open(CHAT_HISTORY_FILE, 'w', encoding='utf-8') as f:
+            json.dump({}, f)
+
+def load_chat_history():
+    """Загружает историю чата из файла"""
+    ensure_chat_history_file()
+    try:
+        with open(CHAT_HISTORY_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Ошибка загрузки истории чата: {str(e)}")
+        return {}
+
+def save_chat_history(chat_history):
+    """Сохраняет историю чата в файл"""
+    try:
+        with open(CHAT_HISTORY_FILE, 'w', encoding='utf-8') as f:
+            json.dump(chat_history, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        logger.error(f"Ошибка сохранения истории чата: {str(e)}")
+
 def ensure_data_dir():
     """Проверка существования директории data и её создание при необходимости"""
     if not os.path.exists(DATA_DIR):
