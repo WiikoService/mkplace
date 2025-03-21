@@ -352,6 +352,31 @@ def register_sc_handlers(application, sc_handler, sc_item_handler):
         pattern=r"^chat_history_"
     ))
 
+    # Добавляем новые обработчики
+    application.add_handler(MessageHandler(
+        filters.Text(["Отправить в доставку"]),
+        sc_handler.assign_to_delivery
+    ))
+    
+    application.add_handler(ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                sc_handler.handle_sc_delivery_request,
+                pattern="^sc_delivery_"
+            )
+        ],
+        states={
+            ASSIGN_REQUEST: [
+                CallbackQueryHandler(
+                    sc_handler.handle_sc_delivery_request,
+                    pattern="^sc_delivery_"
+                )
+            ]
+        },
+        fallbacks=[],
+        allow_reentry=True
+    ))
+
 
 def register_callbacks(application, delivery_handler, admin_handler, user_handler, sc_management_handler):
     # Обработчики callback-запросов
@@ -409,6 +434,12 @@ def register_callbacks(application, delivery_handler, admin_handler, user_handle
     application.add_handler(CallbackQueryHandler(
         admin_handler.handle_block_user,
         pattern="^block_user_"
+    ))
+
+    # Добавляем новый обработчик для создания задачи доставки из запроса СЦ
+    application.add_handler(CallbackQueryHandler(
+        admin_handler.handle_create_delivery_from_sc,
+        pattern="^create_delivery_"
     ))
 
 

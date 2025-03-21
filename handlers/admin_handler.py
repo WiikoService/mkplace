@@ -377,3 +377,83 @@ class AdminHandler(BaseHandler):
                     chat_id=user_id,
                     text="Ваш аккаунт был заблокирован администратором."
                 )
+
+    async def handle_create_delivery_from_sc(self, update: Update, context: CallbackContext):
+        """Обработка создания задачи доставки по запросу от СЦ"""
+        query = update.callback_query
+        await query.answer()
+        
+        request_id = query.data.split('_')[-1]
+        requests_data = load_requests()
+        
+        if request_id not in requests_data:
+            await query.edit_message_text(f"Заявка #{request_id} не найдена")
+            return
+        
+        request = requests_data[request_id]
+        sc_id = request.get('assigned_sc')
+        
+        if not sc_id:
+            await query.edit_message_text("Ошибка: СЦ не назначен для этой заявки")
+            return
+        
+        service_centers = load_service_centers()
+        sc_data = service_centers.get(sc_id, {})
+        sc_name = sc_data.get('name', 'Неизвестный СЦ')
+        
+        # Создаем задачу доставки с пометкой, что это доставка из СЦ клиенту
+        delivery_tasks = load_delivery_tasks() or {}
+        task_id = str(len(delivery_tasks) + 1)
+        
+        delivery_task = {
+            'task_id': task_id,
+            'request_id': request_id,
+            'status': 'Новая',
+            'type': 'sc_to_client',  # Добавляем тип доставки
+            'sc_name': sc_name,
+            'sc_id': sc_id,
+            'client_address': request.get('location', 'Адрес не указан'),
+            'client_name': request.get('client_name', 'Имя не указано'),
+            'client_phone': request.get('client_phone', 'Телефон не указан'),
+            'description': request.get('description', 'Описание отсутствует'),
+            'latitude': request.get('latitude'),
+            'longitude': request.get('longitude'),
+            'assigned_delivery_id': None
+        }
+        
+        delivery_tasks[task_id] = delivery_task
+        save_delivery_tasks(delivery_tasks)
+        
+        # Уведомляем доставщиков
+        delivery_message = (
+            f"🆕 Новая задача доставки из СЦ клиенту!\n\n"
+            f"Заявка: #{request_id}\n"
+            f"Забрать из: {sc_name}\n"
+            f"Адрес клиента: {delivery_task['client_address']}\n"
+            f"Клиент: {delivery_task['client_name']}\n"
+            f"Телефон: {delivery_task['client_phone']}\n"
+            f"Описание: {delivery_task['description']}"
+        )
+        
+        keyboard = [[
+            InlineKeyboardButton(
+                "Принять задачу", 
+                callback_data=f"accept_delivery_from_sc_{task_id}"
+            )
+        ]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        for delivery_id in DELIVERY_IDS:
+            try:
+                await context.bot.send_message(
+                    chat_id=delivery_id,
+                    text=delivery_message,
+                    reply_markup=reply_markup
+                )
+            except Exception as e:
+                logger.error(f"Ошибка отправки уведомления доставщику {delivery_id}: {e}")
+        
+        await query.edit_message_text(
+            f"✅ Задача доставки #{task_id} создана и отправлена доставщикам.\n"
+            f"Заявка: #{request_id}"
+        )

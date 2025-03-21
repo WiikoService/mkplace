@@ -4,7 +4,7 @@ from telegram import (
     ReplyKeyboardMarkup, ReplyKeyboardRemove
 )
 from telegram.ext import CallbackContext, ConversationHandler
-from config import ADMIN_IDS, ORDER_STATUS_IN_SC, CREATE_REQUEST_PHOTOS
+from config import ORDER_STATUS_IN_SC, SC_ASSIGN_REQUESTS, ADMIN_IDS
 from handlers.base_handler import BaseHandler
 from database import (
     load_requests, save_requests, load_users,
@@ -267,12 +267,87 @@ class SCHandler(BaseHandler):
             )
         await query.message.reply_text(history_text)
 
-    async def assign_to_delivery():
-        """
-        Назначить товар в доставку
-        TODO: метод аналогричен админскому, назначаем доставку из СЦ
-        """
-        pass
+    async def assign_to_delivery(self, update: Update, context: CallbackContext):
+        """Назначить товар в доставку из СЦ"""
+        users_data = load_users()
+        user_id = str(update.effective_user.id)
+        
+        # Проверяем роль пользователя
+        if user_id not in users_data or users_data[user_id].get('role') != 'sc':
+            await update.message.reply_text("У вас нет доступа к этой функции.")
+            return ConversationHandler.END
+        
+        requests_data = load_requests()
+        if not requests_data:
+            await update.message.reply_text("Нет активных заявок для отправки в доставку.")
+            return ConversationHandler.END
+        
+        keyboard = []
+        sc_id = users_data[user_id].get('sc_id')
+        
+        for req_id, req_data in requests_data.items():
+            # Проверяем, что заявка принадлежит этому СЦ и находится в нужном статусе
+            if (req_data.get('assigned_sc') == sc_id and 
+                req_data.get('status') == ORDER_STATUS_IN_SC):
+                desc = req_data.get('description', 'Нет описания')[:30] + '...'
+                button_text = f"Заявка #{req_id} - {desc}"
+                keyboard.append([InlineKeyboardButton(
+                    button_text, 
+                    callback_data=f"sc_delivery_{req_id}"
+                )])
+            
+        if not keyboard:
+            await update.message.reply_text("Нет заявок, готовых к отправке в доставку.")
+            return ConversationHandler.END
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "Выберите заявку для отправки в доставку:",
+            reply_markup=reply_markup
+        )
+        return SC_ASSIGN_REQUESTS
+
+    async def handle_sc_delivery_request(self, update: Update, context: CallbackContext):
+        """Обработка выбора заявки для отправки в доставку"""
+        query = update.callback_query
+        await query.answer()
+        
+        parts = query.data.split('_')
+        request_id = parts[2]
+        
+        # Уведомляем администраторов
+        requests_data = load_requests()
+        request = requests_data.get(request_id, {})
+        
+        keyboard = [[
+            InlineKeyboardButton(
+                "Создать задачу доставки", 
+                callback_data=f"create_delivery_{request_id}"
+            )
+        ]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        admin_message = (
+            f"🔄 Запрос на доставку от СЦ\n\n"
+            f"Заявка: #{request_id}\n"
+            f"Описание: {request.get('description', 'Нет описания')}\n"
+            f"Статус: {request.get('status', 'Статус не указан')}"
+        )
+        
+        for admin_id in ADMIN_IDS:
+            try:
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=admin_message,
+                    reply_markup=reply_markup
+                )
+            except Exception as e:
+                logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+        
+        await query.edit_message_text(
+            f"✅ Заявка #{request_id} отправлена на рассмотрение администраторам."
+        )
+        return ConversationHandler.END
 
     async def call_to_admin():
         """
@@ -292,3 +367,5 @@ class SCHandler(BaseHandler):
         """Отмена операции."""
         await update.message.reply_text("Операция отменена.")
         return ConversationHandler.END
+
+
