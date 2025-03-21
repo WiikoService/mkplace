@@ -118,7 +118,6 @@ class SCHandler(BaseHandler):
             return ConversationHandler.END
         # Сохраняем ID клиента в контексте
         context.user_data['active_chat']['participants']['client_id'] = client_id
-        # Формируем сообщение с кнопкой ответа
         keyboard = [
             [InlineKeyboardButton("❌ Закрыть чат", callback_data=f"close_chat_{request_id}")],
             [InlineKeyboardButton("📨 История переписки", callback_data=f"chat_history_{request_id}")]
@@ -178,7 +177,6 @@ class SCHandler(BaseHandler):
         if not sc_user_id:
             await query.message.reply_text("❌ Сервисный центр не найден")
             return ConversationHandler.END
-        # Сохраняем контекст чата для клиента
         context.user_data['active_client_chat'] = {
             'request_id': request_id,
             'sc_user_id': sc_user_id
@@ -193,15 +191,11 @@ class SCHandler(BaseHandler):
         """Пересылка сообщения клиента в СЦ"""
         message = update.message
         chat_data = context.user_data.get('active_client_chat', {})
-        if not chat_data:
-            await message.reply_text("❌ Сессия чата устарела")
-            return ConversationHandler.END
         request_id = chat_data.get('request_id')
         sc_user_id = chat_data.get('sc_user_id')
         if not sc_user_id:
             await message.reply_text("❌ Чат недоступен")
             return ConversationHandler.END
-        # Дополнительная проверка существования пользователя
         users_data = load_users()
         if sc_user_id not in users_data:
             await message.reply_text("❌ Сотрудник СЦ не найден")
@@ -228,7 +222,6 @@ class SCHandler(BaseHandler):
 
     def save_chat_history(self, request_id, sender, message, timestamp):
         """Сохранение истории переписки"""
-        # Предположим, что есть функция загрузки/сохранения истории
         chat_history = load_chat_history()
         entry = {
             'sender': sender,
@@ -270,21 +263,13 @@ class SCHandler(BaseHandler):
     async def assign_to_delivery(self, update: Update, context: CallbackContext):
         """Назначить товар в доставку из СЦ"""
         users_data = load_users()
-        user_id = str(update.effective_user.id)
-        
-        # Проверяем роль пользователя
-        if user_id not in users_data or users_data[user_id].get('role') != 'sc':
-            await update.message.reply_text("У вас нет доступа к этой функции.")
-            return ConversationHandler.END
-        
+        user_id = str(update.effective_user.id)   
         requests_data = load_requests()
         if not requests_data:
             await update.message.reply_text("Нет активных заявок для отправки в доставку.")
             return ConversationHandler.END
-        
         keyboard = []
         sc_id = users_data[user_id].get('sc_id')
-        
         for req_id, req_data in requests_data.items():
             # Проверяем, что заявка принадлежит этому СЦ и находится в нужном статусе
             if (req_data.get('assigned_sc') == sc_id and 
@@ -299,7 +284,6 @@ class SCHandler(BaseHandler):
         if not keyboard:
             await update.message.reply_text("Нет заявок, готовых к отправке в доставку.")
             return ConversationHandler.END
-        
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
             "Выберите заявку для отправки в доставку:",
@@ -311,14 +295,11 @@ class SCHandler(BaseHandler):
         """Обработка выбора заявки для отправки в доставку"""
         query = update.callback_query
         await query.answer()
-        
         parts = query.data.split('_')
         request_id = parts[2]
-        
         # Уведомляем администраторов
         requests_data = load_requests()
         request = requests_data.get(request_id, {})
-        
         keyboard = [[
             InlineKeyboardButton(
                 "Создать задачу доставки", 
@@ -326,14 +307,12 @@ class SCHandler(BaseHandler):
             )
         ]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
         admin_message = (
             f"🔄 Запрос на доставку от СЦ\n\n"
             f"Заявка: #{request_id}\n"
             f"Описание: {request.get('description', 'Нет описания')}\n"
             f"Статус: {request.get('status', 'Статус не указан')}"
         )
-        
         for admin_id in ADMIN_IDS:
             try:
                 await context.bot.send_message(
@@ -343,7 +322,6 @@ class SCHandler(BaseHandler):
                 )
             except Exception as e:
                 logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
-        
         await query.edit_message_text(
             f"✅ Заявка #{request_id} отправлена на рассмотрение администраторам."
         )
@@ -354,20 +332,12 @@ class SCHandler(BaseHandler):
         user_id = str(update.effective_user.id)
         users_data = load_users()
         service_centers = load_service_centers()
-        
-        # Проверяем роль пользователя
-        if user_id not in users_data or users_data[user_id].get('role') != 'sc':
-            await update.message.reply_text("У вас нет доступа к этой функции.")
-            return
-        
         # Получаем данные СЦ
         sc_id = users_data[user_id].get('sc_id')
         sc_data = service_centers.get(sc_id, {})
-        
         if not sc_data:
             await update.message.reply_text("Ошибка: данные СЦ не найдены.")
             return
-        
         # Формируем сообщение для администраторов
         admin_message = (
             f"📞 Запрос на связь от сервисного центра\n\n"
@@ -376,7 +346,6 @@ class SCHandler(BaseHandler):
             f"☎️ Телефон: {sc_data.get('phone')}\n"
             f"👤 Контактное лицо: {users_data[user_id].get('name')}"
         )
-        
         # Отправляем уведомление всем администраторам
         for admin_id in ADMIN_IDS:
             try:

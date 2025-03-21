@@ -67,8 +67,6 @@ def main():
 
 def register_client_handlers(application, client_handler, user_handler):
 
-    # Обработчики для клиента
-
     # Обработчик меню клиента
     application.add_handler(
         MessageHandler(

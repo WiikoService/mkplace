@@ -358,47 +358,38 @@ class DeliveryHandler(BaseHandler):
         try:
             request_id = context.user_data.get('current_request')
             photos = context.user_data.get('photos_to_sc', [])
-            
             if not photos:
                 await update.message.reply_text("Необходимо добавить хотя бы одно фото!")
                 return CREATE_REQUEST_PHOTOS
-            
             requests_data = load_requests()
             delivery_tasks = load_delivery_tasks()
-            users_data = load_users()  # Загружаем данные пользователей
-            
+            users_data = load_users()
             # Обновляем статус и сохраняем фото
             requests_data[request_id].update({
                 'status': ORDER_STATUS_WAITING_SC,
                 'delivery_photos': photos
             })
             save_requests(requests_data)
-            
             # Обновляем статус в delivery_tasks
             for task in delivery_tasks.values():
                 if isinstance(task, dict) and task.get('request_id') == request_id:
                     task['status'] = ORDER_STATUS_WAITING_SC
                     break
             save_delivery_tasks(delivery_tasks)
-
-            # Получаем ID сервисного центра
             sc_id = requests_data[request_id].get('assigned_sc')
             if not sc_id:
                 logger.error(f"СЦ не назначен для заявки {request_id}")
                 return
-
             # Находим telegram_id пользователя СЦ
             sc_telegram_id = None
             for user_id, user_data in users_data.items():
                 if user_data.get('role') == 'sc' and user_data.get('sc_id') == sc_id:
                     sc_telegram_id = int(user_id)
                     break
-
             if not sc_telegram_id:
                 logger.error(f"Не найден telegram_id для СЦ {sc_id}")
                 await update.message.reply_text("Ошибка: не удалось найти контакт СЦ")
                 return
-
             # Уведомляем СЦ
             try:
                 sc_message = (
@@ -412,14 +403,12 @@ class DeliveryHandler(BaseHandler):
                     InlineKeyboardButton("Отказать в приёме", callback_data=f"reject_item_{request_id}")
                 ]]
                 reply_markup = InlineKeyboardMarkup(keyboard)
-
                 # Отправляем текстовое сообщение
                 await context.bot.send_message(
                     chat_id=sc_telegram_id,  # Используем telegram_id вместо sc_id
                     text=sc_message,
                     reply_markup=reply_markup
                 )
-
                 # Отправляем фотографии
                 for photo_path in photos:
                     if os.path.exists(photo_path):
@@ -432,18 +421,15 @@ class DeliveryHandler(BaseHandler):
                 logger.info(f"Уведомление отправлено в СЦ (telegram_id: {sc_telegram_id})")
             except Exception as e:
                 logger.error(f"Ошибка отправки уведомления в СЦ: {str(e)}")
-
-            # Очистка контекста
             context.user_data.pop('photos_to_sc', None)
             context.user_data.pop('current_request', None)
-
             await update.message.reply_text("✅ Фотографии загружены и отправлены в СЦ")
             return ConversationHandler.END
-
         except Exception as e:
             logger.error(f"Ошибка в handle_delivery_photos_done: {str(e)}")
             await update.message.reply_text("Произошла ошибка при обработке фотографий")
             return ConversationHandler.END
+
     async def update_delivery_messages(self, bot: Bot, task_id: int, task_data: dict):
         """Обновление сообщений доставщикам."""
         from config import DELIVERY_IDS

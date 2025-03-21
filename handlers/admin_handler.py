@@ -382,29 +382,22 @@ class AdminHandler(BaseHandler):
         """Обработка создания задачи доставки по запросу от СЦ"""
         query = update.callback_query
         await query.answer()
-        
         request_id = query.data.split('_')[-1]
         requests_data = load_requests()
-        
         if request_id not in requests_data:
             await query.edit_message_text(f"Заявка #{request_id} не найдена")
             return
-        
         request = requests_data[request_id]
         sc_id = request.get('assigned_sc')
-        
         if not sc_id:
             await query.edit_message_text("Ошибка: СЦ не назначен для этой заявки")
             return
-        
         service_centers = load_service_centers()
         sc_data = service_centers.get(sc_id, {})
         sc_name = sc_data.get('name', 'Неизвестный СЦ')
-        
         # Создаем задачу доставки с пометкой, что это доставка из СЦ клиенту
         delivery_tasks = load_delivery_tasks() or {}
         task_id = str(len(delivery_tasks) + 1)
-        
         delivery_task = {
             'task_id': task_id,
             'request_id': request_id,
@@ -420,10 +413,8 @@ class AdminHandler(BaseHandler):
             'longitude': request.get('longitude'),
             'assigned_delivery_id': None
         }
-        
         delivery_tasks[task_id] = delivery_task
         save_delivery_tasks(delivery_tasks)
-        
         # Уведомляем доставщиков
         delivery_message = (
             f"🆕 Новая задача доставки из СЦ клиенту!\n\n"
@@ -434,7 +425,6 @@ class AdminHandler(BaseHandler):
             f"Телефон: {delivery_task['client_phone']}\n"
             f"Описание: {delivery_task['description']}"
         )
-        
         keyboard = [[
             InlineKeyboardButton(
                 "Принять задачу", 
@@ -442,7 +432,6 @@ class AdminHandler(BaseHandler):
             )
         ]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
         for delivery_id in DELIVERY_IDS:
             try:
                 await context.bot.send_message(
@@ -452,7 +441,6 @@ class AdminHandler(BaseHandler):
                 )
             except Exception as e:
                 logger.error(f"Ошибка отправки уведомления доставщику {delivery_id}: {e}")
-        
         await query.edit_message_text(
             f"✅ Задача доставки #{task_id} создана и отправлена доставщикам.\n"
             f"Заявка: #{request_id}"

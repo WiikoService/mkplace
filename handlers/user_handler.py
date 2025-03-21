@@ -14,7 +14,6 @@ class UserHandler(BaseHandler):
         """
         user_id = str(update.message.from_user.id)
         users_data = load_users()
-        service_centers = load_service_centers()
         sc_ids = [int(user_id) for user_id, data in users_data.items() 
                  if data.get("role") == "sc"]
 
@@ -53,21 +52,16 @@ class UserHandler(BaseHandler):
         contact = update.message.contact
         user_id = str(update.message.from_user.id)
         users_data = load_users()
-        phone_number = contact.phone_number.lstrip('+')  # Убираем "+"
-
-        # Проверяем, является ли этот номер номером сервисного центра
+        phone_number = contact.phone_number.lstrip('+')
         sc_id = None
         sc_name = None
         service_centers = load_service_centers()
-
         for center_id, center_data in service_centers.items():
             center_phone = center_data.get('phone', '').lstrip('+')
             if center_phone == phone_number:
                 sc_id = center_id
                 sc_name = center_data.get('name')
                 break  # Нашли соответствие, прерываем цикл
-
-        # Определяем роль пользователя
         if int(user_id) in ADMIN_IDS:
             role = "admin"
         elif int(user_id) in DELIVERY_IDS:
@@ -76,28 +70,23 @@ class UserHandler(BaseHandler):
             role = "sc"
         else:
             role = "client"
-
         # Обновляем данные пользователя
         users_data[user_id] = {
             "phone": phone_number,
             "name": contact.first_name,
             "role": role
         }
-
         # Привязываем к СЦ, если нашли соответствие
         if role == "sc" and sc_id:
             users_data[user_id]["sc_id"] = sc_id
             users_data[user_id]["sc_name"] = sc_name
-
         save_users(users_data)  # Сохраняем данные пользователя
-
         # Отправляем подтверждающее сообщение
         if role == "sc" and sc_id:
             await update.message.reply_text(f"Спасибо, {contact.first_name}! Вы зарегистрированы как представитель СЦ '{sc_name}'.")
             return await self.show_sc_menu(update, context)
         else:
             await update.message.reply_text(f"Спасибо, {contact.first_name}! Вы успешно зарегистрированы.")
-
         # Показываем соответствующее меню в зависимости от роли
         if role == "admin":
             return await self.show_admin_menu(update, context)
