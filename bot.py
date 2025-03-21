@@ -377,6 +377,18 @@ def register_sc_handlers(application, sc_handler, sc_item_handler):
         allow_reentry=True
     ))
 
+    # Добавляем обработчик для связи с администратором
+    application.add_handler(MessageHandler(
+        filters.Text(["Связаться с администратором"]),
+        sc_handler.call_to_admin
+    ))
+
+    # Добавляем обработчик для отображения документов
+    application.add_handler(MessageHandler(
+        filters.Text(["Документы"]),
+        sc_handler.docs
+    ))
+
 
 def register_callbacks(application, delivery_handler, admin_handler, user_handler, sc_management_handler):
     # Обработчики callback-запросов

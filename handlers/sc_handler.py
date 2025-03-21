@@ -9,7 +9,7 @@ from handlers.base_handler import BaseHandler
 from database import (
     load_requests, save_requests, load_users,
     load_delivery_tasks, save_delivery_tasks, load_chat_history,
-    save_chat_history
+    save_chat_history, load_service_centers
 )
 from utils import notify_client
 import logging
@@ -349,19 +349,52 @@ class SCHandler(BaseHandler):
         )
         return ConversationHandler.END
 
-    async def call_to_admin():
-        """
-        Связаться с админом
+    async def call_to_admin(self, update: Update, context: CallbackContext):
+        """Связаться с администратором"""
+        user_id = str(update.effective_user.id)
+        users_data = load_users()
+        service_centers = load_service_centers()
+        
+        # Проверяем роль пользователя
+        if user_id not in users_data or users_data[user_id].get('role') != 'sc':
+            await update.message.reply_text("У вас нет доступа к этой функции.")
+            return
+        
+        # Получаем данные СЦ
+        sc_id = users_data[user_id].get('sc_id')
+        sc_data = service_centers.get(sc_id, {})
+        
+        if not sc_data:
+            await update.message.reply_text("Ошибка: данные СЦ не найдены.")
+            return
+        
+        # Формируем сообщение для администраторов
+        admin_message = (
+            f"📞 Запрос на связь от сервисного центра\n\n"
+            f"🏢 СЦ: {sc_data.get('name')}\n"
+            f"📍 Адрес: {sc_data.get('address')}\n"
+            f"☎️ Телефон: {sc_data.get('phone')}\n"
+            f"👤 Контактное лицо: {users_data[user_id].get('name')}"
+        )
+        
+        # Отправляем уведомление всем администраторам
+        for admin_id in ADMIN_IDS:
+            try:
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=admin_message,
+                    parse_mode='HTML'
+                )
+            except Exception as e:
+                logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+        
+        await update.message.reply_text(
+            "✅ Запрос отправлен администраторам. Ожидайте ответа."
+        )
 
-        надо подумать (не срочно)
-        """
-        pass
-
-    async def docs():
-        """
-        отображение документов в разработке в целом
-        """
-        pass
+    async def docs(self, update: Update, context: CallbackContext):
+        """Отображение документов в разработке в целом"""
+        await update.message.reply_text("📄 Этот раздел находится в разработке. Пожалуйста, следите за обновлениями!")
 
     async def cancel(self, update: Update, context: CallbackContext):
         """Отмена операции."""
