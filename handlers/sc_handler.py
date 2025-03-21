@@ -4,7 +4,7 @@ from telegram import (
     ReplyKeyboardMarkup, ReplyKeyboardRemove
 )
 from telegram.ext import CallbackContext, ConversationHandler
-from config import SC_IDS, ADMIN_IDS, ORDER_STATUS_IN_SC, CREATE_REQUEST_PHOTOS
+from config import ADMIN_IDS, ORDER_STATUS_IN_SC, CREATE_REQUEST_PHOTOS
 from handlers.base_handler import BaseHandler
 from database import (
     load_requests, save_requests, load_users,

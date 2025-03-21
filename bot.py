@@ -7,7 +7,7 @@ from telegram.ext import (
 from config import (
     ASSIGN_REQUEST, CREATE_REQUEST_DESC, CREATE_REQUEST_LOCATION,
     CREATE_REQUEST_PHOTOS, ENTER_CONFIRMATION_CODE, TELEGRAM_API_TOKEN,
-    ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK, SC_IDS,
+    ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK,
     CREATE_REQUEST_CATEGORY, CREATE_REQUEST_DATA, CREATE_REQUEST_ADDRESS, CREATE_REQUEST_CONFIRMATION, DATA_DIR,
     SC_MANAGEMENT_ADD_NAME, SC_MANAGEMENT_ADD_ADDRESS, SC_MANAGEMENT_ADD_PHONE
 )
@@ -229,6 +229,11 @@ def register_delivery_handlers(application, delivery_handler, user_handler):
         delivery_handler.show_delivery_profile
     ))
 
+    application.add_handler(MessageHandler(
+        filters.Text(["Передать в СЦ"]) & filters.User(user_id=DELIVERY_IDS),
+        delivery_handler.handle_transfer_to_sc
+    ))
+
 
 def register_sc_handlers(application, sc_handler, sc_item_handler):
     # Обработчики для СЦ
@@ -394,11 +399,6 @@ def register_callbacks(application, delivery_handler, admin_handler, user_handle
     application.add_handler(CallbackQueryHandler(
         delivery_handler.handle_client_confirmation,
         pattern="^client_(confirm|deny)_"
-    ))
-
-    application.add_handler(MessageHandler(
-        filters.Text(["Передать в СЦ"]) & filters.User(user_id=DELIVERY_IDS),
-        delivery_handler.handle_transfer_to_sc
     ))
 
     application.add_handler(CallbackQueryHandler(

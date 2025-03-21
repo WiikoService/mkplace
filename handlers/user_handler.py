@@ -2,7 +2,7 @@ from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import CallbackContext
 from handlers.base_handler import BaseHandler
 from database import load_users, save_users, load_service_centers
-from config import ADMIN_IDS, DELIVERY_IDS, SC_IDS, REGISTER
+from config import ADMIN_IDS, DELIVERY_IDS, REGISTER
 
 
 class UserHandler(BaseHandler):
@@ -14,6 +14,9 @@ class UserHandler(BaseHandler):
         """
         user_id = str(update.message.from_user.id)
         users_data = load_users()
+        service_centers = load_service_centers()
+        sc_ids = [int(user_id) for user_id, data in users_data.items() 
+                 if data.get("role") == "sc"]
 
         if user_id in users_data:
             role = users_data[user_id]["role"]
@@ -22,8 +25,6 @@ class UserHandler(BaseHandler):
             elif role == "delivery":
                 return await self.show_delivery_menu(update, context)
             elif role == "sc":
-                if int(user_id) not in SC_IDS:
-                    SC_IDS.append(int(user_id))
                 return await self.show_sc_menu(update, context)
             else:
                 return await self.show_client_menu(update, context)
@@ -36,7 +37,7 @@ class UserHandler(BaseHandler):
                 users_data[user_id] = {"role": "delivery", "name": update.message.from_user.first_name}
                 save_users(users_data)
                 return await self.show_delivery_menu(update, context)
-            elif int(user_id) in SC_IDS:
+            elif int(user_id) in sc_ids:
                 users_data[user_id] = {"role": "sc", "name": update.message.from_user.first_name}
                 save_users(users_data)
                 return await self.show_sc_menu(update, context)
