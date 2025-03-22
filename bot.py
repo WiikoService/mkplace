@@ -350,7 +350,6 @@ def register_sc_handlers(application, sc_handler, sc_item_handler):
         pattern=r"^chat_history_"
     ))
 
-    # Добавляем новые обработчики
     application.add_handler(MessageHandler(
         filters.Text(["Отправить в доставку"]),
         sc_handler.assign_to_delivery
@@ -373,6 +372,24 @@ def register_sc_handlers(application, sc_handler, sc_item_handler):
         },
         fallbacks=[],
         allow_reentry=True
+    ))
+
+    application.add_handler(ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                sc_handler.sc_comment,
+                pattern=r"^sc_comment_"
+            )
+        ],
+        states={
+            'HANDLE_SC_COMMENT': [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, sc_handler.save_comment),
+            ]
+        },
+        fallbacks=[],
+        map_to_parent={
+            ConversationHandler.END: ConversationHandler.END
+        }
     ))
 
     # Добавляем обработчик для связи с администратором

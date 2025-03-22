@@ -84,6 +84,18 @@ class SCHandler(BaseHandler):
             f"📝 Описание: {request_data['description']}\n"
             f"🏠 Адрес: {request_data['location_display']}"
         )
+        
+        # Добавляем комментарии, если они есть
+        if 'comments' in request_data and request_data['comments']:
+            message_text += "\n\n📋 Комментарии:\n"
+            # Отображаем последние 3 комментария
+            for comment in request_data['comments'][-3:]:
+                message_text += f"- {comment['timestamp']} | {comment['user_name']}: {comment['text'][:50]}{'...' if len(comment['text']) > 50 else ''}\n"
+            
+            # Если комментариев больше 3, укажем об этом
+            if len(request_data['comments']) > 3:
+                message_text += f"(и еще {len(request_data['comments']) - 3} комментариев)\n"
+        
         keyboard = [
             [InlineKeyboardButton("💬 Чат с клиентом", callback_data=f"sc_chat_{request_id}")],
             [InlineKeyboardButton("📝 Комментарий", callback_data=f"sc_comment_{request_id}")],
@@ -259,6 +271,72 @@ class SCHandler(BaseHandler):
                 f"{entry['message']}\n\n"
             )
         await query.message.reply_text(history_text)
+
+    async def sc_comment(self, update: Update, context: CallbackContext):
+        """Обработчик кнопки 'Комментарий' для ввода комментария"""
+        query = update.callback_query
+        await query.answer()
+        request_id = query.data.split('_')[-1]
+        
+        # Сохраняем данные для использования в следующем шаге
+        context.user_data['current_request_id'] = request_id
+        context.user_data['comment_message_id'] = query.message.message_id  # ID сообщения для редактирования
+        
+        await query.edit_message_text("✍️ Введите комментарий для заявки:")
+        return 'HANDLE_SC_COMMENT'
+
+    async def save_comment(self, update: Update, context: CallbackContext):
+        """Сохраняет комментарий в заявку"""
+        user_comment = update.message.text
+        request_id = context.user_data.get('current_request_id')
+        message_id = context.user_data.get('comment_message_id')
+
+        # Только сохранение комментария
+        requests_data = load_requests()
+        if request_id in requests_data:
+            requests_data[request_id]['comment'] = user_comment
+            save_requests(requests_data)
+
+            # Формируем сообщение с обновленной информацией
+            request_data = requests_data[request_id]
+            message_text = (
+                f"📌 Заявка #{request_id}\n"
+                f"🔧 Статус: {request_data['status']}\n"
+                f"👤 Клиент: {request_data['user_name']}\n"
+                f"📞 Телефон: {request_data.get('client_phone', 'не указан')}\n"
+                f"📝 Описание: {request_data['description']}\n"
+                f"🏠 Адрес: {request_data['location_display']}\n"
+                f"💬 Комментарий СЦ: {user_comment}"
+            )
+
+            keyboard = [
+                [InlineKeyboardButton("💬 Чат с клиентом", callback_data=f"sc_chat_{request_id}")],
+                [InlineKeyboardButton("📝 Комментарий", callback_data=f"sc_comment_{request_id}")],
+                [InlineKeyboardButton("🔙 Вернуться к списку", callback_data="sc_back_to_list")]
+            ]
+
+            # Пытаемся обновить оригинальное сообщение
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=update.effective_chat.id,
+                    message_id=message_id,
+                    text=message_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as e:
+                logger.error(f"Ошибка при обновлении сообщения: {e}")
+                # Если не удалось обновить, отправляем новое
+                await update.message.reply_text(
+                    message_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+
+            # Отправляем подтверждение
+            await update.message.reply_text("✅ Комментарий успешно сохранен!")
+        else:
+            await update.message.reply_text("❌ Заявка не найдена")
+
+        return ConversationHandler.END
 
     async def assign_to_delivery(self, update: Update, context: CallbackContext):
         """Назначить товар в доставку из СЦ"""
