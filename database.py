@@ -39,15 +39,13 @@ def ensure_data_dir():
         os.makedirs(DATA_DIR)
 
 def load_json(filename):
-    ensure_data_dir()  # Добавляем проверку перед загрузкой
     try:
         with open(filename, 'r', encoding='utf-8') as file:
             return json.load(file)
     except (FileNotFoundError, json.JSONDecodeError):
-        return {}  # Возвращаем пустой словарь, если файл не найден или пуст
+        return {}
 
 def save_json(data, filename):
-    ensure_data_dir()  # Добавляем проверку перед сохранением
     with open(filename, 'w', encoding='utf-8') as file:
         json.dump(data, file, ensure_ascii=False, indent=4)
 
@@ -71,7 +69,6 @@ def save_service_centers(service_centers_data):
 
 def load_delivery_tasks():
     """Загрузка задач доставки с правильной кодировкой"""
-    from config import DELIVERY_TASKS_JSON
     try:
         with open(DELIVERY_TASKS_JSON, 'r', encoding='utf-8') as f:
             return json.load(f)

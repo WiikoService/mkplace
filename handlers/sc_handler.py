@@ -4,12 +4,12 @@ from telegram import (
     ReplyKeyboardMarkup, ReplyKeyboardRemove
 )
 from telegram.ext import CallbackContext, ConversationHandler
-from config import ADMIN_IDS, ORDER_STATUS_IN_SC, CREATE_REQUEST_PHOTOS
+from config import ORDER_STATUS_IN_SC, SC_ASSIGN_REQUESTS, ADMIN_IDS
 from handlers.base_handler import BaseHandler
 from database import (
     load_requests, save_requests, load_users,
     load_delivery_tasks, save_delivery_tasks, load_chat_history,
-    save_chat_history
+    save_chat_history, load_service_centers
 )
 from utils import notify_client
 import logging
@@ -84,6 +84,18 @@ class SCHandler(BaseHandler):
             f"📝 Описание: {request_data['description']}\n"
             f"🏠 Адрес: {request_data['location_display']}"
         )
+        
+        # Добавляем комментарии, если они есть
+        if 'comments' in request_data and request_data['comments']:
+            message_text += "\n\n📋 Комментарии:\n"
+            # Отображаем последние 3 комментария
+            for comment in request_data['comments'][-3:]:
+                message_text += f"- {comment['timestamp']} | {comment['user_name']}: {comment['text'][:50]}{'...' if len(comment['text']) > 50 else ''}\n"
+            
+            # Если комментариев больше 3, укажем об этом
+            if len(request_data['comments']) > 3:
+                message_text += f"(и еще {len(request_data['comments']) - 3} комментариев)\n"
+        
         keyboard = [
             [InlineKeyboardButton("💬 Чат с клиентом", callback_data=f"sc_chat_{request_id}")],
             [InlineKeyboardButton("📝 Комментарий", callback_data=f"sc_comment_{request_id}")],
@@ -118,7 +130,6 @@ class SCHandler(BaseHandler):
             return ConversationHandler.END
         # Сохраняем ID клиента в контексте
         context.user_data['active_chat']['participants']['client_id'] = client_id
-        # Формируем сообщение с кнопкой ответа
         keyboard = [
             [InlineKeyboardButton("❌ Закрыть чат", callback_data=f"close_chat_{request_id}")],
             [InlineKeyboardButton("📨 История переписки", callback_data=f"chat_history_{request_id}")]
@@ -178,7 +189,6 @@ class SCHandler(BaseHandler):
         if not sc_user_id:
             await query.message.reply_text("❌ Сервисный центр не найден")
             return ConversationHandler.END
-        # Сохраняем контекст чата для клиента
         context.user_data['active_client_chat'] = {
             'request_id': request_id,
             'sc_user_id': sc_user_id
@@ -193,15 +203,11 @@ class SCHandler(BaseHandler):
         """Пересылка сообщения клиента в СЦ"""
         message = update.message
         chat_data = context.user_data.get('active_client_chat', {})
-        if not chat_data:
-            await message.reply_text("❌ Сессия чата устарела")
-            return ConversationHandler.END
         request_id = chat_data.get('request_id')
         sc_user_id = chat_data.get('sc_user_id')
         if not sc_user_id:
             await message.reply_text("❌ Чат недоступен")
             return ConversationHandler.END
-        # Дополнительная проверка существования пользователя
         users_data = load_users()
         if sc_user_id not in users_data:
             await message.reply_text("❌ Сотрудник СЦ не найден")
@@ -228,7 +234,6 @@ class SCHandler(BaseHandler):
 
     def save_chat_history(self, request_id, sender, message, timestamp):
         """Сохранение истории переписки"""
-        # Предположим, что есть функция загрузки/сохранения истории
         chat_history = load_chat_history()
         entry = {
             'sender': sender,
@@ -267,28 +272,180 @@ class SCHandler(BaseHandler):
             )
         await query.message.reply_text(history_text)
 
-    async def assign_to_delivery():
-        """
-        Назначить товар в доставку
-        TODO: метод аналогричен админскому, назначаем доставку из СЦ
-        """
-        pass
+    async def sc_comment(self, update: Update, context: CallbackContext):
+        """Обработчик кнопки 'Комментарий' для ввода комментария"""
+        query = update.callback_query
+        await query.answer()
+        request_id = query.data.split('_')[-1]
+        
+        # Сохраняем данные для использования в следующем шаге
+        context.user_data['current_request_id'] = request_id
+        context.user_data['comment_message_id'] = query.message.message_id  # ID сообщения для редактирования
+        
+        await query.edit_message_text("✍️ Введите комментарий для заявки:")
+        return 'HANDLE_SC_COMMENT'
 
-    async def call_to_admin():
-        """
-        Связаться с админом
+    async def save_comment(self, update: Update, context: CallbackContext):
+        """Сохраняет комментарий в заявку"""
+        user_comment = update.message.text
+        request_id = context.user_data.get('current_request_id')
+        message_id = context.user_data.get('comment_message_id')
 
-        надо подумать (не срочно)
-        """
-        pass
+        # Только сохранение комментария
+        requests_data = load_requests()
+        if request_id in requests_data:
+            requests_data[request_id]['comment'] = user_comment
+            save_requests(requests_data)
 
-    async def docs():
-        """
-        отображение документов в разработке в целом
-        """
-        pass
+            # Формируем сообщение с обновленной информацией
+            request_data = requests_data[request_id]
+            message_text = (
+                f"📌 Заявка #{request_id}\n"
+                f"🔧 Статус: {request_data['status']}\n"
+                f"👤 Клиент: {request_data['user_name']}\n"
+                f"📞 Телефон: {request_data.get('client_phone', 'не указан')}\n"
+                f"📝 Описание: {request_data['description']}\n"
+                f"🏠 Адрес: {request_data['location_display']}\n"
+                f"💬 Комментарий СЦ: {user_comment}"
+            )
+
+            keyboard = [
+                [InlineKeyboardButton("💬 Чат с клиентом", callback_data=f"sc_chat_{request_id}")],
+                [InlineKeyboardButton("📝 Комментарий", callback_data=f"sc_comment_{request_id}")],
+                [InlineKeyboardButton("🔙 Вернуться к списку", callback_data="sc_back_to_list")]
+            ]
+
+            # Пытаемся обновить оригинальное сообщение
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=update.effective_chat.id,
+                    message_id=message_id,
+                    text=message_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as e:
+                logger.error(f"Ошибка при обновлении сообщения: {e}")
+                # Если не удалось обновить, отправляем новое
+                await update.message.reply_text(
+                    message_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+
+            # Отправляем подтверждение
+            await update.message.reply_text("✅ Комментарий успешно сохранен!")
+        else:
+            await update.message.reply_text("❌ Заявка не найдена")
+
+        return ConversationHandler.END
+
+    async def assign_to_delivery(self, update: Update, context: CallbackContext):
+        """Назначить товар в доставку из СЦ"""
+        users_data = load_users()
+        user_id = str(update.effective_user.id)   
+        requests_data = load_requests()
+        if not requests_data:
+            await update.message.reply_text("Нет активных заявок для отправки в доставку.")
+            return ConversationHandler.END
+        keyboard = []
+        sc_id = users_data[user_id].get('sc_id')
+        for req_id, req_data in requests_data.items():
+            # Проверяем, что заявка принадлежит этому СЦ и находится в нужном статусе
+            if (req_data.get('assigned_sc') == sc_id and 
+                req_data.get('status') == ORDER_STATUS_IN_SC):
+                desc = req_data.get('description', 'Нет описания')[:30] + '...'
+                button_text = f"Заявка #{req_id} - {desc}"
+                keyboard.append([InlineKeyboardButton(
+                    button_text, 
+                    callback_data=f"sc_delivery_{req_id}"
+                )])
+            
+        if not keyboard:
+            await update.message.reply_text("Нет заявок, готовых к отправке в доставку.")
+            return ConversationHandler.END
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "Выберите заявку для отправки в доставку:",
+            reply_markup=reply_markup
+        )
+        return SC_ASSIGN_REQUESTS
+
+    async def handle_sc_delivery_request(self, update: Update, context: CallbackContext):
+        """Обработка выбора заявки для отправки в доставку"""
+        query = update.callback_query
+        await query.answer()
+        parts = query.data.split('_')
+        request_id = parts[2]
+        # Уведомляем администраторов
+        requests_data = load_requests()
+        request = requests_data.get(request_id, {})
+        keyboard = [[
+            InlineKeyboardButton(
+                "Создать задачу доставки", 
+                callback_data=f"create_delivery_{request_id}"
+            )
+        ]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        admin_message = (
+            f"🔄 Запрос на доставку от СЦ\n\n"
+            f"Заявка: #{request_id}\n"
+            f"Описание: {request.get('description', 'Нет описания')}\n"
+            f"Статус: {request.get('status', 'Статус не указан')}"
+        )
+        for admin_id in ADMIN_IDS:
+            try:
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=admin_message,
+                    reply_markup=reply_markup
+                )
+            except Exception as e:
+                logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+        await query.edit_message_text(
+            f"✅ Заявка #{request_id} отправлена на рассмотрение администраторам."
+        )
+        return ConversationHandler.END
+
+    async def call_to_admin(self, update: Update, context: CallbackContext):
+        """Связаться с администратором"""
+        user_id = str(update.effective_user.id)
+        users_data = load_users()
+        service_centers = load_service_centers()
+        # Получаем данные СЦ
+        sc_id = users_data[user_id].get('sc_id')
+        sc_data = service_centers.get(sc_id, {})
+        if not sc_data:
+            await update.message.reply_text("Ошибка: данные СЦ не найдены.")
+            return
+        # Формируем сообщение для администраторов
+        admin_message = (
+            f"📞 Запрос на связь от сервисного центра\n\n"
+            f"🏢 СЦ: {sc_data.get('name')}\n"
+            f"📍 Адрес: {sc_data.get('address')}\n"
+            f"☎️ Телефон: {sc_data.get('phone')}\n"
+            f"👤 Контактное лицо: {users_data[user_id].get('name')}"
+        )
+        # Отправляем уведомление всем администраторам
+        for admin_id in ADMIN_IDS:
+            try:
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=admin_message,
+                    parse_mode='HTML'
+                )
+            except Exception as e:
+                logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+        
+        await update.message.reply_text(
+            "✅ Запрос отправлен администраторам. Ожидайте ответа."
+        )
+
+    async def docs(self, update: Update, context: CallbackContext):
+        """Отображение документов в разработке в целом"""
+        await update.message.reply_text("📄 Этот раздел находится в разработке. Пожалуйста, следите за обновлениями!")
 
     async def cancel(self, update: Update, context: CallbackContext):
         """Отмена операции."""
         await update.message.reply_text("Операция отменена.")
         return ConversationHandler.END
+
+

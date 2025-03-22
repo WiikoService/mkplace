@@ -67,8 +67,6 @@ def main():
 
 def register_client_handlers(application, client_handler, user_handler):
 
-    # Обработчики для клиента
-
     # Обработчик меню клиента
     application.add_handler(
         MessageHandler(
@@ -352,6 +350,60 @@ def register_sc_handlers(application, sc_handler, sc_item_handler):
         pattern=r"^chat_history_"
     ))
 
+    application.add_handler(MessageHandler(
+        filters.Text(["Отправить в доставку"]),
+        sc_handler.assign_to_delivery
+    ))
+    
+    application.add_handler(ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                sc_handler.handle_sc_delivery_request,
+                pattern="^sc_delivery_"
+            )
+        ],
+        states={
+            ASSIGN_REQUEST: [
+                CallbackQueryHandler(
+                    sc_handler.handle_sc_delivery_request,
+                    pattern="^sc_delivery_"
+                )
+            ]
+        },
+        fallbacks=[],
+        allow_reentry=True
+    ))
+
+    application.add_handler(ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                sc_handler.sc_comment,
+                pattern=r"^sc_comment_"
+            )
+        ],
+        states={
+            'HANDLE_SC_COMMENT': [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, sc_handler.save_comment),
+            ]
+        },
+        fallbacks=[],
+        map_to_parent={
+            ConversationHandler.END: ConversationHandler.END
+        }
+    ))
+
+    # Добавляем обработчик для связи с администратором
+    application.add_handler(MessageHandler(
+        filters.Text(["Связаться с администратором"]),
+        sc_handler.call_to_admin
+    ))
+
+    # Добавляем обработчик для отображения документов
+    application.add_handler(MessageHandler(
+        filters.Text(["Документы"]),
+        sc_handler.docs
+    ))
+
 
 def register_callbacks(application, delivery_handler, admin_handler, user_handler, sc_management_handler):
     # Обработчики callback-запросов
@@ -409,6 +461,12 @@ def register_callbacks(application, delivery_handler, admin_handler, user_handle
     application.add_handler(CallbackQueryHandler(
         admin_handler.handle_block_user,
         pattern="^block_user_"
+    ))
+
+    # Добавляем новый обработчик для создания задачи доставки из запроса СЦ
+    application.add_handler(CallbackQueryHandler(
+        admin_handler.handle_create_delivery_from_sc,
+        pattern="^create_delivery_"
     ))
 
 

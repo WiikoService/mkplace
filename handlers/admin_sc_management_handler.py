@@ -54,9 +54,7 @@ class SCManagementHandler(AdminHandler):
         sc_name = context.user_data.get('sc_name')
         sc_address = context.user_data.get('sc_address')
         service_centers = load_service_centers() or {}
-        # Создаем новый ID для СЦ
         sc_id = str(len(service_centers) + 1)
-        # Добавляем новый СЦ
         service_centers[sc_id] = {
             'id': sc_id,
             'name': sc_name,
@@ -71,7 +69,6 @@ class SCManagementHandler(AdminHandler):
             f"Адрес: {sc_address}\n"
             f"Телефон: {sc_phone}"
         )
-        # Очищаем данные пользователя
         if 'sc_name' in context.user_data:
             del context.user_data['sc_name']
         if 'sc_address' in context.user_data:
@@ -97,7 +94,7 @@ class SCManagementHandler(AdminHandler):
             "Выберите сервисный центр для удаления:",
             reply_markup=reply_markup
         )
-        return ConversationHandler.END  # Здесь мы завершаем диалог, так как дальше будет обрабатывать callback
+        return ConversationHandler.END
 
     async def handle_delete_sc_confirm(self, update: Update, context: CallbackContext):
         """Подтверждение удаления СЦ"""
@@ -113,7 +110,6 @@ class SCManagementHandler(AdminHandler):
             await query.edit_message_text("Сервисный центр не найден")
             return
         sc_name = service_centers[sc_id]['name']
-        # Создаем клавиатуру для подтверждения
         keyboard = [
             [
                 InlineKeyboardButton("Да, удалить", callback_data=f"delete_sc_confirmed_{sc_id}"),
@@ -143,7 +139,6 @@ class SCManagementHandler(AdminHandler):
             await query.edit_message_text("Сервисный центр не найден")
             return
         sc_name = service_centers[sc_id]['name']
-        # Удаляем СЦ
         del service_centers[sc_id]
         save_service_centers(service_centers)
         await query.edit_message_text(f"Сервисный центр '{sc_name}' успешно удален.")
