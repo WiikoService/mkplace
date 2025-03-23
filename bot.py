@@ -326,17 +326,27 @@ def register_sc_handlers(application, sc_handler, sc_item_handler):
                     sc_handler.handle_client_message
                 ),
                 CallbackQueryHandler(
-                    lambda u,c: ConversationHandler.END,
-                    pattern="^cancel"
+                    sc_handler.handle_client_reply,
+                    pattern=r"^client_reply_"
+                ),
+                CallbackQueryHandler(
+                    sc_handler.cancel_client_chat,
+                    pattern=r"^cancel_chat_"
+                ),
+                CallbackQueryHandler(
+                    sc_handler.close_chat,
+                    pattern=r"^close_chat_"
                 )
             ]
         },
         fallbacks=[
-            CommandHandler('cancel', lambda u,c: ConversationHandler.END)
+            CommandHandler('cancel', sc_handler.close_chat),
+            MessageHandler(filters.ALL, lambda u,c: None)
         ],
         map_to_parent={
             ConversationHandler.END: ConversationHandler.END
-        }
+        },
+        allow_reentry=True
     ))
 
     # Обработчик закрытия чата
