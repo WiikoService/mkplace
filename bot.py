@@ -203,6 +203,32 @@ def register_admin_handlers(application, admin_handler, user_handler, sc_managem
         fallbacks=[CommandHandler("cancel", sc_management_handler.cancel)]
     ))
 
+    # Обработчик для кнопки меню "Создать задачу доставки"
+    application.add_handler(MessageHandler(
+        filters.Text(["Создать задачу доставки"]), 
+        admin_handler.show_delivery_tasks
+    ))
+
+    # ConversationHandler для процесса создания задачи доставки
+    application.add_handler(ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                admin_handler.handle_create_delivery_from_sc,
+                pattern="^create_delivery_"
+            )
+        ],
+        states={
+            CREATE_DELIVERY_TASK: [
+                CallbackQueryHandler(
+                    admin_handler.handle_create_delivery_from_sc,
+                    pattern="^create_delivery_"
+                )
+            ]
+        },
+        fallbacks=[],
+        allow_reentry=True
+    ))
+
 
 def register_delivery_handlers(application, delivery_handler, user_handler):
     # Обработчики для доставщика
@@ -230,6 +256,16 @@ def register_delivery_handlers(application, delivery_handler, user_handler):
     application.add_handler(MessageHandler(
         filters.Text(["Передать в СЦ"]) & filters.User(user_id=DELIVERY_IDS),
         delivery_handler.handle_transfer_to_sc
+    ))
+
+    application.add_handler(CallbackQueryHandler(
+        delivery_handler.handle_pickup_from_sc,
+        pattern="^picked_up_from_sc_"
+    ))
+
+    application.add_handler(CallbackQueryHandler(
+        delivery_handler.handle_delivered_to_client,
+        pattern="^delivered_to_client_"
     ))
 
 
@@ -471,12 +507,6 @@ def register_callbacks(application, delivery_handler, admin_handler, user_handle
     application.add_handler(CallbackQueryHandler(
         admin_handler.handle_block_user,
         pattern="^block_user_"
-    ))
-
-    # Добавляем новый обработчик для создания задачи доставки из запроса СЦ
-    application.add_handler(CallbackQueryHandler(
-        admin_handler.handle_create_delivery_from_sc,
-        pattern="^create_delivery_"
     ))
 
 

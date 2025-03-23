@@ -4,7 +4,8 @@ from config import (
     ADMIN_IDS, ENTER_NAME, ENTER_PHONE,
     ENTER_CONFIRMATION_CODE, SMS_TOKEN,
     ORDER_STATUS_DELIVERY_TO_SC, ORDER_STATUS_DELIVERY_TO_CLIENT,
-    ORDER_STATUS_CLIENT_REJECTED, ORDER_STATUS_WAITING_SC, CREATE_REQUEST_PHOTOS
+    ORDER_STATUS_CLIENT_REJECTED, ORDER_STATUS_WAITING_SC, CREATE_REQUEST_PHOTOS,
+    ORDER_STATUS_PICKUP_FROM_SC, ORDER_STATUS_SC_TO_CLIENT
 )
 from handlers.base_handler import BaseHandler
 from database import load_delivery_tasks, load_users, load_requests, save_delivery_tasks, save_requests, save_users, load_service_centers
@@ -484,37 +485,71 @@ class DeliveryHandler(BaseHandler):
     async def show_my_tasks(self, update: Update, context: CallbackContext):
         """Показать мои активные задания"""
         try:
-            delivery_id = str(update.effective_user.id)
             delivery_tasks = load_delivery_tasks()
-            logger.info(f"Проверка задач для доставщика {delivery_id}")
-            logger.info(f"Все задачи: {delivery_tasks}")
-            active_tasks = {
-                task_id: task for task_id, task in delivery_tasks.items()
-                if isinstance(task, dict) and 
-                str(task.get('assigned_delivery_id')) == delivery_id and
-                task.get('status') in [ORDER_STATUS_DELIVERY_TO_CLIENT, ORDER_STATUS_DELIVERY_TO_SC]
-            }
+            active_tasks = {}
+            
+            for task_id, task in delivery_tasks.items():
+                if task.get('assigned_delivery_id') == str(update.effective_user.id):
+                    active_tasks[task_id] = task
+                    
             if not active_tasks:
-                logger.info(f"Нет активных задач для доставщика {delivery_id}. Текущие задачи: {delivery_tasks}")
-                await update.message.reply_text("У вас пока нет активных заданий.")
+                await update.message.reply_text("У вас нет активных заданий")
                 return
+            
             for task_id, task in active_tasks.items():
-                status = task.get('status', 'Статус не указан')
+                status = task.get('status')
                 keyboard = []
-                if status == ORDER_STATUS_DELIVERY_TO_SC:
-                    keyboard.append([InlineKeyboardButton(
-                        "Передать в СЦ", 
-                        callback_data=f"delivered_to_sc_{task['request_id']}"
-                    )])
-                message = (
-                    f"📦 Задача доставки #{task_id}\n"
-                    f"Заявка: #{task['request_id']}\n"
-                    f"Статус: {status}\n"
-                    f"СЦ: {task.get('sc_name', 'Не указан')}\n"
-                    f"Описание: {task.get('description', '')[:100]}..."
-                )
+                
+                # Проверяем тип задачи
+                if task.get('is_sc_to_client'):
+                    # Логика для доставки из СЦ клиенту
+                    message = (
+                        f"📦 Задача доставки #{task_id}\n"
+                        f"Статус: {status}\n\n"
+                        f"1️⃣ Забрать из СЦ:\n"
+                        f"🏢 {task.get('sc_name', 'Не указан')}\n"
+                        f"📍 {task.get('sc_address', 'Не указан')}\n\n"
+                        f"2️⃣ Доставить клиенту:\n"
+                        f"👤 {task.get('client_name', 'Не указан')}\n"
+                        f"📍 {task.get('client_address', 'Не указан')}\n"
+                        f"📱 {task.get('client_phone', 'Не указан')}\n"
+                        f"📝 Описание: {task.get('description', '')[:100]}..."
+                    )
+                    
+                    if status == ORDER_STATUS_PICKUP_FROM_SC:
+                        keyboard.append([InlineKeyboardButton(
+                            "✅ Забрал из СЦ", 
+                            callback_data=f"picked_up_from_sc_{task['request_id']}"
+                        )])
+                    elif status == ORDER_STATUS_SC_TO_CLIENT:
+                        keyboard.append([InlineKeyboardButton(
+                            "✅ Доставлено клиенту", 
+                            callback_data=f"delivered_to_client_{task['request_id']}"
+                        )])
+                else:
+                    # Логика для доставки от клиента в СЦ
+                    message = (
+                        f"📦 Задача доставки #{task_id}\n"
+                        f"Статус: {status}\n\n"
+                        f"1️⃣ Забрать у клиента:\n"
+                        f"👤 {task.get('client_name', 'Не указан')}\n"
+                        f"📍 {task.get('client_address', 'Не указан')}\n"
+                        f"📱 {task.get('client_phone', 'Не указан')}\n\n"
+                        f"2️⃣ Доставить в СЦ:\n"
+                        f"🏢 {task.get('sc_name', 'Не указан')}\n"
+                        f"📍 {task.get('sc_address', 'Не указан')}\n"
+                        f"📝 Описание: {task.get('description', '')[:100]}..."
+                    )
+                    
+                    if status == ORDER_STATUS_DELIVERY_TO_SC:
+                        keyboard.append([InlineKeyboardButton(
+                            "✅ Доставлено в СЦ", 
+                            callback_data=f"delivered_to_sc_{task['request_id']}"
+                        )])
+                
                 reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
                 await update.message.reply_text(message, reply_markup=reply_markup)
+            
         except Exception as e:
             logger.error(f"Ошибка при показе заданий: {e}")
             await update.message.reply_text("Произошла ошибка при загрузке заданий.")
@@ -606,3 +641,65 @@ class DeliveryHandler(BaseHandler):
         except Exception as e:
             logger.error(f"Ошибка при показе заданий для передачи в СЦ: {e}")
             await update.message.reply_text("Произошла ошибка при загрузке заданий.")
+
+    async def handle_pickup_from_sc(self, update: Update, context: CallbackContext):
+        """Обработка подтверждения забора товара из СЦ"""
+        query = update.callback_query
+        await query.answer()
+        request_id = query.data.split('_')[-1]
+        
+        try:
+            requests_data = load_requests()
+            delivery_tasks = load_delivery_tasks()
+            
+            # Обновляем статус в заявке
+            request = requests_data.get(request_id)
+            if request:
+                request['status'] = ORDER_STATUS_SC_TO_CLIENT
+                save_requests(requests_data)
+            
+            # Обновляем статус в задаче доставки
+            for task in delivery_tasks.values():
+                if task.get('request_id') == request_id:
+                    task['status'] = ORDER_STATUS_SC_TO_CLIENT
+                    save_delivery_tasks(delivery_tasks)
+                    break
+            
+            await query.edit_message_text(
+                "✅ Статус обновлен. Теперь доставьте товар клиенту."
+            )
+            
+        except Exception as e:
+            logger.error(f"Ошибка при обработке забора из СЦ: {e}")
+            await query.edit_message_text("Произошла ошибка при обновлении статуса")
+
+    async def handle_delivered_to_client(self, update: Update, context: CallbackContext):
+        """Обработка подтверждения доставки клиенту"""
+        query = update.callback_query
+        await query.answer()
+        request_id = query.data.split('_')[-1]
+        
+        try:
+            requests_data = load_requests()
+            delivery_tasks = load_delivery_tasks()
+            
+            # Обновляем статус в заявке
+            request = requests_data.get(request_id)
+            if request:
+                request['status'] = "Доставлено клиенту"
+                save_requests(requests_data)
+            
+            # Обновляем статус в задаче доставки
+            for task in delivery_tasks.values():
+                if task.get('request_id') == request_id:
+                    task['status'] = "Завершено"
+                    save_delivery_tasks(delivery_tasks)
+                    break
+            
+            await query.edit_message_text(
+                "✅ Доставка завершена. Спасибо за работу!"
+            )
+            
+        except Exception as e:
+            logger.error(f"Ошибка при обработке доставки клиенту: {e}")
+            await query.edit_message_text("Произошла ошибка при обновлении статуса")

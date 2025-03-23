@@ -5,7 +5,10 @@ from telegram import (
     ReplyKeyboardMarkup, ReplyKeyboardRemove
 )
 from telegram.ext import CallbackContext, ConversationHandler
-from config import ORDER_STATUS_IN_SC, SC_ASSIGN_REQUESTS, ADMIN_IDS
+from config import (
+    ORDER_STATUS_IN_SC, SC_ASSIGN_REQUESTS, ADMIN_IDS,
+    ORDER_STATUS_DELIVERY_TO_CLIENT, ORDER_STATUS_DELIVERY_TO_SC
+)
 from handlers.base_handler import BaseHandler
 from database import (
     load_requests, save_requests, load_users,
@@ -382,9 +385,25 @@ class SCHandler(BaseHandler):
         await query.answer()
         parts = query.data.split('_')
         request_id = parts[2]
-        # Уведомляем администраторов
+        
+        # Загружаем данные заявок
         requests_data = load_requests()
         request = requests_data.get(request_id, {})
+        
+        # Проверяем, не отправлена ли уже заявка в доставку
+        current_status = request.get('status')
+        if current_status in ['Ожидает доставку', ORDER_STATUS_DELIVERY_TO_CLIENT, ORDER_STATUS_DELIVERY_TO_SC]:
+            await query.edit_message_text(
+                f"❌ Заявка #{request_id} уже отправлена в доставку."
+            )
+            return ConversationHandler.END
+        
+        # Обновляем статус заявки
+        request['status'] = 'Ожидает доставку'
+        requests_data[request_id] = request
+        save_requests(requests_data)
+        
+        # Уведомляем администраторов
         keyboard = [[
             InlineKeyboardButton(
                 "Создать задачу доставки", 
@@ -396,8 +415,11 @@ class SCHandler(BaseHandler):
             f"🔄 Запрос на доставку от СЦ\n\n"
             f"Заявка: #{request_id}\n"
             f"Описание: {request.get('description', 'Нет описания')}\n"
-            f"Статус: {request.get('status', 'Статус не указан')}"
+            f"Статус: Ожидает доставку"
         )
+        
+        # Отправляем уведомления админам
+        notification_sent = False
         for admin_id in ADMIN_IDS:
             try:
                 await context.bot.send_message(
@@ -405,11 +427,23 @@ class SCHandler(BaseHandler):
                     text=admin_message,
                     reply_markup=reply_markup
                 )
+                notification_sent = True
             except Exception as e:
                 logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
-        await query.edit_message_text(
-            f"✅ Заявка #{request_id} отправлена на рассмотрение администраторам."
-        )
+        
+        if notification_sent:
+            await query.edit_message_text(
+                f"✅ Заявка #{request_id} отправлена на рассмотрение администраторам."
+            )
+        else:
+            # Если не удалось отправить уведомления, откатываем статус
+            request['status'] = current_status
+            requests_data[request_id] = request
+            save_requests(requests_data)
+            await query.edit_message_text(
+                f"❌ Не удалось отправить заявку #{request_id} в доставку. Попробуйте позже."
+            )
+        
         return ConversationHandler.END
 
     async def call_to_admin(self, update: Update, context: CallbackContext):
