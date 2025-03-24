@@ -44,49 +44,63 @@ async def notify_admin(bot, request_id, requests_data, admin_ids):
             print(f"Не удалось отправить уведомление администратору {admin_id}: {e}")
 
 
-async def notify_delivery(
-    bot, 
-    delivery_ids: Union[list, str], 
-    task_data: dict,
-    detailed: bool = False
-):
-    """
-    Универсальный метод отправки уведомлений доставщикам
-    """
-    message = f"🆕 Новая задача доставки!\n\n"
-    message += f"Заявка: #{task_data['request_id']}\n"
-    message += f"СЦ: {task_data['sc_name']}\n\n"
-    if detailed:
-        message += f"Адрес клиента: {task_data.get('client_address', 'Не указан')}\n"
-        message += f"Клиент: {task_data.get('client_name', 'Не указан')}\n"
-        message += f"Телефон: {task_data.get('client_phone', 'Не указан')}\n"
-        message += f"Описание: {task_data.get('description', 'Нет описания')}\n"
-        message += f"Желаемая дата: {task_data.get('desired_date', 'Не указана')}\n"
-    keyboard = [[
-        InlineKeyboardButton(
-            "Принять задачу", 
-            callback_data=f"accept_delivery_{task_data['request_id']}"
+async def notify_delivery(bot, delivery_ids, task, detailed=False):
+    """Отправка уведомления доставщикам"""
+    message = ""
+    keyboard = None
+    
+    if task.get('delivery_type') == 'sc_to_client':
+        # Формат для доставки из СЦ клиенту
+        message = (
+            "🆕 Новая задача доставки из СЦ!\n\n"
+            f"Заявка: #{task.get('request_id')}\n"
+            f"1️⃣ Забрать из СЦ:\n"
+            f"🏢 {task.get('sc_name')}\n"
+            f"📍 {task.get('sc_address')}\n\n"
+            f"2️⃣ Доставить клиенту:\n"
+            f"👤 {task.get('client_name')}\n"
+            f"📍 {task.get('client_address')}\n"
+            f"📱 {task.get('client_phone')}\n"
+            f"📝 Описание: {task.get('description')}"
         )
-    ]]
+        
+        keyboard = [[
+            InlineKeyboardButton(
+                "Принять заказ из СЦ",
+                callback_data=f"accept_sc_delivery_{task['request_id']}"
+            )
+        ]]
+    else:
+        # Существующий формат для доставки от клиента
+        message = (
+            "🆕 Новая задача доставки!\n\n"
+            f"Заявка: #{task.get('request_id')}\n"
+            f"1️⃣ Забрать у клиента:\n"
+            f"👤 {task.get('client_name')}\n"
+            f"📍 {task.get('client_address')}\n"
+            f"📱 {task.get('client_phone')}\n\n"
+            f"2️⃣ Доставить в СЦ:\n"
+            f"🏢 {task.get('sc_name')}\n"
+            f"📝 Описание: {task.get('description')}"
+        )
+        
+        keyboard = [[
+            InlineKeyboardButton(
+                "Принять заказ",
+                callback_data=f"accept_delivery_{task['request_id']}"
+            )
+        ]]
+
     reply_markup = InlineKeyboardMarkup(keyboard)
-    if isinstance(delivery_ids, str):
-        delivery_ids = [delivery_ids]
+    
     for delivery_id in delivery_ids:
         try:
-            # Отправляем сообщение
             await bot.send_message(
                 chat_id=delivery_id,
                 text=message,
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
+                reply_markup=reply_markup
             )
             logger.info(f"Уведомление отправлено доставщику {delivery_id}")
-            # Отправляем фотографии, если они есть
-            if 'delivery_photos' in task_data and task_data['delivery_photos']:
-                for photo_path in task_data['delivery_photos']:
-                    with open(photo_path, 'rb') as photo:
-                        await bot.send_photo(chat_id=delivery_id, photo=photo)
-                        logger.info(f"Фото отправлено доставщику {delivery_id} для заявки {task_data['request_id']}")
         except Exception as e:
             logger.error(f"Ошибка отправки уведомления доставщику {delivery_id}: {e}")
 

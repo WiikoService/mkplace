@@ -5,7 +5,10 @@ from telegram import (
     ReplyKeyboardMarkup, ReplyKeyboardRemove
 )
 from telegram.ext import CallbackContext, ConversationHandler
-from config import ORDER_STATUS_IN_SC, SC_ASSIGN_REQUESTS, ADMIN_IDS
+from config import (
+    ORDER_STATUS_IN_SC, SC_ASSIGN_REQUESTS, ADMIN_IDS,
+    ORDER_STATUS_DELIVERY_TO_CLIENT, ORDER_STATUS_DELIVERY_TO_SC
+)
 from handlers.base_handler import BaseHandler
 from database import (
     load_requests, save_requests, load_users,
@@ -377,27 +380,45 @@ class SCHandler(BaseHandler):
         return SC_ASSIGN_REQUESTS
 
     async def handle_sc_delivery_request(self, update: Update, context: CallbackContext):
-        """Обработка выбора заявки для отправки в доставку"""
+        """Обработка выбора заявки для отправки в доставку из СЦ"""
         query = update.callback_query
         await query.answer()
         parts = query.data.split('_')
         request_id = parts[2]
-        # Уведомляем администраторов
+        
         requests_data = load_requests()
         request = requests_data.get(request_id, {})
+        
+        # Проверяем статус
+        current_status = request.get('status')
+        if current_status in ['Ожидает доставку', ORDER_STATUS_DELIVERY_TO_CLIENT, ORDER_STATUS_DELIVERY_TO_SC]:
+            await query.edit_message_text(
+                f"❌ Заявка #{request_id} уже отправлена в доставку."
+            )
+            return ConversationHandler.END
+        
+        # Обновляем статус заявки
+        request['status'] = 'Ожидает доставку из СЦ'  # Новый статус
+        requests_data[request_id] = request
+        save_requests(requests_data)
+        
+        # Уведомляем администраторов с новым callback_data
         keyboard = [[
             InlineKeyboardButton(
-                "Создать задачу доставки", 
-                callback_data=f"create_delivery_{request_id}"
+                "Создать задачу доставки из СЦ", 
+                callback_data=f"create_sc_delivery_{request_id}"  # Новый callback_data
             )
         ]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         admin_message = (
-            f"🔄 Запрос на доставку от СЦ\n\n"
+            f"�� Запрос на доставку из СЦ\n\n"
             f"Заявка: #{request_id}\n"
             f"Описание: {request.get('description', 'Нет описания')}\n"
-            f"Статус: {request.get('status', 'Статус не указан')}"
+            f"Статус: Ожидает доставку из СЦ"
         )
+        
+        # Отправляем уведомления админам
+        notification_sent = False
         for admin_id in ADMIN_IDS:
             try:
                 await context.bot.send_message(
@@ -405,11 +426,22 @@ class SCHandler(BaseHandler):
                     text=admin_message,
                     reply_markup=reply_markup
                 )
+                notification_sent = True
             except Exception as e:
                 logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
-        await query.edit_message_text(
-            f"✅ Заявка #{request_id} отправлена на рассмотрение администраторам."
-        )
+        
+        if notification_sent:
+            await query.edit_message_text(
+                f"✅ Заявка #{request_id} отправлена на рассмотрение администраторам."
+            )
+        else:
+            request['status'] = current_status
+            requests_data[request_id] = request
+            save_requests(requests_data)
+            await query.edit_message_text(
+                f"❌ Не удалось отправить заявку #{request_id} в доставку. Попробуйте позже."
+            )
+        
         return ConversationHandler.END
 
     async def call_to_admin(self, update: Update, context: CallbackContext):
