@@ -490,19 +490,15 @@ class DeliveryHandler(BaseHandler):
         try:
             delivery_tasks = load_delivery_tasks()
             active_tasks = {}
-            
             for task_id, task in delivery_tasks.items():
                 if task.get('assigned_delivery_id') == str(update.effective_user.id):
                     active_tasks[task_id] = task
-                    
             if not active_tasks:
                 await update.message.reply_text("У вас нет активных заданий")
                 return
-            
             for task_id, task in active_tasks.items():
                 status = task.get('status')
                 keyboard = []
-                
                 if task.get('is_sc_to_client'):
                     # Логика для доставки из СЦ клиенту
                     message = (
@@ -517,7 +513,6 @@ class DeliveryHandler(BaseHandler):
                         f"📱 {task.get('client_phone', 'Не указан')}\n"
                         f"📝 Описание: {task.get('description', '')[:100]}..."
                     )
-                    
                     if status == ORDER_STATUS_PICKUP_FROM_SC:
                         keyboard.append([InlineKeyboardButton(
                             "✅ Забрал из СЦ", 
@@ -551,10 +546,8 @@ class DeliveryHandler(BaseHandler):
                     elif status == ORDER_STATUS_WAITING_SC:
                         # Пропускаем задачи, ожидающие приемку СЦ
                         continue
-                
                 reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
                 await update.message.reply_text(message, reply_markup=reply_markup)
-            
         except Exception as e:
             logger.error(f"Ошибка при показе заданий: {e}")
             await update.message.reply_text("Произошла ошибка при загрузке заданий.")
@@ -652,28 +645,23 @@ class DeliveryHandler(BaseHandler):
         query = update.callback_query
         await query.answer()
         request_id = query.data.split('_')[-1]
-        
         try:
             requests_data = load_requests()
             delivery_tasks = load_delivery_tasks()
-            
             # Обновляем статус в заявке
             request = requests_data.get(request_id)
             if request:
                 request['status'] = ORDER_STATUS_SC_TO_CLIENT
                 save_requests(requests_data)
-            
             # Обновляем статус в задаче доставки
             for task in delivery_tasks.values():
                 if task.get('request_id') == request_id:
                     task['status'] = ORDER_STATUS_SC_TO_CLIENT
                     save_delivery_tasks(delivery_tasks)
                     break
-            
             await query.edit_message_text(
                 "✅ Статус обновлен. Теперь доставьте товар клиенту."
             )
-            
         except Exception as e:
             logger.error(f"Ошибка при обработке забора из СЦ: {e}")
             await query.edit_message_text("Произошла ошибка при обновлении статуса")
@@ -683,17 +671,14 @@ class DeliveryHandler(BaseHandler):
         query = update.callback_query
         await query.answer()
         request_id = query.data.split('_')[-1]
-        
         try:
             requests_data = load_requests()
             delivery_tasks = load_delivery_tasks()
-            
             # Обновляем статус в заявке
             request = requests_data.get(request_id)
             if request:
                 request['status'] = "Доставлено клиенту"
                 save_requests(requests_data)
-            
             # Обновляем статус в задаче доставки
             for task in delivery_tasks.values():
                 if task.get('request_id') == request_id:
@@ -704,7 +689,6 @@ class DeliveryHandler(BaseHandler):
             await query.edit_message_text(
                 "✅ Доставка завершена. Спасибо за работу!"
             )
-            
         except Exception as e:
             logger.error(f"Ошибка при обработке доставки клиенту: {e}")
             await query.edit_message_text("Произошла ошибка при обновлении статуса")
@@ -715,18 +699,15 @@ class DeliveryHandler(BaseHandler):
         await query.answer()
         request_id = query.data.split('_')[-1]
         delivery_id = str(update.effective_user.id)
-        
         try:
             requests_data = load_requests()
             delivery_tasks = load_delivery_tasks()
             users_data = load_users()
-            
             # Проверяем существование заявки
             request = requests_data.get(request_id)
             if not request:
                 await query.edit_message_text("❌ Заявка не найдена")
                 return
-            
             # Находим задачу доставки
             task_id = None
             task = None
@@ -735,31 +716,22 @@ class DeliveryHandler(BaseHandler):
                     task_id = t_id
                     task = t_data
                     break
-            
-            if not task:
-                await query.edit_message_text("❌ Задача доставки не найдена")
-                return
-            
             # Проверяем, не взял ли уже кто-то заказ
             if task.get('assigned_delivery_id'):
                 await query.edit_message_text("❌ Заказ уже принят другим доставщиком")
                 return
-            
             # Обновляем данные задачи
             task.update({
                 'assigned_delivery_id': delivery_id,
                 'status': ORDER_STATUS_PICKUP_FROM_SC,
                 'accepted_at': int(time.time())
             })
-            
             # Обновляем статус заявки
             request['status'] = ORDER_STATUS_PICKUP_FROM_SC
             request['assigned_delivery'] = delivery_id
-            
             # Сохраняем изменения
             save_delivery_tasks(delivery_tasks)
             save_requests(requests_data)
-            
             # Уведомляем СЦ
             sc_id = request.get('assigned_sc')
             if sc_id:
@@ -778,15 +750,12 @@ class DeliveryHandler(BaseHandler):
                             )
                         except Exception as e:
                             logger.error(f"Ошибка уведомления СЦ: {e}")
-            
             # Уведомляем других доставщиков
             await self.update_delivery_messages(context.bot, task_id, task)
-            
             # Отвечаем доставщику
             await query.edit_message_text(
                 f"✅ Вы приняли заказ №{request_id}. Статус: Доставщик в пути в СЦ"
             )
-            
         except Exception as e:
             logger.error(f"Ошибка при принятии заказа: {e}")
             await query.edit_message_text("❌ Произошла ошибка при принятии заказа")
@@ -795,13 +764,11 @@ class DeliveryHandler(BaseHandler):
         """Обработка фото при заборе из СЦ"""
         if 'photos_from_sc' not in context.user_data:
             context.user_data['photos_from_sc'] = []
-        
         photo = update.message.photo[-1]
         photo_file = await context.bot.get_file(photo.file_id)
         photo_path = f"photos/from_sc_{len(context.user_data['photos_from_sc'])}_{context.user_data['current_request']}.jpg"
         await photo_file.download_to_drive(photo_path)
         context.user_data['photos_from_sc'].append(photo_path)
-        
         await update.message.reply_text("Фото добавлено. Отправьте /done когда закончите.")
         return CREATE_REQUEST_PHOTOS
 
@@ -810,28 +777,23 @@ class DeliveryHandler(BaseHandler):
         try:
             request_id = context.user_data.get('current_request')
             photos = context.user_data.get('photos_from_sc', [])
-            
             if not photos:
                 await update.message.reply_text("Необходимо добавить хотя бы одно фото!")
                 return CREATE_REQUEST_PHOTOS
-            
             requests_data = load_requests()
             delivery_tasks = load_delivery_tasks()
-            
             # Обновляем статус и сохраняем фото
             requests_data[request_id].update({
                 'status': ORDER_STATUS_SC_TO_CLIENT,
                 'sc_pickup_photos': photos
             })
             save_requests(requests_data)
-            
             # Обновляем статус в delivery_tasks
             for task in delivery_tasks.values():
                 if task.get('request_id') == request_id:
                     task['status'] = ORDER_STATUS_SC_TO_CLIENT
                     break
             save_delivery_tasks(delivery_tasks)
-            
             # Уведомляем клиента
             client_id = requests_data[request_id].get('user_id')
             if client_id:
@@ -840,7 +802,6 @@ class DeliveryHandler(BaseHandler):
                     client_id,
                     "Доставщик забрал ваш товар из СЦ и направляется к вам."
                 )
-            
             keyboard = [[
                 InlineKeyboardButton(
                     "✅ Доставлено клиенту",
@@ -848,13 +809,11 @@ class DeliveryHandler(BaseHandler):
                 )
             ]]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
             await update.message.reply_text(
                 "✅ Товар получен из СЦ. Теперь доставьте его клиенту.",
                 reply_markup=reply_markup
             )
             return ConversationHandler.END
-            
         except Exception as e:
             logger.error(f"Ошибка при завершении фотографирования из СЦ: {e}")
             await update.message.reply_text("Произошла ошибка при обработке фотографий")
@@ -865,27 +824,22 @@ class DeliveryHandler(BaseHandler):
         query = update.callback_query
         await query.answer()
         request_id = query.data.split('_')[-1]
-        
         try:
             requests_data = load_requests()
             delivery_tasks = load_delivery_tasks()
-            
             # Находим задачу доставки
             task = None
             for t in delivery_tasks.values():
                 if t.get('request_id') == request_id and t.get('is_sc_to_client'):
                     task = t
                     break
-            
             if not task:
                 await query.edit_message_text("❌ Задача доставки не найдена")
                 return ConversationHandler.END
-            
             # Генерируем код подтверждения
             confirmation_code = ''.join([str(random.randint(0, 9)) for _ in range(4)])
             context.user_data['confirmation_code'] = confirmation_code
             context.user_data['current_request'] = request_id
-            
             # Отправляем код СЦ
             sc_id = requests_data[request_id].get('assigned_sc')
             users_data = load_users()
@@ -894,7 +848,6 @@ class DeliveryHandler(BaseHandler):
                 if user_data.get('role') == 'sc' and user_data.get('sc_id') == sc_id:
                     sc_user_id = user_id
                     break
-                
             if sc_user_id:
                 await context.bot.send_message(
                     chat_id=sc_user_id,
@@ -908,7 +861,6 @@ class DeliveryHandler(BaseHandler):
             else:
                 await query.edit_message_text("❌ Не удалось отправить код подтверждения СЦ")
                 return ConversationHandler.END
-            
         except Exception as e:
             logger.error(f"Ошибка при подтверждении получения из СЦ: {e}")
             await query.edit_message_text("Произошла ошибка при обработке подтверждения")
@@ -926,7 +878,6 @@ class DeliveryHandler(BaseHandler):
                 del context.user_data['current_request']
             if 'confirmation_code' in context.user_data:
                 del context.user_data['confirmation_code']
-            
             # Отправляем сообщение об отмене
             if update.callback_query:
                 await update.callback_query.edit_message_text(
@@ -936,9 +887,7 @@ class DeliveryHandler(BaseHandler):
                 await update.message.reply_text(
                     "❌ Операция отменена. Вернитесь в меню доставщика."
                 )
-            
             return ConversationHandler.END
-        
         except Exception as e:
             logger.error(f"Ошибка при отмене доставки: {e}")
             await update.message.reply_text(
@@ -952,12 +901,10 @@ class DeliveryHandler(BaseHandler):
         await query.answer()
         request_id = query.data.split('_')[-1]
         delivery_id = str(update.effective_user.id)
-        
         try:
             requests_data = load_requests()
             delivery_tasks = load_delivery_tasks()
             users_data = load_users()
-            
             # Находим задачу доставки
             task = None
             task_id = None
@@ -967,16 +914,9 @@ class DeliveryHandler(BaseHandler):
                     task = t_data
                     task_id = t_id
                     break
-            
-            if not task:
-                await query.edit_message_text("❌ Задача доставки не найдена")
-                return ConversationHandler.END
-            
             if task.get('assigned_delivery_id'):
                 await query.edit_message_text("❌ Заказ уже принят другим доставщиком")
                 return ConversationHandler.END
-            
-            # Обновляем данные задачи
             task.update({
                 'assigned_delivery_id': delivery_id,
                 'status': 'Ожидает подтверждение СЦ',  # Новый статус
@@ -984,8 +924,6 @@ class DeliveryHandler(BaseHandler):
             })
             delivery_tasks[task_id] = task
             save_delivery_tasks(delivery_tasks)
-            
-            # Обновляем статус заявки
             request = requests_data.get(request_id)
             if request:
                 request.update({
@@ -993,7 +931,6 @@ class DeliveryHandler(BaseHandler):
                     'assigned_delivery': delivery_id
                 })
                 save_requests(requests_data)
-            
             # Уведомляем СЦ
             sc_id = request.get('assigned_sc')
             if sc_id:
@@ -1012,12 +949,10 @@ class DeliveryHandler(BaseHandler):
                             )
                         except Exception as e:
                             logger.error(f"Ошибка уведомления СЦ: {e}")
-            
             # Генерируем код подтверждения
             confirmation_code = ''.join([str(random.randint(0, 9)) for _ in range(4)])
             context.user_data['sc_confirmation_code'] = confirmation_code
             context.user_data['current_request'] = request_id
-            
             # Отправляем код СЦ
             if sc_id:
                 for user_id, user_data in users_data.items():
@@ -1026,14 +961,11 @@ class DeliveryHandler(BaseHandler):
                             chat_id=int(user_id),
                             text=f"Код подтверждения для передачи товара доставщику: {confirmation_code}"
                         )
-            
             await query.edit_message_text(
                 f"✅ Вы приняли заказ #{request_id} для доставки из СЦ.\n"
                 "Введите код подтверждения, полученный от СЦ:",
             )
-            
             return ENTER_SC_CONFIRMATION_CODE
-            
         except Exception as e:
             logger.error(f"Ошибка при принятии доставки из СЦ: {e}")
             await query.edit_message_text("❌ Произошла ошибка при принятии заказа")
@@ -1044,16 +976,13 @@ class DeliveryHandler(BaseHandler):
         try:
             delivery_tasks = load_delivery_tasks()
             available_tasks = {}
-            
             for task_id, task in delivery_tasks.items():
                 if (task.get('delivery_type') == 'sc_to_client' and 
                     not task.get('assigned_delivery_id')):
-                    available_tasks[task_id] = task
-                    
+                    available_tasks[task_id] = task  
             if not available_tasks:
                 await update.message.reply_text("На данный момент нет доступных задач доставки из СЦ.")
                 return
-            
             for task_id, task in available_tasks.items():
                 keyboard = [[
                     InlineKeyboardButton(
@@ -1062,7 +991,6 @@ class DeliveryHandler(BaseHandler):
                     )
                 ]]
                 reply_markup = InlineKeyboardMarkup(keyboard)
-                
                 message = (
                     f"📦 Задача доставки #{task_id} из СЦ\n\n"
                     f"1️⃣ Забрать из СЦ:\n"
@@ -1074,9 +1002,7 @@ class DeliveryHandler(BaseHandler):
                     f"📱 {task.get('client_phone', 'Не указан')}\n\n"
                     f"📝 Описание: {task.get('description', '')[:100]}..."
                 )
-                
                 await update.message.reply_text(message, reply_markup=reply_markup)
-                
         except Exception as e:
             logger.error(f"Ошибка при показе доступных заданий из СЦ: {e}")
             await update.message.reply_text("Произошла ошибка при загрузке заданий.")
@@ -1086,21 +1012,16 @@ class DeliveryHandler(BaseHandler):
         query = update.callback_query
         await query.answer()
         request_id = query.data.split('_')[-1]
-        
         try:
             requests_data = load_requests()
-            delivery_tasks = load_delivery_tasks()
-            
             # Генерируем код подтверждения
             confirmation_code = ''.join([str(random.randint(0, 9)) for _ in range(4)])
             context.user_data['sc_confirmation_code'] = confirmation_code
             context.user_data['current_request'] = request_id
-            
             # Отправляем код СЦ
             request = requests_data.get(request_id)
             sc_id = request.get('assigned_sc')
             users_data = load_users()
-            
             for user_id, user_data in users_data.items():
                 if user_data.get('role') == 'sc' and user_data.get('sc_id') == sc_id:
                     await context.bot.send_message(
@@ -1108,12 +1029,10 @@ class DeliveryHandler(BaseHandler):
                         text=f"Код подтверждения для передачи товара доставщику: {confirmation_code}"
                     )
                     break
-                
             await query.edit_message_text(
                 "Введите код подтверждения, полученный от СЦ:"
             )
             return ENTER_SC_CONFIRMATION_CODE
-            
         except Exception as e:
             logger.error(f"Ошибка при подтверждении получения из СЦ: {e}")
             await query.edit_message_text("Произошла ошибка при обработке подтверждения")
@@ -1124,25 +1043,17 @@ class DeliveryHandler(BaseHandler):
         entered_code = update.message.text.strip()
         request_id = context.user_data.get('current_request')
         correct_code = context.user_data.get('sc_confirmation_code')
-        
-        if not request_id or not correct_code:
-            await update.message.reply_text("❌ Ошибка: данные подтверждения не найдены")
-            return ConversationHandler.END
-        
         if entered_code != correct_code:
             await update.message.reply_text("❌ Неверный код. Попробуйте еще раз:")
             return ENTER_SC_CONFIRMATION_CODE
-        
         try:
             requests_data = load_requests()
             delivery_tasks = load_delivery_tasks()
-            
             # Обновляем статусы
             request = requests_data.get(request_id)
             if request:
                 request['status'] = 'Доставщик забрал из СЦ'
                 save_requests(requests_data)
-            
             # Находим и обновляем задачу доставки
             for task in delivery_tasks.values():
                 if (task.get('request_id') == request_id and 
@@ -1150,17 +1061,13 @@ class DeliveryHandler(BaseHandler):
                     task['status'] = 'Доставщик забрал из СЦ'
                     break
             save_delivery_tasks(delivery_tasks)
-            
             await update.message.reply_text(
                 "✅ Код подтвержден. Сделайте фото товара для подтверждения получения."
             )
-            
             # Очищаем данные подтверждения
             if 'sc_confirmation_code' in context.user_data:
                 del context.user_data['sc_confirmation_code']
-            
             return CREATE_REQUEST_PHOTOS
-            
         except Exception as e:
             logger.error(f"Ошибка при проверке кода подтверждения СЦ: {e}")
             await update.message.reply_text("Произошла ошибка при проверке кода")

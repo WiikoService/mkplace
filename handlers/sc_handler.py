@@ -368,7 +368,6 @@ class SCHandler(BaseHandler):
                     button_text, 
                     callback_data=f"sc_delivery_{req_id}"
                 )])
-            
         if not keyboard:
             await update.message.reply_text("Нет заявок, готовых к отправке в доставку.")
             return ConversationHandler.END
@@ -385,10 +384,8 @@ class SCHandler(BaseHandler):
         await query.answer()
         parts = query.data.split('_')
         request_id = parts[2]
-        
         requests_data = load_requests()
         request = requests_data.get(request_id, {})
-        
         # Проверяем статус
         current_status = request.get('status')
         if current_status in ['Ожидает доставку', ORDER_STATUS_DELIVERY_TO_CLIENT, ORDER_STATUS_DELIVERY_TO_SC]:
@@ -396,12 +393,10 @@ class SCHandler(BaseHandler):
                 f"❌ Заявка #{request_id} уже отправлена в доставку."
             )
             return ConversationHandler.END
-        
         # Обновляем статус заявки
         request['status'] = 'Ожидает доставку из СЦ'  # Новый статус
         requests_data[request_id] = request
         save_requests(requests_data)
-        
         # Уведомляем администраторов с новым callback_data
         keyboard = [[
             InlineKeyboardButton(
@@ -416,7 +411,6 @@ class SCHandler(BaseHandler):
             f"Описание: {request.get('description', 'Нет описания')}\n"
             f"Статус: Ожидает доставку из СЦ"
         )
-        
         # Отправляем уведомления админам
         notification_sent = False
         for admin_id in ADMIN_IDS:
@@ -429,7 +423,6 @@ class SCHandler(BaseHandler):
                 notification_sent = True
             except Exception as e:
                 logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
-        
         if notification_sent:
             await query.edit_message_text(
                 f"✅ Заявка #{request_id} отправлена на рассмотрение администраторам."
@@ -441,7 +434,6 @@ class SCHandler(BaseHandler):
             await query.edit_message_text(
                 f"❌ Не удалось отправить заявку #{request_id} в доставку. Попробуйте позже."
             )
-        
         return ConversationHandler.END
 
     async def call_to_admin(self, update: Update, context: CallbackContext):
@@ -473,7 +465,6 @@ class SCHandler(BaseHandler):
                 )
             except Exception as e:
                 logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
-        
         await update.message.reply_text(
             "✅ Запрос отправлен администраторам. Ожидайте ответа."
         )
