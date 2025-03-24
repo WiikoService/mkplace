@@ -475,7 +475,7 @@ class AdminHandler(BaseHandler):
                     f"👤 Клиент: {request.get('user_name')}\n"
                     f"📱 Телефон: {request.get('user_phone')}\n"
                     f"📍 Адрес: {request.get('location_display')}\n"
-                    f"�� Описание: {request.get('description', 'Нет описания')}"
+                    f"Описание: {request.get('description', 'Нет описания')}"
                 )
                 
                 await update.message.reply_text(
@@ -486,3 +486,61 @@ class AdminHandler(BaseHandler):
         except Exception as e:
             logger.error(f"Ошибка при показе заявок для доставки: {e}")
             await update.message.reply_text("Произошла ошибка при загрузке заявок")
+
+    async def handle_create_sc_delivery(self, update: Update, context: CallbackContext):
+        """Обработка создания задачи доставки из СЦ"""
+        query = update.callback_query
+        await query.answer()
+        request_id = query.data.split('_')[-1]
+        requests_data = load_requests()
+        request = requests_data.get(request_id)
+        
+        if not request:
+            await query.edit_message_text("❌ Заявка не найдена")
+            return ConversationHandler.END
+        
+        try:
+            delivery_tasks = load_delivery_tasks()
+            task_id = str(len(delivery_tasks) + 1)
+            
+            sc_id = request.get('assigned_sc')
+            service_centers = load_service_centers()
+            sc_data = service_centers.get(sc_id, {})
+            
+            # Создаем специальную задачу доставки из СЦ
+            delivery_task = {
+                'task_id': task_id,
+                'request_id': request_id,
+                'status': 'Ожидает доставщика',
+                'sc_name': sc_data.get('name'),
+                'sc_address': sc_data.get('address'),
+                'client_name': request.get('user_name'),
+                'client_address': request.get('location_display'),
+                'client_phone': request.get('user_phone'),
+                'description': request.get('description'),
+                'is_sc_to_client': True,
+                'delivery_type': 'sc_to_client'
+            }
+            
+            delivery_tasks[task_id] = delivery_task
+            save_delivery_tasks(delivery_tasks)
+            
+            # Обновляем статус заявки
+            request['status'] = 'Ожидает доставщика'
+            requests_data[request_id] = request
+            save_requests(requests_data)
+            
+            # Уведомляем доставщиков с новым форматом сообщения
+            await notify_delivery(context.bot, DELIVERY_IDS, delivery_task)
+            
+            await query.edit_message_text(
+                f"✅ Задача доставки из СЦ #{task_id} создана и отправлена доставщикам.\n"
+                f"Заявка: #{request_id}"
+            )
+            
+            return ConversationHandler.END
+            
+        except Exception as e:
+            logger.error(f"Ошибка при создании задачи доставки из СЦ: {e}")
+            await query.edit_message_text("❌ Произошла ошибка при создании задачи")
+            return ConversationHandler.END

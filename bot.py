@@ -9,7 +9,8 @@ from config import (
     CREATE_REQUEST_PHOTOS, ENTER_CONFIRMATION_CODE, TELEGRAM_API_TOKEN,
     ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK,
     CREATE_REQUEST_CATEGORY, CREATE_REQUEST_DATA, CREATE_REQUEST_ADDRESS, CREATE_REQUEST_CONFIRMATION, DATA_DIR,
-    SC_MANAGEMENT_ADD_NAME, SC_MANAGEMENT_ADD_ADDRESS, SC_MANAGEMENT_ADD_PHONE, CREATE_REQUEST_COMMENT
+    SC_MANAGEMENT_ADD_NAME, SC_MANAGEMENT_ADD_ADDRESS, SC_MANAGEMENT_ADD_PHONE, CREATE_REQUEST_COMMENT,
+    ENTER_SC_CONFIRMATION_CODE
 )
 from handlers.user_handler import UserHandler
 from handlers.client_handler import ClientHandler
@@ -250,6 +251,12 @@ def register_admin_handlers(application, admin_handler, user_handler, sc_managem
         allow_reentry=True
     ))
 
+    # В регистрации обработчиков админа
+    application.add_handler(CallbackQueryHandler(
+        admin_handler.handle_create_sc_delivery,
+        pattern="^create_sc_delivery_"
+    ))
+
 
 def register_delivery_handlers(application, delivery_handler, user_handler):
     # Обработчики для доставщика
@@ -288,6 +295,44 @@ def register_delivery_handlers(application, delivery_handler, user_handler):
         delivery_handler.handle_delivered_to_client,
         pattern="^delivered_to_client_"
     ))
+
+    # Обработчики для доставки из СЦ
+    application.add_handler(MessageHandler(
+        filters.Text(["Доступные задания из СЦ"]) & filters.User(user_id=DELIVERY_IDS),
+        delivery_handler.show_available_sc_tasks
+    ))
+
+    sc_delivery_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                delivery_handler.handle_accept_sc_delivery,
+                pattern="^accept_sc_delivery_"
+            )
+        ],
+        states={
+            ENTER_SC_CONFIRMATION_CODE: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    delivery_handler.check_sc_confirmation_code
+                )
+            ],
+            CREATE_REQUEST_PHOTOS: [
+                MessageHandler(
+                    filters.PHOTO,
+                    delivery_handler.handle_sc_pickup_photo
+                ),
+                CommandHandler(
+                    "done",
+                    delivery_handler.handle_sc_pickup_photos_done
+                )
+            ]
+        },
+        fallbacks=[
+            CommandHandler('cancel', delivery_handler.cancel_delivery)
+        ]
+    )
+
+    application.add_handler(sc_delivery_handler)
 
 
 def register_sc_handlers(application, sc_handler, sc_item_handler):

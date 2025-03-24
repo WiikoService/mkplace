@@ -380,17 +380,16 @@ class SCHandler(BaseHandler):
         return SC_ASSIGN_REQUESTS
 
     async def handle_sc_delivery_request(self, update: Update, context: CallbackContext):
-        """Обработка выбора заявки для отправки в доставку"""
+        """Обработка выбора заявки для отправки в доставку из СЦ"""
         query = update.callback_query
         await query.answer()
         parts = query.data.split('_')
         request_id = parts[2]
         
-        # Загружаем данные заявок
         requests_data = load_requests()
         request = requests_data.get(request_id, {})
         
-        # Проверяем, не отправлена ли уже заявка в доставку
+        # Проверяем статус
         current_status = request.get('status')
         if current_status in ['Ожидает доставку', ORDER_STATUS_DELIVERY_TO_CLIENT, ORDER_STATUS_DELIVERY_TO_SC]:
             await query.edit_message_text(
@@ -399,23 +398,23 @@ class SCHandler(BaseHandler):
             return ConversationHandler.END
         
         # Обновляем статус заявки
-        request['status'] = 'Ожидает доставку'
+        request['status'] = 'Ожидает доставку из СЦ'  # Новый статус
         requests_data[request_id] = request
         save_requests(requests_data)
         
-        # Уведомляем администраторов
+        # Уведомляем администраторов с новым callback_data
         keyboard = [[
             InlineKeyboardButton(
-                "Создать задачу доставки", 
-                callback_data=f"create_delivery_{request_id}"
+                "Создать задачу доставки из СЦ", 
+                callback_data=f"create_sc_delivery_{request_id}"  # Новый callback_data
             )
         ]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         admin_message = (
-            f"🔄 Запрос на доставку от СЦ\n\n"
+            f"�� Запрос на доставку из СЦ\n\n"
             f"Заявка: #{request_id}\n"
             f"Описание: {request.get('description', 'Нет описания')}\n"
-            f"Статус: Ожидает доставку"
+            f"Статус: Ожидает доставку из СЦ"
         )
         
         # Отправляем уведомления админам
@@ -436,7 +435,6 @@ class SCHandler(BaseHandler):
                 f"✅ Заявка #{request_id} отправлена на рассмотрение администраторам."
             )
         else:
-            # Если не удалось отправить уведомления, откатываем статус
             request['status'] = current_status
             requests_data[request_id] = request
             save_requests(requests_data)
