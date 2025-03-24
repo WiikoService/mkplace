@@ -9,7 +9,7 @@ from config import (
     CREATE_REQUEST_PHOTOS, ENTER_CONFIRMATION_CODE, TELEGRAM_API_TOKEN,
     ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK,
     CREATE_REQUEST_CATEGORY, CREATE_REQUEST_DATA, CREATE_REQUEST_ADDRESS, CREATE_REQUEST_CONFIRMATION, DATA_DIR,
-    SC_MANAGEMENT_ADD_NAME, SC_MANAGEMENT_ADD_ADDRESS, SC_MANAGEMENT_ADD_PHONE
+    SC_MANAGEMENT_ADD_NAME, SC_MANAGEMENT_ADD_ADDRESS, SC_MANAGEMENT_ADD_PHONE, CREATE_REQUEST_COMMENT
 )
 from handlers.user_handler import UserHandler
 from handlers.client_handler import ClientHandler
@@ -77,34 +77,55 @@ def register_client_handlers(application, client_handler, user_handler):
 
     application.add_handler(ConversationHandler(
         entry_points=[
-            MessageHandler(filters.Regex("^Создать заявку$"), client_handler.create_request)
+            MessageHandler(
+                filters.Regex("^Создать заявку$"),
+                client_handler.create_request
+            )
         ],
         states={
             CREATE_REQUEST_CATEGORY: [
                 CallbackQueryHandler(client_handler.handle_category)
             ],
             CREATE_REQUEST_DESC: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, client_handler.handle_request_desc)
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    client_handler.handle_request_desc
+                )
             ],
             CREATE_REQUEST_PHOTOS: [
                 MessageHandler(filters.PHOTO, client_handler.handle_request_photos),
                 CommandHandler("done", client_handler.done_photos)
             ],
             CREATE_REQUEST_LOCATION: [
-                MessageHandler(filters.LOCATION, client_handler.handle_request_location),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, client_handler.handle_request_location)
+                MessageHandler(
+                    filters.LOCATION | filters.TEXT,
+                    client_handler.handle_request_location
+                )
             ],
             CREATE_REQUEST_ADDRESS: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, client_handler.handle_request_address)
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    client_handler.handle_request_address
+                )
             ],
             CREATE_REQUEST_DATA: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, client_handler.handle_desired_date)
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    client_handler.handle_desired_date
+                )
+            ],
+            CREATE_REQUEST_COMMENT: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    client_handler.handle_request_comment
+                )
             ],
             CREATE_REQUEST_CONFIRMATION: [
                 CallbackQueryHandler(client_handler.handle_request_confirmation)
             ]
         },
-        fallbacks=[CommandHandler("cancel", client_handler.cancel_request)]
+        fallbacks=[CommandHandler("cancel", client_handler.cancel_request)],
+        allow_reentry=True
     ))
     application.add_handler(MessageHandler(filters.Regex("^Мои заявки$"), client_handler.show_client_requests))
     application.add_handler(MessageHandler(filters.Regex("^Мой профиль$"), client_handler.show_client_profile))
