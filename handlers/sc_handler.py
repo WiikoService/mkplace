@@ -1,3 +1,4 @@
+import time
 from datetime import datetime
 from telegram import (
     Update, InlineKeyboardButton, InlineKeyboardMarkup,
@@ -84,18 +85,15 @@ class SCHandler(BaseHandler):
             f"📝 Описание: {request_data['description']}\n"
             f"🏠 Адрес: {request_data['location_display']}"
         )
-        
         # Добавляем комментарии, если они есть
         if 'comments' in request_data and request_data['comments']:
             message_text += "\n\n📋 Комментарии:\n"
             # Отображаем последние 3 комментария
             for comment in request_data['comments'][-3:]:
                 message_text += f"- {comment['timestamp']} | {comment['user_name']}: {comment['text'][:50]}{'...' if len(comment['text']) > 50 else ''}\n"
-            
             # Если комментариев больше 3, укажем об этом
             if len(request_data['comments']) > 3:
                 message_text += f"(и еще {len(request_data['comments']) - 3} комментариев)\n"
-        
         keyboard = [
             [InlineKeyboardButton("💬 Чат с клиентом", callback_data=f"sc_chat_{request_id}")],
             [InlineKeyboardButton("📝 Комментарий", callback_data=f"sc_comment_{request_id}")],
@@ -173,63 +171,78 @@ class SCHandler(BaseHandler):
         return 'HANDLE_SC_CHAT'
 
     async def handle_client_reply(self, update: Update, context: CallbackContext):
-        """Обработка ответов клиента"""
+        """Обработка ответов клиента с очисткой контекста"""
         query = update.callback_query
         await query.answer()
+        context.user_data.pop('active_client_chat', None)
         request_id = query.data.split('_')[-1]
         requests_data = load_requests()
         request_data = requests_data.get(request_id, {})
         sc_id = request_data.get('assigned_sc')
         users_data = load_users()
-        sc_user_id = None
-        for user_id, user_data in users_data.items():
-            if str(user_data.get('sc_id')) == str(sc_id) and user_data.get('role') == 'sc':
-                sc_user_id = user_id
-                break
+        sc_user_id = next(
+            (uid for uid, u_data in users_data.items() 
+            if str(u_data.get('sc_id')) == str(sc_id) and u_data.get('role') == 'sc'),
+            None
+        )
         if not sc_user_id:
-            await query.message.reply_text("❌ Сервисный центр не найден")
+            await query.message.reply_text("❌ Сервисный центр недоступен")
             return ConversationHandler.END
         context.user_data['active_client_chat'] = {
             'request_id': request_id,
-            'sc_user_id': sc_user_id
+            'sc_user_id': sc_user_id,
+            'last_active': time.time()
         }
         await query.message.reply_text(
-            "💬 Вы в режиме ответа СЦ. Отправьте ваше сообщение:",
-            reply_markup=ReplyKeyboardRemove()
+            "💬 Режим ответа активирован. Отправьте сообщение:",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("❌ Отменить", callback_data=f"cancel_chat_{request_id}")]
+            ])
         )
         return 'HANDLE_CLIENT_REPLY'
 
     async def handle_client_message(self, update: Update, context: CallbackContext):
-        """Пересылка сообщения клиента в СЦ"""
+        """Обработка сообщений с валидацией контекста и кнопкой выхода"""
         message = update.message
-        chat_data = context.user_data.get('active_client_chat', {})
-        request_id = chat_data.get('request_id')
-        sc_user_id = chat_data.get('sc_user_id')
-        if not sc_user_id:
-            await message.reply_text("❌ Чат недоступен")
+        chat_data = context.user_data.get('active_client_chat')
+        if not chat_data or time.time() - chat_data.get('last_active', 0) > 300:
+            await message.reply_text("❌ Сессия устарела. Начните новый диалог.")
+            context.user_data.pop('active_client_chat', None)
             return ConversationHandler.END
-        users_data = load_users()
-        if sc_user_id not in users_data:
-            await message.reply_text("❌ Сотрудник СЦ не найден")
-            return ConversationHandler.END
+        request_id = chat_data['request_id']
+        sc_user_id = chat_data['sc_user_id']
         try:
-            # Отправляем сообщение в СЦ
             await context.bot.send_message(
                 chat_id=int(sc_user_id),
                 text=f"📩 *Ответ клиента по заявке #{request_id}:*\n{message.text}",
                 parse_mode='Markdown'
             )
-            # Сохраняем в историю
             self.save_chat_history(
                 request_id,
                 'client',
                 message.text,
                 datetime.now().strftime("%H:%M %d-%m-%Y")
             )
-            await message.reply_text("✅ Ответ отправлен в СЦ")
+            context.user_data['active_client_chat']['last_active'] = time.time()
+            reply_markup = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton(
+                        "✉️ Отправить еще", 
+                        callback_data=f"client_reply_{request_id}"
+                    ),
+                    InlineKeyboardButton(
+                        "❌ Закрыть чат", 
+                        callback_data=f"close_chat_{request_id}"
+                    )
+                ]
+            ])
+            await message.reply_text(
+                "✅ Сообщение доставлено:",
+                reply_markup=reply_markup
+            )
         except Exception as e:
-            logger.error(f"Ошибка отправки: {str(e)}")
-            await message.reply_text("❌ Не удалось отправить сообщение")
+            logger.error(f"Ошибка: {str(e)}")
+            await message.reply_text("❌ Ошибка отправки")
         return 'HANDLE_CLIENT_REPLY'
 
     def save_chat_history(self, request_id, sender, message, timestamp):
@@ -243,15 +256,22 @@ class SCHandler(BaseHandler):
         if request_id not in chat_history:
             chat_history[request_id] = []
         chat_history[request_id].append(entry)
-        save_chat_history(chat_history)  # Функция сохранения
+        save_chat_history(chat_history)
 
     async def close_chat(self, update: Update, context: CallbackContext):
         """Закрытие чата"""
         query = update.callback_query
         await query.answer()
-        # Очищаем данные чата
         context.user_data.pop('active_chat', None)
         await query.edit_message_text("Чат закрыт")
+        return ConversationHandler.END
+
+    async def cancel_client_chat(self, update: Update, context: CallbackContext):
+        """Отмена чата клиентом"""
+        query = update.callback_query
+        await query.answer()
+        context.user_data.pop('active_client_chat', None)
+        await query.edit_message_text("✅ Отправка сообщения отменена")
         return ConversationHandler.END
 
     async def show_chat_history(self, update: Update, context: CallbackContext):
@@ -277,11 +297,8 @@ class SCHandler(BaseHandler):
         query = update.callback_query
         await query.answer()
         request_id = query.data.split('_')[-1]
-        
-        # Сохраняем данные для использования в следующем шаге
         context.user_data['current_request_id'] = request_id
-        context.user_data['comment_message_id'] = query.message.message_id  # ID сообщения для редактирования
-        
+        context.user_data['comment_message_id'] = query.message.message_id
         await query.edit_message_text("✍️ Введите комментарий для заявки:")
         return 'HANDLE_SC_COMMENT'
 
@@ -290,14 +307,10 @@ class SCHandler(BaseHandler):
         user_comment = update.message.text
         request_id = context.user_data.get('current_request_id')
         message_id = context.user_data.get('comment_message_id')
-
-        # Только сохранение комментария
         requests_data = load_requests()
         if request_id in requests_data:
             requests_data[request_id]['comment'] = user_comment
             save_requests(requests_data)
-
-            # Формируем сообщение с обновленной информацией
             request_data = requests_data[request_id]
             message_text = (
                 f"📌 Заявка #{request_id}\n"
@@ -308,14 +321,11 @@ class SCHandler(BaseHandler):
                 f"🏠 Адрес: {request_data['location_display']}\n"
                 f"💬 Комментарий СЦ: {user_comment}"
             )
-
             keyboard = [
                 [InlineKeyboardButton("💬 Чат с клиентом", callback_data=f"sc_chat_{request_id}")],
                 [InlineKeyboardButton("📝 Комментарий", callback_data=f"sc_comment_{request_id}")],
                 [InlineKeyboardButton("🔙 Вернуться к списку", callback_data="sc_back_to_list")]
             ]
-
-            # Пытаемся обновить оригинальное сообщение
             try:
                 await context.bot.edit_message_text(
                     chat_id=update.effective_chat.id,
@@ -325,13 +335,10 @@ class SCHandler(BaseHandler):
                 )
             except Exception as e:
                 logger.error(f"Ошибка при обновлении сообщения: {e}")
-                # Если не удалось обновить, отправляем новое
                 await update.message.reply_text(
                     message_text,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-
-            # Отправляем подтверждение
             await update.message.reply_text("✅ Комментарий успешно сохранен!")
         else:
             await update.message.reply_text("❌ Заявка не найдена")
@@ -447,5 +454,3 @@ class SCHandler(BaseHandler):
         """Отмена операции."""
         await update.message.reply_text("Операция отменена.")
         return ConversationHandler.END
-
-
