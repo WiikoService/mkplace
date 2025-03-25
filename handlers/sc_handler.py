@@ -7,7 +7,8 @@ from telegram import (
 from telegram.ext import CallbackContext, ConversationHandler
 from config import (
     ORDER_STATUS_IN_SC, SC_ASSIGN_REQUESTS, ADMIN_IDS,
-    ORDER_STATUS_DELIVERY_TO_CLIENT, ORDER_STATUS_DELIVERY_TO_SC
+    ORDER_STATUS_DELIVERY_TO_CLIENT, ORDER_STATUS_DELIVERY_TO_SC,
+    ENTER_REPAIR_PRICE
 )
 from handlers.base_handler import BaseHandler
 from database import (
@@ -406,7 +407,7 @@ class SCHandler(BaseHandler):
         ]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         admin_message = (
-            f"�� Запрос на доставку из СЦ\n\n"
+            f"🔄 Запрос на доставку из СЦ\n\n"
             f"Заявка: #{request_id}\n"
             f"Описание: {request.get('description', 'Нет описания')}\n"
             f"Статус: Ожидает доставку из СЦ"
@@ -477,3 +478,92 @@ class SCHandler(BaseHandler):
         """Отмена операции."""
         await update.message.reply_text("Операция отменена.")
         return ConversationHandler.END
+
+    async def handle_request_notification(self, update: Update, context: CallbackContext):
+        """Обработка уведомления о новой заявке"""
+        query = update.callback_query
+        await query.answer()
+        request_id = query.data.split('_')[-1]
+        
+        try:
+            requests_data = load_requests()
+            request = requests_data.get(request_id)
+            
+            if not request:
+                await query.edit_message_text("❌ Заявка не найдена")
+                return
+            
+            keyboard = [[
+                InlineKeyboardButton(
+                    "✅ Принять и указать стоимость",
+                    callback_data=f"accept_request_price_{request_id}"
+                )
+            ]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                "Укажите примерную стоимость ремонта:",
+                reply_markup=reply_markup
+            )
+            return ENTER_REPAIR_PRICE
+            
+        except Exception as e:
+            logger.error(f"Ошибка при обработке уведомления: {e}")
+            await query.edit_message_text("Произошла ошибка при обработке запроса")
+            return ConversationHandler.END
+
+    async def handle_repair_price(self, update: Update, context: CallbackContext):
+        """Обработка ввода стоимости ремонта"""
+        try:
+            price = float(update.message.text)
+            request_id = context.user_data.get('current_request')
+            sc_id = str(update.effective_user.id)
+            
+            requests_data = load_requests()
+            request = requests_data[request_id]
+            
+            # Обновляем данные заявки
+            request.update({
+                'price': price,
+                'assigned_sc': sc_id,
+                'status': 'Ожидает доставку в СЦ'
+            })
+            save_requests(requests_data)
+            
+            # Уведомляем админа
+            admin_message = (
+                f"💰 СЦ указал стоимость ремонта\n\n"
+                f"Заявка: #{request_id}\n"
+                f"Стоимость: {price} руб.\n"
+                f"Описание: {request.get('description')}"
+            )
+            
+            for admin_id in ADMIN_IDS:
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=admin_message
+                )
+            
+            # Создаем задачу доставки
+            delivery_tasks = load_delivery_tasks()
+            task_id = str(len(delivery_tasks) + 1)
+            
+            new_task = {
+                'request_id': request_id,
+                'status': 'Ожидает доставку',
+                'created_at': int(time.time()),
+                'delivery_type': 'client_to_sc',
+                'client_address': request.get('location'),
+                'sc_address': request.get('sc_address'),
+                'description': request.get('description'),
+                'price': price
+            }
+            
+            delivery_tasks[task_id] = new_task
+            save_delivery_tasks(delivery_tasks)
+            
+            await update.message.reply_text("✅ Стоимость ремонта сохранена")
+            return ConversationHandler.END
+            
+        except ValueError:
+            await update.message.reply_text("❌ Пожалуйста, введите корректную сумму")
+            return ENTER_REPAIR_PRICE

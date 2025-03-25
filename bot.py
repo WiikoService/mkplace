@@ -10,7 +10,7 @@ from config import (
     ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK,
     CREATE_REQUEST_CATEGORY, CREATE_REQUEST_DATA, CREATE_REQUEST_ADDRESS, CREATE_REQUEST_CONFIRMATION, DATA_DIR,
     SC_MANAGEMENT_ADD_NAME, SC_MANAGEMENT_ADD_ADDRESS, SC_MANAGEMENT_ADD_PHONE, CREATE_REQUEST_COMMENT,
-    ENTER_SC_CONFIRMATION_CODE
+    ENTER_SC_CONFIRMATION_CODE, ENTER_REPAIR_PRICE
 )
 from handlers.user_handler import UserHandler
 from handlers.client_handler import ClientHandler
@@ -146,34 +146,16 @@ def register_admin_handlers(application, admin_handler, user_handler, sc_managem
 
     # Обработчики для администратора
     application.add_handler(MessageHandler(filters.Regex("^Просмотр заявок$"), admin_handler.view_requests))
-    application.add_handler(ConversationHandler(
-        entry_points=[
-            MessageHandler(
-                filters.Regex("^Привязать к СЦ$") & filters.User(user_id=ADMIN_IDS),
-                admin_handler.assign_request
-            ),
-            CallbackQueryHandler(
-                admin_handler.handle_assign_sc,
-                pattern="^assign_sc_(?!confirm)"  # Исключаем паттерн с confirm
-            )
-        ],
-        states={
-            ASSIGN_REQUEST: [
-                CallbackQueryHandler(
-                    admin_handler.handle_assign_sc_confirm,
-                    pattern="^assign_sc_confirm_"
-                )
-            ],
-            CREATE_DELIVERY_TASK: [
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
-                    admin_handler.handle_create_delivery_input
-                )
-            ]
-        },
-        fallbacks=[],
-        allow_reentry=True,
+    application.add_handler(CallbackQueryHandler(
+        admin_handler.handle_assign_sc,
+        pattern="^assign_sc_"
     ))
+    
+    application.add_handler(CallbackQueryHandler(
+        admin_handler.handle_send_to_sc,
+        pattern="^send_to_sc_"
+    ))
+
     application.add_handler(MessageHandler(
         filters.Regex("^Управление СЦ$") & filters.User(user_id=ADMIN_IDS),
         sc_management_handler.show_sc_management
@@ -525,6 +507,28 @@ def register_sc_handlers(application, sc_handler, sc_item_handler):
         filters.Text(["Документы"]),
         sc_handler.docs
     ))
+
+    # Новый обработчик для обработки уведомления о новой заявке
+    sc_price_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                sc_handler.handle_request_notification,
+                pattern="^sc_accept_"
+            )
+        ],
+        states={
+            ENTER_REPAIR_PRICE: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    sc_handler.handle_repair_price
+                )
+            ]
+        },
+        fallbacks=[],
+        allow_reentry=True
+    )
+
+    application.add_handler(sc_price_handler)
 
 
 def register_callbacks(application, delivery_handler, admin_handler, user_handler, sc_management_handler, delivery_sc_handler):
