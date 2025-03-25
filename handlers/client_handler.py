@@ -154,11 +154,37 @@ class ClientHandler:
             f"Описание: {description}\n"
             f"Адрес: {location_str}\n"
             f"Желаемая дата и время: {desired_date.strftime('%H:%M %d.%m.%Y') if isinstance(desired_date, datetime) else 'Не указана'}\n\n"
-            "Пожалуйста, добавьте комментарий к заявке (Что необходимо знать доставщику?):"
+            "Пожалуйста, добавьте комментарий к заявке (Что необходимо знать доставщику?) или нажмите 'Пропустить':"
         )
         
-        await update.message.reply_text(summary)
+        keyboard = [[InlineKeyboardButton("⏩ Пропустить", callback_data="skip_comment")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(summary, reply_markup=reply_markup)
         return CREATE_REQUEST_COMMENT
+
+    async def skip_comment(self, update: Update, context: CallbackContext):
+        """Пропуск комментария"""
+        query = update.callback_query
+        await query.answer()
+        context.user_data["comment"] = "Не указано"
+        
+        summary = (
+            "📝 Итоговые данные заявки:\n\n"
+            f"Категория: {context.user_data.get('category')}\n"
+            f"Описание: {context.user_data.get('description')}\n"
+            f"Адрес: {context.user_data.get('location')}\n"
+            f"Дата: {context.user_data.get('desired_date').strftime('%H:%M %d.%m.%Y')}\n"
+            f"Комментарий: {context.user_data.get('comment')}\n\n"
+            "Подтвердите создание заявки или начните заново."
+        )
+        
+        keyboard = [
+            [InlineKeyboardButton("✅ Подтвердить", callback_data="confirm_request")],
+            [InlineKeyboardButton("🔄 Изменить", callback_data="restart_request")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(summary, reply_markup=reply_markup)
+        return CREATE_REQUEST_CONFIRMATION
 
     async def handle_request_comment(self, update: Update, context: CallbackContext):
         """Обработка комментария клиента"""

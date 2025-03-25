@@ -119,13 +119,17 @@ def register_client_handlers(application, client_handler, user_handler):
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
                     client_handler.handle_request_comment
+                ),
+                CallbackQueryHandler(
+                    client_handler.skip_comment,
+                    pattern="^skip_comment$"
                 )
             ],
             CREATE_REQUEST_CONFIRMATION: [
                 CallbackQueryHandler(client_handler.handle_request_confirmation)
             ]
         },
-        fallbacks=[CommandHandler("cancel", client_handler.cancel_request)],
+        fallbacks=[],
         allow_reentry=True
     ))
     application.add_handler(MessageHandler(filters.Regex("^Мои заявки$"), client_handler.show_client_requests))
