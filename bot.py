@@ -10,7 +10,7 @@ from config import (
     ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK,
     CREATE_REQUEST_CATEGORY, CREATE_REQUEST_DATA, CREATE_REQUEST_ADDRESS, CREATE_REQUEST_CONFIRMATION, DATA_DIR,
     SC_MANAGEMENT_ADD_NAME, SC_MANAGEMENT_ADD_ADDRESS, SC_MANAGEMENT_ADD_PHONE, CREATE_REQUEST_COMMENT,
-    ENTER_SC_CONFIRMATION_CODE
+    ENTER_SC_CONFIRMATION_CODE, ENTER_REPAIR_PRICE
 )
 from handlers.user_handler import UserHandler
 from handlers.client_handler import ClientHandler
@@ -19,6 +19,7 @@ from handlers.delivery_handler import DeliveryHandler
 from handlers.sc_handler import SCHandler
 from handlers.sc_item_handler import SCItemHandler
 from handlers.admin_sc_management_handler import SCManagementHandler
+from handlers.delivery_sc_handler import DeliverySCHandler
 
 from database import ensure_data_dir
 from utils import ensure_photos_dir
@@ -39,6 +40,7 @@ def main():
     sc_handler = SCHandler()
     sc_management_handler = SCManagementHandler()
     sc_item_handler = SCItemHandler()
+    delivery_sc_handler = DeliverySCHandler()
 
     # Создание приложения
     application = Application.builder().token(TELEGRAM_API_TOKEN).build()
@@ -46,9 +48,9 @@ def main():
     # Регистрация обработчиков
     register_client_handlers(application, client_handler, user_handler)
     register_admin_handlers(application, admin_handler, user_handler, sc_management_handler)
-    register_delivery_handlers(application, delivery_handler, user_handler)
+    register_delivery_handlers(application, delivery_handler, user_handler, delivery_sc_handler)
     register_sc_handlers(application, sc_handler, sc_item_handler)
-    register_callbacks(application, delivery_handler, admin_handler, user_handler, sc_management_handler)
+    register_callbacks(application, delivery_handler, admin_handler, user_handler, sc_management_handler, delivery_sc_handler)
 
     # Обработчики команд (общие для всех)
     application.add_handler(CommandHandler("start", user_handler.start))
@@ -110,22 +112,30 @@ def register_client_handlers(application, client_handler, user_handler):
                 )
             ],
             CREATE_REQUEST_DATA: [
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
-                    client_handler.handle_desired_date
+                CallbackQueryHandler(
+                    client_handler.handle_date_selection,
+                    pattern="^select_date_"
+                ),
+                CallbackQueryHandler(
+                    client_handler.handle_time_selection,
+                    pattern="^select_time_"
                 )
             ],
             CREATE_REQUEST_COMMENT: [
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
                     client_handler.handle_request_comment
+                ),
+                CallbackQueryHandler(
+                    client_handler.skip_comment,
+                    pattern="^skip_comment$"
                 )
             ],
             CREATE_REQUEST_CONFIRMATION: [
                 CallbackQueryHandler(client_handler.handle_request_confirmation)
             ]
         },
-        fallbacks=[CommandHandler("cancel", client_handler.cancel_request)],
+        fallbacks=[],
         allow_reentry=True
     ))
     application.add_handler(MessageHandler(filters.Regex("^Мои заявки$"), client_handler.show_client_requests))
@@ -136,34 +146,16 @@ def register_admin_handlers(application, admin_handler, user_handler, sc_managem
 
     # Обработчики для администратора
     application.add_handler(MessageHandler(filters.Regex("^Просмотр заявок$"), admin_handler.view_requests))
-    application.add_handler(ConversationHandler(
-        entry_points=[
-            MessageHandler(
-                filters.Regex("^Привязать к СЦ$") & filters.User(user_id=ADMIN_IDS),
-                admin_handler.assign_request
-            ),
-            CallbackQueryHandler(
-                admin_handler.handle_assign_sc,
-                pattern="^assign_sc_(?!confirm)"  # Исключаем паттерн с confirm
-            )
-        ],
-        states={
-            ASSIGN_REQUEST: [
-                CallbackQueryHandler(
-                    admin_handler.handle_assign_sc_confirm,
-                    pattern="^assign_sc_confirm_"
-                )
-            ],
-            CREATE_DELIVERY_TASK: [
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
-                    admin_handler.handle_create_delivery_input
-                )
-            ]
-        },
-        fallbacks=[],
-        allow_reentry=True,
+    application.add_handler(CallbackQueryHandler(
+        admin_handler.handle_assign_sc,
+        pattern="^assign_sc_"
     ))
+    
+    application.add_handler(CallbackQueryHandler(
+        admin_handler.handle_send_to_sc,
+        pattern="^send_to_sc_"
+    ))
+
     application.add_handler(MessageHandler(
         filters.Regex("^Управление СЦ$") & filters.User(user_id=ADMIN_IDS),
         sc_management_handler.show_sc_management
@@ -258,7 +250,7 @@ def register_admin_handlers(application, admin_handler, user_handler, sc_managem
     ))
 
 
-def register_delivery_handlers(application, delivery_handler, user_handler):
+def register_delivery_handlers(application, delivery_handler, user_handler, delivery_sc_handler):
     # Обработчики для доставщика
 
     application.add_handler(MessageHandler(
@@ -287,25 +279,25 @@ def register_delivery_handlers(application, delivery_handler, user_handler):
     ))
 
     application.add_handler(CallbackQueryHandler(
-        delivery_handler.handle_pickup_from_sc,
+        delivery_sc_handler.handle_pickup_from_sc,
         pattern="^picked_up_from_sc_"
     ))
 
     application.add_handler(CallbackQueryHandler(
-        delivery_handler.handle_delivered_to_client,
+        delivery_sc_handler.handle_delivered_to_client,
         pattern="^delivered_to_client_"
     ))
 
     # Обработчики для доставки из СЦ
     application.add_handler(MessageHandler(
         filters.Text(["Доступные задания из СЦ"]) & filters.User(user_id=DELIVERY_IDS),
-        delivery_handler.show_available_sc_tasks
+        delivery_sc_handler.show_available_sc_tasks
     ))
 
     sc_delivery_handler = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(
-                delivery_handler.handle_accept_sc_delivery,
+                delivery_sc_handler.handle_accept_sc_delivery,
                 pattern="^accept_sc_delivery_"
             )
         ],
@@ -313,17 +305,17 @@ def register_delivery_handlers(application, delivery_handler, user_handler):
             ENTER_SC_CONFIRMATION_CODE: [
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
-                    delivery_handler.check_sc_confirmation_code
+                    delivery_sc_handler.check_sc_confirmation_code
                 )
             ],
             CREATE_REQUEST_PHOTOS: [
                 MessageHandler(
                     filters.PHOTO,
-                    delivery_handler.handle_sc_pickup_photo
+                    delivery_sc_handler.handle_sc_pickup_photo
                 ),
                 CommandHandler(
                     "done",
-                    delivery_handler.handle_sc_pickup_photos_done
+                    delivery_sc_handler.handle_sc_pickup_photos_done
                 )
             ]
         },
@@ -516,8 +508,30 @@ def register_sc_handlers(application, sc_handler, sc_item_handler):
         sc_handler.docs
     ))
 
+    # Новый обработчик для обработки уведомления о новой заявке
+    sc_price_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                sc_handler.handle_request_notification,
+                pattern="^sc_accept_"
+            )
+        ],
+        states={
+            ENTER_REPAIR_PRICE: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    sc_handler.handle_repair_price
+                )
+            ]
+        },
+        fallbacks=[],
+        allow_reentry=True
+    )
 
-def register_callbacks(application, delivery_handler, admin_handler, user_handler, sc_management_handler):
+    application.add_handler(sc_price_handler)
+
+
+def register_callbacks(application, delivery_handler, admin_handler, user_handler, sc_management_handler, delivery_sc_handler):
     # Обработчики callback-запросов
     application.add_handler(CallbackQueryHandler(
         delivery_handler.accept_delivery,
@@ -574,6 +588,47 @@ def register_callbacks(application, delivery_handler, admin_handler, user_handle
         admin_handler.handle_block_user,
         pattern="^block_user_"
     ))
+
+    # Обновляем регистрацию обработчиков
+    application.add_handler(CallbackQueryHandler(
+        delivery_sc_handler.handle_pickup_from_sc,
+        pattern="^picked_up_from_sc_"
+    ))
+    application.add_handler(CallbackQueryHandler(
+        delivery_sc_handler.handle_delivered_to_client,
+        pattern="^delivered_to_client_"
+    ))
+    application.add_handler(CallbackQueryHandler(
+        delivery_sc_handler.accept_delivery_from_sc,
+        pattern="^accept_sc_delivery_"
+    ))
+
+    # Добавляем ConversationHandler для обработки фото из СЦ
+    sc_photo_conv_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                delivery_sc_handler.handle_sc_confirmation,
+                pattern="^sc_confirm_"
+            )
+        ],
+        states={
+            CREATE_REQUEST_PHOTOS: [
+                MessageHandler(
+                    filters.PHOTO,
+                    delivery_sc_handler.handle_sc_pickup_photo
+                ),
+                CommandHandler("done", delivery_sc_handler.handle_sc_pickup_photos_done)
+            ],
+            ENTER_SC_CONFIRMATION_CODE: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    delivery_sc_handler.check_sc_confirmation_code
+                )
+            ]
+        },
+        fallbacks=[CommandHandler("cancel", delivery_handler.cancel_delivery)]
+    )
+    application.add_handler(sc_photo_conv_handler)
 
 
 if __name__ == '__main__':

@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from telegram.ext import CallbackContext, ConversationHandler
 from telegram import (
@@ -115,22 +115,93 @@ class ClientHandler:
     async def handle_request_address(self, update: Update, context: CallbackContext):
         """Обработка ввода адреса вручную."""
         context.user_data["location"] = update.message.text
+        
+        # Создаем клавиатуру с датами на ближайшую неделю
+        keyboard = []
+        current_date = datetime.now()
+        
+        # Форматируем текущую дату и добавляем кнопки для следующих 7 дней
+        for i in range(7):
+            date = current_date + timedelta(days=i)
+            # Форматируем дату для отображения
+            date_display = date.strftime("%d.%m.%Y")
+            # Форматируем дату для callback_data
+            date_value = date.strftime("%H:%M %d.%m.%Y")
+            
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"📅 {date_display}",
+                    callback_data=f"select_date_{date_value}"
+                )
+            ])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
-            "Адрес сохранен.\n"
-            "Теперь введите желаемую дату и время в формате 00:00 01.03.2025:"
+            "Выберите желаемую дату:",
+            reply_markup=reply_markup
         )
         return CREATE_REQUEST_DATA
 
-    async def handle_desired_date(self, update: Update, context: CallbackContext):
-        """Обработка желаемой даты и времени."""
-        desired_date_str = update.message.text
+    async def handle_date_selection(self, update: Update, context: CallbackContext):
+        """Обработка выбора даты"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Получаем выбранную дату из callback_data и сохраняем во временные данные
+        selected_date_str = query.data.split('_', 2)[2]
+        context.user_data["temp_date"] = selected_date_str
+        
+        # Создаем клавиатуру с временными интервалами
+        keyboard = []
+        current_hour = 9  # Начинаем с 9 утра
+        
+        while current_hour <= 20:  # До 20:00
+            time_str = f"{current_hour:02d}:00"
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"🕐 {time_str}",
+                    callback_data=f"select_time_{time_str}"
+                )
+            ])
+            current_hour += 1
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            "Выберите удобное время:",
+            reply_markup=reply_markup
+        )
+        return CREATE_REQUEST_DATA
+
+    async def handle_time_selection(self, update: Update, context: CallbackContext):
+        """Обработка выбора времени"""
+        query = update.callback_query
+        await query.answer()
+        
+        selected_time = query.data.split('_', 2)[2]
+        temp_date = context.user_data.get("temp_date")
+        
         try:
-            desired_date = datetime.strptime(desired_date_str, "%H:%M %d.%m.%Y")
-            context.user_data["desired_date"] = desired_date
-            await update.message.reply_text("Желаемая дата и время сохранены.")
-            return await self.show_confirmation(update, context)  # Переход к подтверждению
-        except ValueError:
-            await update.message.reply_text("Неверный формат. Пожалуйста, введите дату в формате 00:00 01.03.2025")
+            # Комбинируем дату и время
+            date_obj = datetime.strptime(temp_date, "%H:%M %d.%m.%Y")
+            time_obj = datetime.strptime(selected_time, "%H:%M")
+            
+            # Создаем финальную дату с выбранным временем
+            final_datetime = date_obj.replace(
+                hour=time_obj.hour,
+                minute=time_obj.minute
+            )
+            
+            context.user_data["desired_date"] = final_datetime
+            # Очищаем временные данные
+            if "temp_date" in context.user_data:
+                del context.user_data["temp_date"]
+            
+            await query.message.delete()
+            return await self.show_confirmation(query, context)
+        except ValueError as e:
+            await query.edit_message_text(
+                "Произошла ошибка при обработке времени. Попробуйте еще раз."
+            )
             return CREATE_REQUEST_DATA
 
     async def show_confirmation(self, update: Update, context: CallbackContext):
@@ -154,11 +225,37 @@ class ClientHandler:
             f"Описание: {description}\n"
             f"Адрес: {location_str}\n"
             f"Желаемая дата и время: {desired_date.strftime('%H:%M %d.%m.%Y') if isinstance(desired_date, datetime) else 'Не указана'}\n\n"
-            "Пожалуйста, добавьте комментарий к заявке (Что необходимо знать доставщику?):"
+            "Пожалуйста, добавьте комментарий к заявке (Что необходимо знать доставщику?) или нажмите 'Пропустить':"
         )
         
-        await update.message.reply_text(summary)
+        keyboard = [[InlineKeyboardButton("⏩ Пропустить", callback_data="skip_comment")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(summary, reply_markup=reply_markup)
         return CREATE_REQUEST_COMMENT
+
+    async def skip_comment(self, update: Update, context: CallbackContext):
+        """Пропуск комментария"""
+        query = update.callback_query
+        await query.answer()
+        context.user_data["comment"] = "Не указано"
+        
+        summary = (
+            "📝 Итоговые данные заявки:\n\n"
+            f"Категория: {context.user_data.get('category')}\n"
+            f"Описание: {context.user_data.get('description')}\n"
+            f"Адрес: {context.user_data.get('location')}\n"
+            f"Дата: {context.user_data.get('desired_date').strftime('%H:%M %d.%m.%Y')}\n"
+            f"Комментарий: {context.user_data.get('comment')}\n\n"
+            "Подтвердите создание заявки или начните заново."
+        )
+        
+        keyboard = [
+            [InlineKeyboardButton("✅ Подтвердить", callback_data="confirm_request")],
+            [InlineKeyboardButton("🔄 Изменить", callback_data="restart_request")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(summary, reply_markup=reply_markup)
+        return CREATE_REQUEST_CONFIRMATION
 
     async def handle_request_comment(self, update: Update, context: CallbackContext):
         """Обработка комментария клиента"""

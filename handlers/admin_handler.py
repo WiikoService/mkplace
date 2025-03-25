@@ -1,5 +1,6 @@
 import logging
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+import json
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, InputMediaPhoto
 from telegram.ext import CallbackContext, ConversationHandler
 from .base_handler import BaseHandler
 from database import (
@@ -11,102 +12,212 @@ from config import (
     ORDER_STATUS_ASSIGNED_TO_SC, ORDER_STATUS_PICKUP_FROM_SC
 )
 from utils import notify_delivery
-logger = logging.getLogger(__name__)
+from datetime import datetime
+
 
 #  TODO: Согласование цены
 
 
-class AdminHandler(BaseHandler):
+# 1. Подробное логирование в AdminHandler
 
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+logger = logging.getLogger(__name__)
+
+class AdminHandler(BaseHandler):
     async def handle_assign_sc(self, update: Update, context: CallbackContext):
-        """Обработка выбора заявки для привязки к СЦ"""
+        """Обработка нажатия кнопки 'Привязать к СЦ'"""
+        logger.info("🛠️ START handle_assign_sc")
         query = update.callback_query
         await query.answer()
+        
         try:
-            parts = query.data.split('_')
-            logger.info(f"Callback data parts: {parts}")
-            if len(parts) < 3:
-                await query.edit_message_text("Неверный формат данных")
-                return ConversationHandler.END
-            if 'confirm' in parts:
-                request_id = parts[3]
-            else:
-                request_id = parts[2]
-            logger.info(f"Processing request_id: {request_id}")
+            request_id = query.data.split('_')[-1]
+            logger.debug(f"📝 Processing request {request_id}")
+            
             requests_data = load_requests()
-            logger.info(f"Available requests: {list(requests_data.keys())}")
-            if request_id not in requests_data:
-                await query.edit_message_text(f"Заявка #{request_id} не найдена")
-                return ConversationHandler.END
-            service_centers = load_service_centers()
-            if not service_centers:
-                await query.edit_message_text("Нет доступных сервисных центров.")
-                return ConversationHandler.END
-            keyboard = []
-            for sc_id, sc_data in service_centers.items():
-                callback_data = f"assign_sc_confirm_{request_id}_{sc_id}"
-                logger.info(f"Creating button with callback_data: {callback_data}")
-                keyboard.append([
-                    InlineKeyboardButton(
-                        f"{sc_data['name']} - {sc_data.get('address', 'Адрес не указан')}", 
-                        callback_data=callback_data
-                    )
-                ])
+            logger.debug(f"📦 Loaded {len(requests_data)} requests")
+            
+            request = requests_data.get(request_id)
+            logger.debug(f"📄 Request data found: {request is not None}")
+            
+            if not request:
+                logger.error(f"❌ Request {request_id} not found")
+                await query.edit_message_text("Заявка не найдена")
+                return
+
+            # Формируем сообщение для СЦ
+            logger.debug("📝 Forming message text")
+            try:
+                message_text = (
+                    f"📦 Заявка #{request_id}\n"
+                    f"👤 Клиент: {request.get('user_name', 'Не указан')}\n"
+                    f"📱 Телефон: {request.get('user_phone', 'Не указан')}\n"
+                    f"📍 Адрес: {request.get('location', 'Не указан')}\n"
+                    f"📝 Описание: {request.get('description', 'Нет описания')}\n"
+                )
+                
+                # Безопасно добавляем дату
+                if isinstance(request.get('desired_date'), datetime):
+                    message_text += f"🕒 Желаемая дата: {request['desired_date'].strftime('%d.%m.%Y %H:%M')}"
+                else:
+                    message_text += f"🕒 Желаемая дата: {request.get('desired_date', 'Не указана')}"
+                    
+                logger.debug("📝 Message text formed successfully")
+            except Exception as e:
+                logger.error(f"❌ Error forming message text: {str(e)}")
+                message_text = f"📦 Заявка #{request_id}"
+            
+            # Создаем клавиатуру
+            keyboard = [[
+                InlineKeyboardButton(
+                    "📨 Разослать СЦ",
+                    callback_data=f"send_to_sc_{request_id}"
+                )
+            ]]
             reply_markup = InlineKeyboardMarkup(keyboard)
+            logger.debug("⌨️ Keyboard created")
+            
+            # Безопасно отправляем фото
+            photos = request.get('photos', [])
+            if photos:
+                logger.debug(f"🖼️ Found {len(photos)} photos to send")
+                try:
+                    # Проверяем тип данных фото
+                    valid_photos = []
+                    for photo in photos:
+                        if isinstance(photo, str):
+                            valid_photos.append(InputMediaPhoto(photo))
+                        else:
+                            logger.warning(f"⚠️ Invalid photo type: {type(photo)}")
+                    
+                    if valid_photos:
+                        await query.message.reply_media_group(media=valid_photos)
+                        logger.debug("🖼️ Photos sent successfully")
+                except Exception as e:
+                    logger.error(f"❌ Error sending photos: {str(e)}")
+            
+            # Редактируем сообщение
             await query.edit_message_text(
-                f"Выберите сервисный центр для заявки #{request_id}:",
+                text=message_text,
                 reply_markup=reply_markup
             )
-            return ASSIGN_REQUEST
-        except Exception as e:
-            logger.error(f"Error in handle_assign_sc: {e}")
-            await query.edit_message_text(f"Произошла ошибка при обработке заявки: {str(e)}")
-            return ConversationHandler.END
+            logger.info("✅ Successfully processed assign_sc request")
 
-    async def handle_assign_sc_confirm(self, update: Update, context: CallbackContext):
-        """Подтверждение привязки заявки к СЦ"""
-        query = update.callback_query
-        await query.answer()
-        logger.info(f"Received callback query in handle_assign_sc_confirm: {query.data}")
-        try:
-            parts = query.data.split('_')
-            logger.info(f"Parts: {parts}")
-            if len(parts) < 5:
-                logger.error(f"Invalid data format: {query.data}")
-                await query.edit_message_text("Неверный формат данных")
-                return ConversationHandler.END
-            request_id = parts[3]
-            sc_id = parts[4]
-            logger.info(f"Request ID: {request_id}, SC ID: {sc_id}")
-            requests_data = load_requests()
-            logger.info(f"Loaded requests: {list(requests_data.keys())}")
-            service_centers = load_service_centers()
-            logger.info(f"Loaded service centers: {list(service_centers.keys())}")
-            if request_id not in requests_data:
-                logger.error(f"Request {request_id} not found")
-                await query.edit_message_text(f"Заявка #{request_id} не найдена")
-                return ConversationHandler.END
-            if sc_id not in service_centers:
-                logger.error(f"Service center {sc_id} not found")
-                await query.edit_message_text(f"Сервисный центр с ID {sc_id} не найден")
-                return ConversationHandler.END
-            sc_data = service_centers[sc_id]
-            requests_data[request_id].update({
-                'assigned_sc': sc_id,
-                'status': ORDER_STATUS_ASSIGNED_TO_SC
-            })
-            save_requests(requests_data)
-            logger.info(f"Updated request {request_id} with SC {sc_id}")
-            new_text = f"Заявка #{request_id} привязана к СЦ {sc_data['name']}."
-            await query.edit_message_text(new_text)
-            logger.info(f"Message updated for request {request_id}")
-            task_id, task_data = await self.create_delivery_task(update, context, request_id, sc_data['name'])
-            logger.info(f"Request {request_id} successfully assigned to SC {sc_id} and delivery task {task_id} created")
-            return ConversationHandler.END
         except Exception as e:
-            logger.error(f"Error in handle_assign_sc_confirm: {e}")
-            await query.edit_message_text(f"Произошла ошибка при привязке заявки к СЦ: {str(e)}")
-            return ConversationHandler.END
+            logger.error(f"🔥 Error in handle_assign_sc: {str(e)}")
+            import traceback
+            logger.error(f"🔥 Traceback: {traceback.format_exc()}")
+            await query.edit_message_text("Произошла ошибка при обработке заявки")
+
+    async def handle_send_to_sc(self, update: Update, context: CallbackContext):
+        """Обработка рассылки СЦ"""
+        logger.info("🛠️ START handle_send_to_sc")
+        
+        try:
+            query = update.callback_query
+            await query.answer()
+            rid = query.data.split('_')[-1]
+            logger.debug(f"📩 Processing request {rid}")
+
+            # Загрузка данных
+            requests_data = load_requests()
+            logger.debug(f"📥 Loaded {len(requests_data)} requests")
+            
+            if rid not in requests_data:
+                logger.error(f"🚫 Request {rid} not found")
+                await query.edit_message_text("❌ Заявка не найдена")
+                return
+
+            request = requests_data[rid]
+            logger.debug(f"📄 Request data: {json.dumps(request, indent=2, ensure_ascii=False)}")
+
+            # Поиск СЦ
+            users_data = load_users()
+            sc_users = [
+                (uid, u_data['sc_id']) 
+                for uid, u_data in users_data.items() 
+                if u_data.get('role') == 'sc' and u_data.get('sc_id')
+            ]
+            logger.debug(f"🔍 Found {len(sc_users)} SC users")
+
+            if not sc_users:
+                logger.warning("⚠️ No SC users available")
+                await query.edit_message_text("❌ Нет доступных сервисных центров")
+                return
+
+            # Отправка уведомлений
+            success_count = 0
+            for uid, sc_id in sc_users:
+                try:
+                    logger.debug(f"✉️ Sending to SC {sc_id} (user {uid})")
+                    
+                    # Отправка фото
+                    if request.get('photos'):
+                        media = []
+                        for photo in request['photos']:
+                            # Если путь к локальному файлу, открываем его
+                            if photo.startswith('photos/') or photo.startswith('/'):
+                                try:
+                                    with open(photo, 'rb') as photo_file:
+                                        media.append(InputMediaPhoto(photo_file.read()))
+                                except Exception as e:
+                                    logger.error(f"❌ Error opening photo file {photo}: {e}")
+                                    continue
+                            else:
+                                # Если URL или file_id
+                                media.append(InputMediaPhoto(photo))
+                        
+                        if media:
+                            await context.bot.send_media_group(
+                                chat_id=uid,
+                                media=media
+                            )
+
+                    # Отправка упрощенного сообщения
+                    await context.bot.send_message(
+                        chat_id=uid,
+                        text=(
+                            f"📦 Новая заявка #{rid}\n\n"
+                            f"📝 Описание: {request.get('description', 'Не указано')}"
+                        ),
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton(
+                                "✅ Принять заявку", 
+                                callback_data=f"sc_accept_{rid}"
+                            )
+                        ]])
+                    )
+                    success_count += 1
+                    logger.debug(f"✅ Successfully sent to SC {sc_id}")
+                except Exception as e:
+                    logger.error(f"🚨 Error sending to SC {sc_id}: {str(e)}")
+                    continue
+
+            if success_count > 0:
+                # Обновляем заявку
+                requests_data[rid]['status'] = 'Отправлена в СЦ'
+                save_requests(requests_data)
+                await query.edit_message_text(f"✅ Заявка отправлена в {success_count} сервисных центров")
+                logger.info(f"✅ Request sent to {success_count} service centers")
+            else:
+                logger.warning("📭 Failed to send to all SCs")
+                await query.edit_message_text("❌ Не удалось отправить ни одному СЦ")
+            
+            logger.info("✅ FINISHED handle_send_to_sc")
+            
+        except Exception as e:
+            logger.error(f"🔥 Error in handle_send_to_sc: {str(e)}")
+            import traceback
+            logger.error(f"🔥 Traceback: {traceback.format_exc()}")
+            try:
+                await query.edit_message_text("❌ Произошла ошибка при отправке заявки")
+            except:
+                pass
 
     async def update_delivery_info(self, context: CallbackContext, chat_id: int, message_id: int, request_id: str, delivery_info: dict):
         """Обновление информации о доставщике"""
@@ -237,30 +348,58 @@ class AdminHandler(BaseHandler):
             await update.message.reply_text(reply)
 
     async def assign_request(self, update: Update, context: CallbackContext):
-        """Начало процесса привязки заявки к СЦ"""
-        requests_dict = load_requests()
-        if not requests_dict:
-            await update.message.reply_text("Нет активных заявок для привязки.")
+        """Отправка заявки всем СЦ"""
+        query = update.callback_query
+        request_id = query.data.split('_')[-1]
+        
+        try:
+            requests_data = load_requests()
+            request = requests_data[request_id]
+            users_data = load_users()
+            
+            # Формируем сообщение для СЦ
+            message = (
+                f"📦 Новая заявка #{request_id}\n\n"
+                f"Описание: {request.get('description')}\n"
+                f"Адрес клиента: {request.get('location')}\n"
+                f"Желаемая дата: {request.get('desired_date')}\n"
+                f"Комментарий: {request.get('comment', 'Не указан')}"
+            )
+            
+            keyboard = [[
+                InlineKeyboardButton(
+                    "Принять заявку",
+                    callback_data=f"sc_accept_{request_id}"
+                )
+            ]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Отправляем уведомление всем СЦ
+            for user_id, user_data in users_data.items():
+                if user_data.get('role') == 'sc':
+                    # Отправляем фото, если они есть
+                    if request.get('photos'):
+                        media_group = []
+                        for photo in request['photos']:
+                            media_group.append(InputMediaPhoto(photo))
+                        await context.bot.send_media_group(
+                            chat_id=int(user_id),
+                            media=media_group
+                        )
+                    # Отправляем описание с кнопкой
+                    await context.bot.send_message(
+                        chat_id=int(user_id),
+                        text=message,
+                        reply_markup=reply_markup
+                    )
+            
+            await query.edit_message_text("✅ Заявка отправлена всем СЦ")
             return ConversationHandler.END
-        keyboard = []
-        for req_id, req_data in requests_dict.items():
-            if not req_data.get('assigned_sc'):
-                status = req_data.get('status', 'Статус не указан')
-                desc = req_data.get('description', 'Нет описания')[:30] + '...'
-                button_text = f"Заявка #{req_id} - {status} - {desc}"
-                keyboard.append([InlineKeyboardButton(
-                    button_text, 
-                    callback_data=f"assign_sc_{req_id}"
-                )])
-        if not keyboard:
-            await update.message.reply_text("Нет заявок, требующих привязки к СЦ.")
+            
+        except Exception as e:
+            logger.error(f"Ошибка при отправке заявки СЦ: {e}")
+            await query.edit_message_text("❌ Произошла ошибка при отправке заявки")
             return ConversationHandler.END
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(
-            "Выберите заявку для привязки к сервисному центру:",
-            reply_markup=reply_markup
-        )
-        return ASSIGN_REQUEST
 
     async def view_service_centers(self, update: Update, context: CallbackContext):
         """Просмотр списка сервисных центров"""
