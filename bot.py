@@ -110,9 +110,13 @@ def register_client_handlers(application, client_handler, user_handler):
                 )
             ],
             CREATE_REQUEST_DATA: [
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
-                    client_handler.handle_desired_date
+                CallbackQueryHandler(
+                    client_handler.handle_date_selection,
+                    pattern="^select_date_"
+                ),
+                CallbackQueryHandler(
+                    client_handler.handle_time_selection,
+                    pattern="^select_time_"
                 )
             ],
             CREATE_REQUEST_COMMENT: [
