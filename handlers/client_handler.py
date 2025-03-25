@@ -12,6 +12,7 @@ from config import (
     ADMIN_IDS, CREATE_REQUEST_DESC, CREATE_REQUEST_PHOTOS,
     CREATE_REQUEST_LOCATION, PHOTOS_DIR, CREATE_REQUEST_CATEGORY,
     CREATE_REQUEST_DATA, CREATE_REQUEST_ADDRESS, CREATE_REQUEST_CONFIRMATION,
+    CREATE_REQUEST_COMMENT
 )
 from database import load_requests, load_users, save_requests
 from utils import notify_admin
@@ -133,11 +134,12 @@ class ClientHandler:
             return CREATE_REQUEST_DATA
 
     async def show_confirmation(self, update: Update, context: CallbackContext):
-        """Показ сводки данных и запрос подтверждения."""
+        """Показ сводки данных и запрос комментария."""
         category = context.user_data.get("category", "Не указана")
         description = context.user_data.get("description", "Не указано")
         location = context.user_data.get("location", "Не указано")
         desired_date = context.user_data.get("desired_date", "Не указана")
+        
         if isinstance(location, dict):
             if location.get("type") == "coordinates":
                 location_str = f"Широта: {location.get('latitude', 'N/A')}, Долгота: {location.get('longitude', 'N/A')}"
@@ -145,16 +147,36 @@ class ClientHandler:
                 location_str = location.get("address", "Адрес не указан")
         else:
             location_str = location
+        
         summary = (
+            f"Проверьте данные заявки:\n\n"
             f"Категория: {category}\n"
             f"Описание: {description}\n"
             f"Адрес: {location_str}\n"
             f"Желаемая дата и время: {desired_date.strftime('%H:%M %d.%m.%Y') if isinstance(desired_date, datetime) else 'Не указана'}\n\n"
+            "Пожалуйста, добавьте комментарий к заявке (Что необходимо знать доставщику?):"
+        )
+        
+        await update.message.reply_text(summary)
+        return CREATE_REQUEST_COMMENT
+
+    async def handle_request_comment(self, update: Update, context: CallbackContext):
+        """Обработка комментария клиента"""
+        context.user_data["comment"] = update.message.text
+        
+        summary = (
+            "📝 Итоговые данные заявки:\n\n"
+            f"Категория: {context.user_data.get('category')}\n"
+            f"Описание: {context.user_data.get('description')}\n"
+            f"Адрес: {context.user_data.get('location')}\n"
+            f"Дата: {context.user_data.get('desired_date').strftime('%H:%M %d.%m.%Y')}\n"
+            f"Комментарий: {context.user_data.get('comment')}\n\n"
             "Подтвердите создание заявки или начните заново."
         )
+        
         keyboard = [
-            [InlineKeyboardButton("Подтвердить", callback_data="confirm_request")],
-            [InlineKeyboardButton("Изменить", callback_data="restart_request")]
+            [InlineKeyboardButton("✅ Подтвердить", callback_data="confirm_request")],
+            [InlineKeyboardButton("🔄 Изменить", callback_data="restart_request")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(summary, reply_markup=reply_markup)
@@ -203,7 +225,8 @@ class ClientHandler:
             "location_link": location_link,
             "status": "Новая",
             "assigned_sc": None,
-            "desired_date": desired_date_str
+            "desired_date": desired_date_str,
+            "comment": context.user_data.get("comment", "")
         }
         save_requests(requests_data)
         await query.message.reply_text(
