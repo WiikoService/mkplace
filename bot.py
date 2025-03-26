@@ -10,7 +10,7 @@ from config import (
     ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK,
     CREATE_REQUEST_CATEGORY, CREATE_REQUEST_DATA, CREATE_REQUEST_ADDRESS, CREATE_REQUEST_CONFIRMATION, DATA_DIR,
     SC_MANAGEMENT_ADD_NAME, SC_MANAGEMENT_ADD_ADDRESS, SC_MANAGEMENT_ADD_PHONE, CREATE_REQUEST_COMMENT,
-    ENTER_SC_CONFIRMATION_CODE, ENTER_REPAIR_PRICE
+    ENTER_SC_CONFIRMATION_CODE, ENTER_REPAIR_PRICE, CONFIRMATION
 )
 from handlers.user_handler import UserHandler
 from handlers.client_handler import ClientHandler
@@ -332,6 +332,36 @@ def register_sc_handlers(application, sc_handler, sc_item_handler):
 
     application.add_handler(MessageHandler(filters.Regex("^Меню СЦ$"), sc_handler.show_sc_menu))
 
+    # НОВЫЙ ПОДХОД: Регистрируем отдельные обработчики вместо ConversationHandler
+    
+    # 1. Обработчик кнопки "Принять заявку" от СЦ - самый высокий приоритет
+    application.add_handler(
+        CallbackQueryHandler(
+            sc_handler.handle_request_notification,
+            pattern=r"^sc_accept_"
+        ),
+        group=0  # Высший приоритет
+    )
+    
+    # 2. Обработчик для ввода стоимости ремонта - высокий приоритет
+    # Этот обработчик должен быть ВЫШЕ других обработчиков текстовых сообщений
+    application.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
+            sc_handler.handle_repair_price
+        ),
+        group=1  # Высокий приоритет для обработки текста
+    )
+    
+    # 3. Обработчик нажатия кнопки "Принять с указанной стоимостью"
+    application.add_handler(
+        CallbackQueryHandler(
+            sc_handler.confirm_repair_price,
+            pattern=r"^accept_request_price_"
+        ),
+        group=0  # Высший приоритет для callback-запросов
+    )
+
     # Сначала регистрируем ConversationHandler для фотографий
     sc_photos_handler = ConversationHandler(
         entry_points=[
@@ -507,28 +537,6 @@ def register_sc_handlers(application, sc_handler, sc_item_handler):
         filters.Text(["Документы"]),
         sc_handler.docs
     ))
-
-    # Новый обработчик для обработки уведомления о новой заявке
-    sc_price_handler = ConversationHandler(
-        entry_points=[
-            CallbackQueryHandler(
-                sc_handler.handle_request_notification,
-                pattern="^sc_accept_"
-            )
-        ],
-        states={
-            ENTER_REPAIR_PRICE: [
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
-                    sc_handler.handle_repair_price
-                )
-            ]
-        },
-        fallbacks=[],
-        allow_reentry=True
-    )
-
-    application.add_handler(sc_price_handler)
 
 
 def register_callbacks(application, delivery_handler, admin_handler, user_handler, sc_management_handler, delivery_sc_handler):
