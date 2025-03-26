@@ -666,7 +666,7 @@ class SCHandler(BaseHandler):
             
             # Обновляем статус заявки
             request = requests_data[request_id]
-            request['status'] = ORDER_STATUS_IN_SC
+            request['status'] = 'Ожидает доставку'  # Изменили с ORDER_STATUS_IN_SC на 'Ожидает доставку'
             request['assigned_sc'] = sc_center_id
             request['repair_price'] = price_text
             request['accepted_at'] = int(time.time())
@@ -681,7 +681,7 @@ class SCHandler(BaseHandler):
                     notify_message = (
                         f"✅ Ваша заявка #{request_id} принята сервисным центром!\n\n"
                         f"💰 Предварительная стоимость: {price_text} руб.\n"
-                        f"📱 Статус заявки изменен на: {ORDER_STATUS_IN_SC}"
+                        f"📱 Статус заявки изменен на: Ожидает доставку"
                     )
                     await notify_client(context.bot, client_id, notify_message)
                 except Exception as e:
@@ -694,6 +694,49 @@ class SCHandler(BaseHandler):
             )
             
             logger.info(f"Заявка {request_id} успешно принята СЦ {sc_center_id} с ценой {price_text}")
+            
+            # Отправляем уведомления администраторам о возможности создания задачи доставки
+            service_centers = load_service_centers()
+            sc_data = service_centers.get(sc_center_id, {})
+            sc_name = sc_data.get('name', 'Неизвестный СЦ')
+            
+            # Формируем клавиатуру с кнопкой для создания задачи доставки
+            keyboard = [[
+                InlineKeyboardButton(
+                    "Создать задачу доставки",
+                    callback_data=f"create_delivery_{request_id}"
+                )
+            ]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Формируем сообщение для администраторов
+            admin_message = (
+                f"🔄 Заявка принята СЦ и готова к доставке\n\n"
+                f"Заявка: #{request_id}\n"
+                f"СЦ: {sc_name}\n"
+                f"Стоимость ремонта: {price_text} руб.\n"
+                f"Описание: {request.get('description', 'Нет описания')}\n"
+                f"Статус: Ожидает доставку"
+            )
+            
+            # Отправляем уведомления админам
+            notification_sent = False
+            for admin_id in ADMIN_IDS:
+                try:
+                    await context.bot.send_message(
+                        chat_id=admin_id,
+                        text=admin_message,
+                        reply_markup=reply_markup
+                    )
+                    notification_sent = True
+                    logger.info(f"Отправлено уведомление администратору {admin_id} о заявке {request_id}")
+                except Exception as e:
+                    logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+            
+            if notification_sent:
+                logger.info(f"Администраторы уведомлены о возможности создания задачи доставки для заявки {request_id}")
+            else:
+                logger.error(f"Не удалось отправить уведомления администраторам о заявке {request_id}")
             
         except Exception as e:
             logger.error(f"Ошибка при обработке подтверждения: {e}")
