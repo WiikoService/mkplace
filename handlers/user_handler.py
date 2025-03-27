@@ -108,8 +108,8 @@ class UserHandler(BaseHandler):
     async def show_admin_menu(self, update: Update, context: CallbackContext):
         keyboard = [
             ["Просмотр заявок", "Привязать к СЦ"],
-            ["Создать задачу доставки", "Управление СЦ"], # управление СЦ: добавть, удалить, список
-            ["Документы"]
+            ["Создать задачу доставки", "Управление СЦ"],  # управление СЦ: добавть, удалить, список
+            ["Обратная связь", "Документы"]  # обратная связь: отзывы, статистика
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         await update.message.reply_text("Админская панель:", reply_markup=reply_markup)

@@ -10,7 +10,8 @@ from config import (
     ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK,
     CREATE_REQUEST_CATEGORY, CREATE_REQUEST_DATA, CREATE_REQUEST_ADDRESS, CREATE_REQUEST_CONFIRMATION, DATA_DIR,
     SC_MANAGEMENT_ADD_NAME, SC_MANAGEMENT_ADD_ADDRESS, SC_MANAGEMENT_ADD_PHONE, CREATE_REQUEST_COMMENT,
-    ENTER_SC_CONFIRMATION_CODE, ENTER_REPAIR_PRICE, CONFIRMATION
+    ENTER_SC_CONFIRMATION_CODE, ENTER_REPAIR_PRICE, CONFIRMATION,
+    RATING_SERVICE, FEEDBACK_TEXT
 )
 from handlers.user_handler import UserHandler
 from handlers.client_handler import ClientHandler
@@ -141,6 +142,46 @@ def register_client_handlers(application, client_handler, user_handler):
     application.add_handler(MessageHandler(filters.Regex("^Мои заявки$"), client_handler.show_client_requests))
     application.add_handler(MessageHandler(filters.Regex("^Мой профиль$"), client_handler.show_client_profile))
 
+    # Отдельный обработчик для запуска диалога оценки из delivery_sc_handler
+    application.add_handler(
+        CallbackQueryHandler(
+            client_handler.start_rating_conversation,
+            pattern=r"^rate_\d+_"
+        )
+    )
+    
+    # Обработчик для полного процесса оценки
+    rating_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                client_handler.request_service_rating,
+                pattern=r"^rate_service_"
+            )
+        ],
+        states={
+            RATING_SERVICE: [
+                CallbackQueryHandler(
+                    client_handler.handle_rating,
+                    pattern=r"^rate_\d+_"
+                )
+            ],
+            FEEDBACK_TEXT: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    client_handler.handle_feedback
+                )
+            ]
+        },
+        fallbacks=[
+            CommandHandler("cancel", client_handler.cancel_operation)
+        ],
+        name="rating_conversation",
+        persistent=False,
+        allow_reentry=True
+    )
+    
+    application.add_handler(rating_handler)
+
 
 def register_admin_handlers(application, admin_handler, user_handler, sc_management_handler):
 
@@ -248,6 +289,28 @@ def register_admin_handlers(application, admin_handler, user_handler, sc_managem
         admin_handler.handle_create_sc_delivery,
         pattern="^create_sc_delivery_"
     ))
+
+    # Добавляем обработчики для обратной связи
+    application.add_handler(
+        MessageHandler(
+            filters.Text(["Обратная связь"]) & filters.User(user_id=ADMIN_IDS),
+            admin_handler.show_feedback
+        )
+    )
+    
+    application.add_handler(
+        CallbackQueryHandler(
+            admin_handler.show_reviews,
+            pattern="^show_reviews$"
+        )
+    )
+    
+    application.add_handler(
+        CallbackQueryHandler(
+            admin_handler.back_to_stats,
+            pattern="^back_to_stats$"
+        )
+    )
 
 
 def register_delivery_handlers(application, delivery_handler, user_handler, delivery_sc_handler):

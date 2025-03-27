@@ -1,5 +1,6 @@
 import os
 from datetime import datetime, timedelta
+import json
 
 from telegram.ext import CallbackContext, ConversationHandler
 from telegram import (
@@ -12,10 +13,13 @@ from config import (
     ADMIN_IDS, CREATE_REQUEST_DESC, CREATE_REQUEST_PHOTOS,
     CREATE_REQUEST_LOCATION, PHOTOS_DIR, CREATE_REQUEST_CATEGORY,
     CREATE_REQUEST_DATA, CREATE_REQUEST_ADDRESS, CREATE_REQUEST_CONFIRMATION,
-    CREATE_REQUEST_COMMENT
+    CREATE_REQUEST_COMMENT, RATING_SERVICE, FEEDBACK_TEXT
 )
-from database import load_requests, load_users, save_requests
+from database import load_requests, load_users, save_requests, DATA_DIR
 from utils import notify_admin
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class ClientHandler:
@@ -115,11 +119,9 @@ class ClientHandler:
     async def handle_request_address(self, update: Update, context: CallbackContext):
         """Обработка ввода адреса вручную."""
         context.user_data["location"] = update.message.text
-        
         # Создаем клавиатуру с датами на ближайшую неделю
         keyboard = []
         current_date = datetime.now()
-        
         # Форматируем текущую дату и добавляем кнопки для следующих 7 дней
         for i in range(7):
             date = current_date + timedelta(days=i)
@@ -127,14 +129,12 @@ class ClientHandler:
             date_display = date.strftime("%d.%m.%Y")
             # Форматируем дату для callback_data
             date_value = date.strftime("%H:%M %d.%m.%Y")
-            
             keyboard.append([
                 InlineKeyboardButton(
                     f"📅 {date_display}",
                     callback_data=f"select_date_{date_value}"
                 )
             ])
-        
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
             "Выберите желаемую дату:",
@@ -146,15 +146,12 @@ class ClientHandler:
         """Обработка выбора даты"""
         query = update.callback_query
         await query.answer()
-        
         # Получаем выбранную дату из callback_data и сохраняем во временные данные
         selected_date_str = query.data.split('_', 2)[2]
         context.user_data["temp_date"] = selected_date_str
-        
         # Создаем клавиатуру с временными интервалами
         keyboard = []
         current_hour = 9  # Начинаем с 9 утра
-        
         while current_hour <= 20:  # До 20:00
             time_str = f"{current_hour:02d}:00"
             keyboard.append([
@@ -164,7 +161,6 @@ class ClientHandler:
                 )
             ])
             current_hour += 1
-        
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
             "Выберите удобное время:",
@@ -176,26 +172,21 @@ class ClientHandler:
         """Обработка выбора времени"""
         query = update.callback_query
         await query.answer()
-        
         selected_time = query.data.split('_', 2)[2]
         temp_date = context.user_data.get("temp_date")
-        
         try:
             # Комбинируем дату и время
             date_obj = datetime.strptime(temp_date, "%H:%M %d.%m.%Y")
             time_obj = datetime.strptime(selected_time, "%H:%M")
-            
             # Создаем финальную дату с выбранным временем
             final_datetime = date_obj.replace(
                 hour=time_obj.hour,
                 minute=time_obj.minute
             )
-            
             context.user_data["desired_date"] = final_datetime
             # Очищаем временные данные
             if "temp_date" in context.user_data:
                 del context.user_data["temp_date"]
-            
             await query.message.delete()
             return await self.show_confirmation(query, context)
         except ValueError as e:
@@ -210,7 +201,6 @@ class ClientHandler:
         description = context.user_data.get("description", "Не указано")
         location = context.user_data.get("location", "Не указано")
         desired_date = context.user_data.get("desired_date", "Не указана")
-        
         if isinstance(location, dict):
             if location.get("type") == "coordinates":
                 location_str = f"Широта: {location.get('latitude', 'N/A')}, Долгота: {location.get('longitude', 'N/A')}"
@@ -218,7 +208,6 @@ class ClientHandler:
                 location_str = location.get("address", "Адрес не указан")
         else:
             location_str = location
-        
         summary = (
             f"Проверьте данные заявки:\n\n"
             f"Категория: {category}\n"
@@ -227,7 +216,6 @@ class ClientHandler:
             f"Желаемая дата и время: {desired_date.strftime('%H:%M %d.%m.%Y') if isinstance(desired_date, datetime) else 'Не указана'}\n\n"
             "Пожалуйста, добавьте комментарий к заявке (Что необходимо знать доставщику?) или нажмите 'Пропустить':"
         )
-        
         keyboard = [[InlineKeyboardButton("⏩ Пропустить", callback_data="skip_comment")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(summary, reply_markup=reply_markup)
@@ -238,7 +226,6 @@ class ClientHandler:
         query = update.callback_query
         await query.answer()
         context.user_data["comment"] = "Не указано"
-        
         summary = (
             "📝 Итоговые данные заявки:\n\n"
             f"Категория: {context.user_data.get('category')}\n"
@@ -248,7 +235,6 @@ class ClientHandler:
             f"Комментарий: {context.user_data.get('comment')}\n\n"
             "Подтвердите создание заявки или начните заново."
         )
-        
         keyboard = [
             [InlineKeyboardButton("✅ Подтвердить", callback_data="confirm_request")],
             [InlineKeyboardButton("🔄 Изменить", callback_data="restart_request")]
@@ -270,7 +256,6 @@ class ClientHandler:
             f"Комментарий: {context.user_data.get('comment')}\n\n"
             "Подтвердите создание заявки или начните заново."
         )
-        
         keyboard = [
             [InlineKeyboardButton("✅ Подтвердить", callback_data="confirm_request")],
             [InlineKeyboardButton("🔄 Изменить", callback_data="restart_request")]
@@ -404,3 +389,159 @@ class ClientHandler:
             message += f"Описание: {request_data[request_id]['description'][:50]}...\n"
             message += f"Статус: {request_data[request_id]['status']}"
             await bot.send_message(chat_id=admin_id, text=message)
+
+    async def request_service_rating(self, update: Update, context: CallbackContext):
+        """Запрос оценки обслуживания у клиента"""
+        query = update.callback_query
+        await query.answer()
+        request_id = query.data.split('_')[-1]
+        # Создаем клавиатуру со звездами для оценки в столбик для удобства
+        keyboard = [
+            [InlineKeyboardButton("⭐⭐⭐⭐⭐ - Отлично", callback_data=f"rate_5_{request_id}")],
+            [InlineKeyboardButton("⭐⭐⭐⭐ - Хорошо", callback_data=f"rate_4_{request_id}")],
+            [InlineKeyboardButton("⭐⭐⭐ - Нормально", callback_data=f"rate_3_{request_id}")],
+            [InlineKeyboardButton("⭐⭐ - Плохо", callback_data=f"rate_2_{request_id}")],
+            [InlineKeyboardButton("⭐ - Очень плохо", callback_data=f"rate_1_{request_id}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            "🌟 Пожалуйста, оцените качество обслуживания:",
+            reply_markup=reply_markup
+        )
+        return RATING_SERVICE
+
+    async def handle_rating(self, update: Update, context: CallbackContext):
+        """Обработка выбранной оценки"""
+        query = update.callback_query
+        await query.answer()
+        data_parts = query.data.split('_')
+        rating = int(data_parts[1])
+        request_id = data_parts[2]
+        # Сохраняем рейтинг в файл
+        self._save_rating(rating)
+        # Если оценка меньше 4, запрашиваем обратную связь
+        if rating < 4:
+            await query.edit_message_text(
+                f"Спасибо за оценку!\n\n"
+                f"Мы стремимся стать лучше. Пожалуйста, расскажите, что мы могли бы улучшить:"
+            )
+            # Добавляем логирование
+            logger.info(f"Запрошена обратная связь после оценки {rating} для заявки {request_id}")
+            return FEEDBACK_TEXT
+        else:
+            # Для хороших оценок просто благодарим
+            await query.edit_message_text(
+                f"Благодарим за высокую оценку!\n\n"
+                f"Мы рады, что вы остались довольны нашим обслуживанием."
+            )
+            logger.info(f"Получена высокая оценка {rating} для заявки {request_id}")
+            return ConversationHandler.END
+
+    async def handle_feedback(self, update: Update, context: CallbackContext):
+        """Обработка текстовой обратной связи"""
+        feedback_text = update.message.text.strip()
+        # Добавим логирование
+        logger.info(f"Получен отзыв: {feedback_text}")
+        # Сохраняем отзыв
+        self._save_feedback(feedback_text)
+        logger.info("Отзыв сохранен успешно")
+        await update.message.reply_text(
+            "✅ Спасибо за ваш отзыв! Мы учтем ваши комментарии для улучшения нашего сервиса."
+        )
+        return ConversationHandler.END
+
+    def _save_rating(self, rating):
+        """Сохраняет оценку в JSON-файл"""
+        feedback_file = os.path.join(DATA_DIR, 'feedback.json')
+        # Загружаем существующие данные или создаем новые
+        try:
+            if os.path.exists(feedback_file):
+                with open(feedback_file, 'r', encoding='utf-8') as f:
+                    feedback_data = json.load(f)
+            else:
+                feedback_data = {'ratings': [], 'reviews': []}
+        except Exception as e:
+            logger.error(f"Ошибка при загрузке файла обратной связи: {e}")
+            feedback_data = {'ratings': [], 'reviews': []}
+        # Добавляем новую оценку
+        feedback_data['ratings'].append({
+            'rating': rating,
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        })
+        # Сохраняем данные
+        try:
+            with open(feedback_file, 'w', encoding='utf-8') as f:
+                json.dump(feedback_data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error(f"Ошибка при сохранении оценки: {e}")
+
+    def _save_feedback(self, feedback_text):
+        """Сохраняет отзыв в JSON-файл"""
+        feedback_file = os.path.join(DATA_DIR, 'feedback.json')
+        
+        # Загружаем существующие данные
+        try:
+            if os.path.exists(feedback_file):
+                with open(feedback_file, 'r', encoding='utf-8') as f:
+                    feedback_data = json.load(f)
+            else:
+                feedback_data = {'ratings': [], 'reviews': []}
+        except Exception as e:
+            logger.error(f"Ошибка при загрузке файла обратной связи: {e}")
+            feedback_data = {'ratings': [], 'reviews': []}
+        # Добавляем новый отзыв
+        feedback_data['reviews'].append({
+            'id': len(feedback_data['reviews']) + 1,
+            'text': feedback_text,
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        })
+        # Сохраняем данные
+        try:
+            with open(feedback_file, 'w', encoding='utf-8') as f:
+                json.dump(feedback_data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error(f"Ошибка при сохранении отзыва: {e}")
+
+    async def cancel_operation(self, update: Update, context: CallbackContext):
+        """Отмена операции оценки"""
+        await update.message.reply_text("Операция отменена.")
+        return ConversationHandler.END
+
+    async def start_rating_conversation(self, update: Update, context: CallbackContext):
+        """Запускает ConversationHandler для оценки, когда кнопки генерируются напрямую"""
+        query = update.callback_query
+        await query.answer()
+        # Извлекаем рейтинг
+        data_parts = query.data.split('_')
+        rating = int(data_parts[1])
+        request_id = data_parts[2]
+        # Сохраняем рейтинг в файл
+        self._save_rating(rating)
+        # Сохраняем данные для следующего шага
+        context.user_data['current_rating'] = rating
+        context.user_data['current_request_id'] = request_id
+        # Добавляем визуализацию звезд
+        stars = "⭐" * rating
+        # Если оценка меньше 4, инициируем ConversationHandler для обратной связи
+        if rating < 4:
+            await query.edit_message_text(
+                f"Спасибо за оценку {stars}!\n\n"
+                f"Мы стремимся стать лучше. Пожалуйста, расскажите, что мы могли бы улучшить:"
+            )
+            # Добавляем логирование
+            # Запускаем новый ConversationHandler для обработки отзыва
+            # Это делается через сообщение, которое запускает новый ConversationHandler
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Пожалуйста, напишите ваш отзыв в ответ на это сообщение"
+            )
+            # Регистрируем следующий обработчик вручную
+            return FEEDBACK_TEXT
+        else:
+            # Для хороших оценок просто благодарим
+            await query.edit_message_text(
+                f"Благодарим за высокую оценку {stars}!\n\n"
+                f"Мы рады, что вы остались довольны нашим обслуживанием."
+            )
+            logger.info(f"Получена высокая оценка {rating} для заявки {request_id}")
+            return ConversationHandler.END

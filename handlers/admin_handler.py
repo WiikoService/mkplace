@@ -13,6 +13,8 @@ from config import (
 )
 from utils import notify_delivery
 from datetime import datetime
+import os
+from config import DATA_DIR
 
 
 #  TODO: Согласование цены
@@ -351,7 +353,6 @@ class AdminHandler(BaseHandler):
         """Отправка заявки всем СЦ"""
         query = update.callback_query
         request_id = query.data.split('_')[-1]
-        
         try:
             requests_data = load_requests()
             request = requests_data[request_id]
@@ -365,7 +366,6 @@ class AdminHandler(BaseHandler):
                 f"Желаемая дата: {request.get('desired_date')}\n"
                 f"Комментарий: {request.get('comment', 'Не указан')}"
             )
-            
             keyboard = [[
                 InlineKeyboardButton(
                     "Принять заявку",
@@ -373,7 +373,6 @@ class AdminHandler(BaseHandler):
                 )
             ]]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
             # Отправляем уведомление всем СЦ
             for user_id, user_data in users_data.items():
                 if user_data.get('role') == 'sc':
@@ -392,10 +391,8 @@ class AdminHandler(BaseHandler):
                         text=message,
                         reply_markup=reply_markup
                     )
-            
             await query.edit_message_text("✅ Заявка отправлена всем СЦ")
             return ConversationHandler.END
-            
         except Exception as e:
             logger.error(f"Ошибка при отправке заявки СЦ: {e}")
             await query.edit_message_text("❌ Произошла ошибка при отправке заявки")
@@ -651,8 +648,89 @@ class AdminHandler(BaseHandler):
                 f"Заявка: #{request_id}"
             )
             return ConversationHandler.END
-            
         except Exception as e:
             logger.error(f"Ошибка при создании задачи доставки из СЦ: {e}")
             await query.edit_message_text("❌ Произошла ошибка при создании задачи")
             return ConversationHandler.END
+
+    async def show_feedback(self, update: Update, context: CallbackContext):
+        """Показывает общую статистику обратной связи"""
+        feedback_file = os.path.join(DATA_DIR, 'feedback.json')
+        try:
+            if os.path.exists(feedback_file):
+                with open(feedback_file, 'r', encoding='utf-8') as f:
+                    feedback_data = json.load(f)
+            else:
+                await update.message.reply_text("📊 Данные обратной связи отсутствуют.")
+                return
+        except Exception as e:
+            logger.error(f"Ошибка при загрузке файла обратной связи: {e}")
+            await update.message.reply_text("❌ Ошибка при загрузке данных обратной связи.")
+            return
+        # Рассчитываем среднюю оценку
+        ratings = feedback_data.get('ratings', [])
+        reviews_count = len(feedback_data.get('reviews', []))
+        if not ratings:
+            await update.message.reply_text("📊 Пока нет данных по оценкам.")
+            return
+        avg_rating = round(sum(r['rating'] for r in ratings) / len(ratings), 2)
+        # Считаем распределение оценок
+        rating_counts = {i: 0 for i in range(1, 6)}
+        for r in ratings:
+            rating_counts[r['rating']] = rating_counts.get(r['rating'], 0) + 1
+        # Формируем сообщение
+        message = (
+            f"📊 Статистика обратной связи:\n\n"
+            f"🌟 Средняя оценка: {avg_rating}/5\n"
+            f"📝 Всего отзывов: {reviews_count}\n"
+            f"📊 Всего оценок: {len(ratings)}\n\n"
+            f"Распределение оценок:\n"
+        )
+        for i in range(5, 0, -1):
+            count = rating_counts[i]
+            percentage = round((count / len(ratings)) * 100) if ratings else 0
+            message += f"{'⭐' * i}: {count} ({percentage}%)\n"
+        # Добавляем кнопку для просмотра отзывов
+        keyboard = [[InlineKeyboardButton("📝 Просмотр отзывов", callback_data="show_reviews")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(message, reply_markup=reply_markup)
+
+    async def show_reviews(self, update: Update, context: CallbackContext):
+        """Показывает список отзывов"""
+        query = update.callback_query
+        await query.answer()
+        feedback_file = os.path.join(DATA_DIR, 'feedback.json')
+        try:
+            if os.path.exists(feedback_file):
+                with open(feedback_file, 'r', encoding='utf-8') as f:
+                    feedback_data = json.load(f)
+            else:
+                await query.edit_message_text("📊 Данные отзывов отсутствуют.")
+                return
+        except Exception as e:
+            logger.error(f"Ошибка при загрузке файла обратной связи: {e}")
+            await query.edit_message_text("❌ Ошибка при загрузке данных отзывов.")
+            return
+        
+        reviews = feedback_data.get('reviews', [])
+        if not reviews:
+            await query.edit_message_text("📝 Пока нет отзывов от клиентов.")
+            return
+        # Берем последние 10 отзывов
+        recent_reviews = reviews[-10:]
+        message = "📝 Последние отзывы клиентов:\n\n"
+        for review in recent_reviews:
+            date = review.get('timestamp', 'Нет даты')
+            text = review.get('text', 'Нет текста')
+            message += f"📅 {date}\n💬 {text}\n\n"
+        # Добавляем кнопку возврата к статистике
+        keyboard = [[InlineKeyboardButton("🔙 Назад к статистике", callback_data="back_to_stats")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(message, reply_markup=reply_markup)
+
+    async def back_to_stats(self, update: Update, context: CallbackContext):
+        """Возврат к статистике"""
+        query = update.callback_query
+        await query.answer()
+        # Перенаправляем на метод статистики
+        await self.show_feedback(update, context)

@@ -72,7 +72,10 @@ class SCHandler(BaseHandler):
             return ConversationHandler.END
 
     async def choose_requests(self, update: Update, context: CallbackContext):
-        """Обработчик выбора заявки"""
+        """
+        Обработчик выбора заявки
+        TODO: упростить или переработать отображение комментариев
+        """
         query = update.callback_query
         await query.answer()
         request_id = query.data.split('_')[-1]
@@ -346,7 +349,6 @@ class SCHandler(BaseHandler):
             await update.message.reply_text("✅ Комментарий успешно сохранен!")
         else:
             await update.message.reply_text("❌ Заявка не найдена")
-
         return ConversationHandler.END
 
     async def assign_to_delivery(self, update: Update, context: CallbackContext):
@@ -483,96 +485,50 @@ class SCHandler(BaseHandler):
         """Обработка уведомления о новой заявке"""
         query = update.callback_query
         await query.answer()
-        request_id = query.data.split('_')[-1]
-        
-        print(f"===== HANDLE_REQUEST_NOTIFICATION ВЫЗВАН ===== data: {query.data}")
-        logger.info(f"===== HANDLE_REQUEST_NOTIFICATION ВЫЗВАН ===== data: {query.data}")
-        
+        request_id = query.data.split('_')[-1]        
         try:
             user_id = update.effective_user.id
-            logger.info(f"User ID: {user_id}, context keys: {list(context.user_data.keys())}")
-            print(f"User ID: {user_id}, context keys: {list(context.user_data.keys())}")
-            
             requests_data = load_requests()
             request = requests_data.get(request_id)
-            
-            if not request:
-                await query.edit_message_text("❌ Заявка не найдена")
-                return
-            
             # Сохраняем ID заявки в контексте пользователя
             context.user_data['current_request'] = request_id
             # Добавляем флаг, что ожидаем ввод стоимости и время начала ожидания
             context.user_data['waiting_for_price'] = True
             context.user_data['price_entry_time'] = time.time()
-            
-            logger.info(f"Обновленный контекст: {context.user_data}")
-            print(f"Обновленный контекст: {context.user_data}")
-            
             # Запрашиваем стоимость простым текстом без кнопок
             await query.edit_message_text(
                 f"Вы приняли заявку #{request_id}.\n\n"
-                f"Пожалуйста, укажите примерную стоимость ремонта (можно указать диапазон, например: 1500 или 1000-2000):"
-            )
-            
-            # Логируем информацию о начале процесса
-            logger.info(f"Запрошена стоимость ремонта для заявки {request_id}, user_id={update.effective_user.id}")
-            print(f"Запрошена стоимость ремонта для заявки {request_id}, user_id={update.effective_user.id}")
-            
+                f"Пожалуйста, укажите примерную стоимость ремонта (можно указать диапазон):"
+            )            
         except Exception as e:
-            logger.error(f"Ошибка при обработке уведомления: {e}")
-            import traceback
-            logger.error(f"Трассировка: {traceback.format_exc()}")
-            print(f"Ошибка при обработке уведомления: {e}")
-            print(traceback.format_exc())
             await query.edit_message_text("Произошла ошибка при обработке запроса")
 
     async def handle_repair_price(self, update: Update, context: CallbackContext):
-        """Обработка ввода стоимости ремонта"""
-        print(f"===== HANDLE_REPAIR_PRICE ВЫЗВАН ===== текст: {update.message.text}")
-        logger.info(f"===== HANDLE_REPAIR_PRICE ВЫЗВАН ===== текст: {update.message.text}")
-        logger.info(f"Контекст пользователя: {context.user_data}")
-        print(f"Контекст пользователя: {context.user_data}")
-        
+        """Обработка ввода стоимости ремонта"""       
         # Проверяем, что это обработчик для ввода стоимости
         if not context.user_data.get('waiting_for_price'):
             # Если не ожидаем ввод стоимости, то игнорируем сообщение
-            print(f"Сообщение не обработано как стоимость: {update.message.text}, context: {context.user_data}")
-            logger.info(f"Сообщение не обработано как стоимость: {update.message.text}, context: {context.user_data}")
             return
-            
         try:
             # Сохраняем оригинальный текст вместо преобразования в число
             price_text = update.message.text.strip()
             request_id = context.user_data.get('current_request')
-            
-            logger.info(f"Обрабатываю стоимость '{price_text}' для заявки {request_id}")
-            print(f"Обрабатываю стоимость '{price_text}' для заявки {request_id}")
-            
             if not request_id:
                 await update.message.reply_text("❌ Произошла ошибка, запрос не найден")
                 context.user_data.pop('waiting_for_price', None)
                 context.user_data.pop('price_entry_time', None)
                 return
-            
             # Сохраняем стоимость в контексте без преобразования в число
             context.user_data['repair_price_text'] = price_text
-            
             # Сбрасываем флаг ожидания стоимости
             context.user_data.pop('waiting_for_price', None)
             context.user_data.pop('price_entry_time', None)
-            
-            logger.info(f"Обновленный контекст после сохранения стоимости: {context.user_data}")
-            print(f"Обновленный контекст после сохранения стоимости: {context.user_data}")
-            
             # Получаем данные заявки
             requests_data = load_requests()
             request = requests_data.get(request_id)
-            
             if not request:
                 await update.message.reply_text("❌ Заявка не найдена")
                 return
-            
             # Формируем сообщение с информацией и кнопкой подтверждения
             message_text = (
                 f"📦 Заявка #{request_id}\n"
@@ -580,100 +536,59 @@ class SCHandler(BaseHandler):
                 f"💰 Указанная стоимость: {price_text} руб.\n\n"
                 f"Нажмите кнопку ниже, чтобы подтвердить принятие заявки с указанной стоимостью:"
             )
-            
             keyboard = [[
                 InlineKeyboardButton(
                     "✅ Принять с указанной стоимостью",
                     callback_data=f"accept_request_price_{request_id}"
                 )
             ]]
-            
             # Отправляем сообщение с кнопкой подтверждения
             await update.message.reply_text(
                 message_text,
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
-            
-            # Логируем информацию о вводе стоимости
-            logger.info(f"Введена стоимость {price_text} для заявки {request_id}")
-            print(f"Введена стоимость {price_text} для заявки {request_id}")
-            
         except Exception as e:
-            logger.error(f"Ошибка при обработке стоимости: {e}")
-            import traceback
-            logger.error(f"Трассировка: {traceback.format_exc()}")
-            print(f"Ошибка при обработке стоимости: {e}")
-            print(traceback.format_exc())
             await update.message.reply_text("❌ Пожалуйста, введите корректную стоимость")
-            # Не сбрасываем флаг ожидания, чтобы можно было попробовать еще раз
 
     async def confirm_repair_price(self, update: Update, context: CallbackContext):
-        """Подтверждение стоимости ремонта и принятие заявки"""
-        print("==== CONFIRM_REPAIR_PRICE ВЫЗВАН ====")
-        logger.info("==== CONFIRM_REPAIR_PRICE ВЫЗВАН ====")
-        
-        # Базовая проверка входных данных
-        if not update.callback_query:
-            logger.error("update.callback_query отсутствует")
-            return
-            
+        """Подтверждение стоимости ремонта и принятие заявки"""           
         query = update.callback_query
         await query.answer()
-        
-        print(f"Query data: {query.data}")
-        logger.info(f"Query data: {query.data}")
-        
         # Извлекаем ID заявки
         parts = query.data.split('_')
         if len(parts) < 4 or parts[0] != "accept" or parts[1] != "request" or parts[2] != "price":
             logger.error(f"Неверный формат callback_data: {query.data}")
             await query.edit_message_text("❌ Ошибка: неверный формат данных")
             return
-            
         request_id = parts[3]
         price_text = context.user_data.get('repair_price_text')
-        
-        print(f"Request ID: {request_id}, цена: {price_text}")
-        logger.info(f"Request ID: {request_id}, цена: {price_text}")
-        
         # Проверяем наличие стоимости
         if not price_text:
-            logger.error(f"Стоимость не найдена в контексте пользователя: {context.user_data}")
             await query.edit_message_text("❌ Произошла ошибка: стоимость ремонта не найдена")
             return
-        
         # Получаем ID СЦ    
         sc_id = str(update.effective_user.id)
-        logger.info(f"SC ID: {sc_id}")
-        
         try:
             # Получаем данные заявки
             requests_data = load_requests()
             if request_id not in requests_data:
-                logger.error(f"Заявка {request_id} не найдена в базе")
                 await query.edit_message_text("❌ Заявка не найдена")
                 return
-            
             # Получаем данные о сервисном центре
             users_data = load_users()
             sc_user = users_data.get(sc_id, {})
             sc_center_id = sc_user.get('sc_id')
-            
             if not sc_center_id:
-                logger.error(f"SC ID не найден для пользователя {sc_id}")
                 await query.edit_message_text("❌ Ошибка: не удалось определить ваш сервисный центр")
                 return
-            
             # Обновляем статус заявки
             request = requests_data[request_id]
-            request['status'] = 'Ожидает доставку'  # Изменили с ORDER_STATUS_IN_SC на 'Ожидает доставку'
+            request['status'] = 'Ожидает доставку'
             request['assigned_sc'] = sc_center_id
             request['repair_price'] = price_text
             request['accepted_at'] = int(time.time())
-            
             # Сохраняем обновленные данные
             save_requests(requests_data)
-            
             # Отправляем уведомление клиенту
             client_id = request.get('client_id')
             if client_id:
@@ -686,21 +601,15 @@ class SCHandler(BaseHandler):
                     await notify_client(context.bot, client_id, notify_message)
                 except Exception as e:
                     logger.error(f"Ошибка при отправке уведомления клиенту: {e}")
-            
             # Отправляем подтверждение СЦ
             await query.edit_message_text(
                 f"✅ Заявка #{request_id} принята с указанной стоимостью {price_text} руб.\n"
                 f"Данные сохранены, клиент уведомлен."
             )
-            
-            logger.info(f"Заявка {request_id} успешно принята СЦ {sc_center_id} с ценой {price_text}")
-            
             # Отправляем уведомления администраторам о возможности создания задачи доставки
             service_centers = load_service_centers()
             sc_data = service_centers.get(sc_center_id, {})
             sc_name = sc_data.get('name', 'Неизвестный СЦ')
-            
-            # Формируем клавиатуру с кнопкой для создания задачи доставки
             keyboard = [[
                 InlineKeyboardButton(
                     "Создать задачу доставки",
@@ -708,8 +617,6 @@ class SCHandler(BaseHandler):
                 )
             ]]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            # Формируем сообщение для администраторов
             admin_message = (
                 f"🔄 Заявка принята СЦ и готова к доставке\n\n"
                 f"Заявка: #{request_id}\n"
@@ -718,9 +625,7 @@ class SCHandler(BaseHandler):
                 f"Описание: {request.get('description', 'Нет описания')}\n"
                 f"Статус: Ожидает доставку"
             )
-            
             # Отправляем уведомления админам
-            notification_sent = False
             for admin_id in ADMIN_IDS:
                 try:
                     await context.bot.send_message(
@@ -728,20 +633,8 @@ class SCHandler(BaseHandler):
                         text=admin_message,
                         reply_markup=reply_markup
                     )
-                    notification_sent = True
-                    logger.info(f"Отправлено уведомление администратору {admin_id} о заявке {request_id}")
                 except Exception as e:
                     logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
-            
-            if notification_sent:
-                logger.info(f"Администраторы уведомлены о возможности создания задачи доставки для заявки {request_id}")
-            else:
-                logger.error(f"Не удалось отправить уведомления администраторам о заявке {request_id}")
-            
         except Exception as e:
             logger.error(f"Ошибка при обработке подтверждения: {e}")
-            import traceback
-            logger.error(f"Трассировка: {traceback.format_exc()}")
-            print(f"Ошибка при подтверждении стоимости: {e}")
-            print(traceback.format_exc())
             await query.edit_message_text(f"❌ Произошла ошибка: {str(e)}")

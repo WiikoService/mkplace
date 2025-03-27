@@ -55,3 +55,7 @@ ORDER_STATUS_PICKUP_FROM_SC = "Ожидает забор из СЦ"
 DELIVERY_MENU = 'DELIVERY_MENU'
 
 ENTER_SC_CONFIRMATION_CODE = 30
+
+# Состояния для оценки обслуживания
+RATING_SERVICE = 100
+FEEDBACK_TEXT = 101
