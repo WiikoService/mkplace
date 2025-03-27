@@ -724,7 +724,7 @@ class AdminHandler(BaseHandler):
 
             logger.debug(f"📋 Найдено {len(new_requests)} новых заявок")
             
-            # Отправляем каждую заявку отдельным сообщением с кнопкой
+            # Отправляем каждую заявку отдельным сообщением с кнопками
             for request_id, request in new_requests.items():
                 try:
                     # Формируем сообщение
@@ -742,13 +742,19 @@ class AdminHandler(BaseHandler):
                     else:
                         message_text += f"🕒 Желаемая дата: {request.get('desired_date', 'Не указана')}"
 
-                    # Создаем клавиатуру с кнопкой назначения
-                    keyboard = [[
-                        InlineKeyboardButton(
-                            "📨 Разослать СЦ",
-                            callback_data=f"send_to_sc_{request_id}"
-                        )
-                    ]]
+                    # Создаем клавиатуру с двумя кнопками
+                    keyboard = [
+                        [
+                            InlineKeyboardButton(
+                                "📨 Разослать СЦ",
+                                callback_data=f"send_to_sc_{request_id}"
+                            ),
+                            InlineKeyboardButton(
+                                "❌ Отклонить",
+                                callback_data=f"reject_request_{request_id}"
+                            )
+                        ]
+                    ]
                     reply_markup = InlineKeyboardMarkup(keyboard)
 
                     # Отправляем сообщение
