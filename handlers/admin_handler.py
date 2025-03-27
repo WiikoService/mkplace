@@ -20,9 +20,6 @@ from config import DATA_DIR
 #  TODO: Согласование цены
 
 
-# 1. Подробное логирование в AdminHandler
-
-
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -36,22 +33,17 @@ class AdminHandler(BaseHandler):
         logger.info("🛠️ START handle_assign_sc")
         query = update.callback_query
         await query.answer()
-        
         try:
             request_id = query.data.split('_')[-1]
             logger.debug(f"📝 Processing request {request_id}")
-            
             requests_data = load_requests()
             logger.debug(f"📦 Loaded {len(requests_data)} requests")
-            
             request = requests_data.get(request_id)
             logger.debug(f"📄 Request data found: {request is not None}")
-            
             if not request:
                 logger.error(f"❌ Request {request_id} not found")
                 await query.edit_message_text("Заявка не найдена")
                 return
-
             # Формируем сообщение для СЦ
             logger.debug("📝 Forming message text")
             try:
@@ -62,7 +54,6 @@ class AdminHandler(BaseHandler):
                     f"📍 Адрес: {request.get('location', 'Не указан')}\n"
                     f"📝 Описание: {request.get('description', 'Нет описания')}\n"
                 )
-                
                 # Безопасно добавляем дату
                 if isinstance(request.get('desired_date'), datetime):
                     message_text += f"🕒 Желаемая дата: {request['desired_date'].strftime('%d.%m.%Y %H:%M')}"
@@ -73,7 +64,6 @@ class AdminHandler(BaseHandler):
             except Exception as e:
                 logger.error(f"❌ Error forming message text: {str(e)}")
                 message_text = f"📦 Заявка #{request_id}"
-            
             # Создаем клавиатуру
             keyboard = [[
                 InlineKeyboardButton(
@@ -83,7 +73,6 @@ class AdminHandler(BaseHandler):
             ]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             logger.debug("⌨️ Keyboard created")
-            
             # Безопасно отправляем фото
             photos = request.get('photos', [])
             if photos:
@@ -102,14 +91,12 @@ class AdminHandler(BaseHandler):
                         logger.debug("🖼️ Photos sent successfully")
                 except Exception as e:
                     logger.error(f"❌ Error sending photos: {str(e)}")
-            
             # Редактируем сообщение
             await query.edit_message_text(
                 text=message_text,
                 reply_markup=reply_markup
             )
             logger.info("✅ Successfully processed assign_sc request")
-
         except Exception as e:
             logger.error(f"🔥 Error in handle_assign_sc: {str(e)}")
             import traceback
@@ -119,25 +106,20 @@ class AdminHandler(BaseHandler):
     async def handle_send_to_sc(self, update: Update, context: CallbackContext):
         """Обработка рассылки СЦ"""
         logger.info("🛠️ START handle_send_to_sc")
-        
         try:
             query = update.callback_query
             await query.answer()
             rid = query.data.split('_')[-1]
             logger.debug(f"📩 Processing request {rid}")
-
             # Загрузка данных
             requests_data = load_requests()
             logger.debug(f"📥 Loaded {len(requests_data)} requests")
-            
             if rid not in requests_data:
                 logger.error(f"🚫 Request {rid} not found")
                 await query.edit_message_text("❌ Заявка не найдена")
                 return
-
             request = requests_data[rid]
             logger.debug(f"📄 Request data: {json.dumps(request, indent=2, ensure_ascii=False)}")
-
             # Поиск СЦ
             users_data = load_users()
             sc_users = [
@@ -146,18 +128,15 @@ class AdminHandler(BaseHandler):
                 if u_data.get('role') == 'sc' and u_data.get('sc_id')
             ]
             logger.debug(f"🔍 Found {len(sc_users)} SC users")
-
             if not sc_users:
                 logger.warning("⚠️ No SC users available")
                 await query.edit_message_text("❌ Нет доступных сервисных центров")
                 return
-
             # Отправка уведомлений
             success_count = 0
             for uid, sc_id in sc_users:
                 try:
                     logger.debug(f"✉️ Sending to SC {sc_id} (user {uid})")
-                    
                     # Отправка фото
                     if request.get('photos'):
                         media = []
@@ -173,13 +152,11 @@ class AdminHandler(BaseHandler):
                             else:
                                 # Если URL или file_id
                                 media.append(InputMediaPhoto(photo))
-                        
                         if media:
                             await context.bot.send_media_group(
                                 chat_id=uid,
                                 media=media
                             )
-
                     # Отправка упрощенного сообщения
                     await context.bot.send_message(
                         chat_id=uid,
@@ -199,7 +176,6 @@ class AdminHandler(BaseHandler):
                 except Exception as e:
                     logger.error(f"🚨 Error sending to SC {sc_id}: {str(e)}")
                     continue
-
             if success_count > 0:
                 # Обновляем заявку
                 requests_data[rid]['status'] = 'Отправлена в СЦ'
@@ -209,9 +185,7 @@ class AdminHandler(BaseHandler):
             else:
                 logger.warning("📭 Failed to send to all SCs")
                 await query.edit_message_text("❌ Не удалось отправить ни одному СЦ")
-            
             logger.info("✅ FINISHED handle_send_to_sc")
-            
         except Exception as e:
             logger.error(f"🔥 Error in handle_send_to_sc: {str(e)}")
             import traceback
@@ -357,7 +331,6 @@ class AdminHandler(BaseHandler):
             requests_data = load_requests()
             request = requests_data[request_id]
             users_data = load_users()
-            
             # Формируем сообщение для СЦ
             message = (
                 f"📦 Новая заявка #{request_id}\n\n"
@@ -711,7 +684,6 @@ class AdminHandler(BaseHandler):
             logger.error(f"Ошибка при загрузке файла обратной связи: {e}")
             await query.edit_message_text("❌ Ошибка при загрузке данных отзывов.")
             return
-        
         reviews = feedback_data.get('reviews', [])
         if not reviews:
             await query.edit_message_text("📝 Пока нет отзывов от клиентов.")
@@ -734,3 +706,77 @@ class AdminHandler(BaseHandler):
         await query.answer()
         # Перенаправляем на метод статистики
         await self.show_feedback(update, context)
+
+    async def show_new_requests(self, update: Update, context: CallbackContext):
+        """Показывает список новых заявок для назначения СЦ"""
+        logger.info("🔍 Показ новых заявок для назначения СЦ")
+        try:
+            requests_data = load_requests()
+            # Фильтруем только новые заявки
+            new_requests = {
+                rid: req for rid, req in requests_data.items() 
+                if req.get('status') == 'Новая'
+            }
+            
+            if not new_requests:
+                await update.message.reply_text("📭 Нет новых заявок для назначения.")
+                return
+
+            logger.debug(f"📋 Найдено {len(new_requests)} новых заявок")
+            
+            # Отправляем каждую заявку отдельным сообщением с кнопкой
+            for request_id, request in new_requests.items():
+                try:
+                    # Формируем сообщение
+                    message_text = (
+                        f"📦 Заявка #{request_id}\n"
+                        f"👤 Клиент: {request.get('user_name', 'Не указан')}\n"
+                        f"📱 Телефон: {request.get('user_phone', 'Не указан')}\n"
+                        f"📍 Адрес: {request.get('location', 'Не указан')}\n"
+                        f"📝 Описание: {request.get('description', 'Нет описания')}\n"
+                    )
+                    
+                    # Добавляем дату, если она есть
+                    if isinstance(request.get('desired_date'), datetime):
+                        message_text += f"🕒 Желаемая дата: {request['desired_date'].strftime('%d.%m.%Y %H:%M')}"
+                    else:
+                        message_text += f"🕒 Желаемая дата: {request.get('desired_date', 'Не указана')}"
+
+                    # Создаем клавиатуру с кнопкой назначения
+                    keyboard = [[
+                        InlineKeyboardButton(
+                            "📨 Разослать СЦ",
+                            callback_data=f"send_to_sc_{request_id}"
+                        )
+                    ]]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+
+                    # Отправляем сообщение
+                    await update.message.reply_text(
+                        text=message_text,
+                        reply_markup=reply_markup
+                    )
+
+                    # Если есть фотографии, отправляем их
+                    photos = request.get('photos', [])
+                    if photos:
+                        media_group = []
+                        for photo in photos:
+                            if isinstance(photo, str):
+                                if os.path.exists(photo):
+                                    with open(photo, 'rb') as photo_file:
+                                        media_group.append(InputMediaPhoto(photo_file.read()))
+                                else:
+                                    media_group.append(InputMediaPhoto(photo))
+                        if media_group:
+                            await update.message.reply_media_group(media=media_group)
+
+                except Exception as e:
+                    logger.error(f"❌ Ошибка при обработке заявки {request_id}: {e}")
+                    continue
+
+            logger.info("✅ Успешно показаны все новые заявки")
+            
+        except Exception as e:
+            logger.error(f"🔥 Ошибка при показе новых заявок: {e}")
+            await update.message.reply_text("❌ Произошла ошибка при загрузке заявок")

@@ -536,7 +536,6 @@ class DeliveryHandler(BaseHandler):
                         f"📍 {task.get('sc_address', 'Не указан')}\n"
                         f"📝 Описание: {task.get('description', '')[:100]}..."
                     )
-                    
                     if status == ORDER_STATUS_DELIVERY_TO_SC:
                         keyboard.append([InlineKeyboardButton(
                             "✅ Доставлено в СЦ", 

@@ -258,6 +258,13 @@ def register_admin_handlers(application, admin_handler, user_handler, sc_managem
         fallbacks=[CommandHandler("cancel", sc_management_handler.cancel)]
     ))
 
+    application.add_handler(
+        MessageHandler(
+            filters.Text(["Новые заявки"]) & filters.User(user_id=ADMIN_IDS),
+            admin_handler.show_new_requests
+        )
+    )
+
     # Обработчик для кнопки меню "Создать задачу доставки"
     application.add_handler(MessageHandler(
         filters.Text(["Создать задачу доставки"]), 

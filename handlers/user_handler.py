@@ -16,7 +16,6 @@ class UserHandler(BaseHandler):
         users_data = load_users()
         sc_ids = [int(user_id) for user_id, data in users_data.items() 
                  if data.get("role") == "sc"]
-
         if user_id in users_data:
             role = users_data[user_id]["role"]
             if role == "admin":
@@ -44,7 +43,7 @@ class UserHandler(BaseHandler):
                 await update.message.reply_text(
                     "Пожалуйста, зарегистрируйтесь. Нажмите кнопку ниже, чтобы поделиться контактом.",
                     reply_markup=ReplyKeyboardMarkup(
-                        [[KeyboardButton("Отправить контакт", request_contact=True)]], one_time_keyboard=True)
+                        [[KeyboardButton("Отправить контакт", request_contact=True)]], one_time_keyboard=True, resize_keyboard=True)
                 )
                 return REGISTER
 
@@ -107,7 +106,7 @@ class UserHandler(BaseHandler):
 
     async def show_admin_menu(self, update: Update, context: CallbackContext):
         keyboard = [
-            ["Просмотр заявок", "Привязать к СЦ"],
+            ["Просмотр заявок", "Новые заявки"],
             ["Создать задачу доставки", "Управление СЦ"],  # управление СЦ: добавть, удалить, список
             ["Обратная связь", "Документы"]  # обратная связь: отзывы, статистика
         ]

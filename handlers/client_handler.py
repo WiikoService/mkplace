@@ -246,7 +246,6 @@ class ClientHandler:
     async def handle_request_comment(self, update: Update, context: CallbackContext):
         """Обработка комментария клиента"""
         context.user_data["comment"] = update.message.text
-        
         summary = (
             "📝 Итоговые данные заявки:\n\n"
             f"Категория: {context.user_data.get('category')}\n"
@@ -334,7 +333,6 @@ class ClientHandler:
         reply = "Ваш профиль:\n\n"
         reply += f"Имя: {user.get('name', 'Не указано')}\n"
         reply += f"Телефон: {user.get('phone', 'Не указан')}\n"
-        reply += f"Роль: {user.get('role', 'Клиент')}\n"
         if not user.get('name') or not user.get('phone'):
             reply += "\nДля полной регистрации, пожалуйста, нажмите кнопку 'Регистрация'."
             keyboard = [[KeyboardButton("Регистрация", request_contact=True)]]
@@ -478,7 +476,6 @@ class ClientHandler:
     def _save_feedback(self, feedback_text):
         """Сохраняет отзыв в JSON-файл"""
         feedback_file = os.path.join(DATA_DIR, 'feedback.json')
-        
         # Загружаем существующие данные
         try:
             if os.path.exists(feedback_file):

@@ -87,21 +87,17 @@ class DeliverySCHandler(DeliveryHandler):
                         chat_id=client_id,
                         text=f"✅ Ваша заявка #{request_id} успешно выполнена!"
                     )
-                    
                     # Отправляем кнопку для запуска диалога оценки
                     keyboard = [[InlineKeyboardButton(
                         "🌟 Оценить качество обслуживания", 
                         callback_data=f"rate_service_{request_id}"
                     )]]
-                    
                     reply_markup = InlineKeyboardMarkup(keyboard)
-                    
                     await context.bot.send_message(
                         chat_id=client_id,
                         text="Пожалуйста, оцените наш сервис:",
                         reply_markup=reply_markup
                     )
-                    
                     logger.info(f"Запрос на оценку отправлен клиенту {client_id} для заявки {request_id}")
                 except Exception as e:
                     logger.error(f"Ошибка при отправке запроса на оценку клиенту: {e}")
