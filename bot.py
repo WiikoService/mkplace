@@ -142,20 +142,16 @@ def register_client_handlers(application, client_handler, user_handler):
     application.add_handler(MessageHandler(filters.Regex("^Мои заявки$"), client_handler.show_client_requests))
     application.add_handler(MessageHandler(filters.Regex("^Мой профиль$"), client_handler.show_client_profile))
 
-    # Отдельный обработчик для запуска диалога оценки из delivery_sc_handler
-    application.add_handler(
-        CallbackQueryHandler(
-            client_handler.start_rating_conversation,
-            pattern=r"^rate_\d+_"
-        )
-    )
-    
     # Обработчик для полного процесса оценки
     rating_handler = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(
                 client_handler.request_service_rating,
                 pattern=r"^rate_service_"
+            ),
+            CallbackQueryHandler(
+                client_handler.start_rating_conversation,
+                pattern=r"^rate_\d+_"
             )
         ],
         states={
@@ -314,8 +310,15 @@ def register_admin_handlers(application, admin_handler, user_handler, sc_managem
     
     application.add_handler(
         CallbackQueryHandler(
-            admin_handler.back_to_stats,
+            admin_handler.show_feedback,
             pattern="^back_to_stats$"
+        )
+    )
+    
+    application.add_handler(
+        CallbackQueryHandler(
+            user_handler.show_admin_menu,
+            pattern="^back_to_admin$"
         )
     )
 

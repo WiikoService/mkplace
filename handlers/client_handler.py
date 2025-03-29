@@ -395,11 +395,11 @@ class ClientHandler:
         request_id = query.data.split('_')[-1]
         # Создаем клавиатуру со звездами для оценки в столбик для удобства
         keyboard = [
-            [InlineKeyboardButton("⭐⭐⭐⭐⭐ - Отлично", callback_data=f"rate_5_{request_id}")],
-            [InlineKeyboardButton("⭐⭐⭐⭐ - Хорошо", callback_data=f"rate_4_{request_id}")],
-            [InlineKeyboardButton("⭐⭐⭐ - Нормально", callback_data=f"rate_3_{request_id}")],
-            [InlineKeyboardButton("⭐⭐ - Плохо", callback_data=f"rate_2_{request_id}")],
-            [InlineKeyboardButton("⭐ - Очень плохо", callback_data=f"rate_1_{request_id}")]
+            [InlineKeyboardButton("⭐⭐⭐⭐⭐", callback_data=f"rate_5_{request_id}")],
+            [InlineKeyboardButton("⭐⭐⭐⭐", callback_data=f"rate_4_{request_id}")],
+            [InlineKeyboardButton("⭐⭐⭐", callback_data=f"rate_3_{request_id}")],
+            [InlineKeyboardButton("⭐⭐", callback_data=f"rate_2_{request_id}")],
+            [InlineKeyboardButton("⭐", callback_data=f"rate_1_{request_id}")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
@@ -437,16 +437,35 @@ class ClientHandler:
 
     async def handle_feedback(self, update: Update, context: CallbackContext):
         """Обработка текстовой обратной связи"""
-        feedback_text = update.message.text.strip()
-        # Добавим логирование
-        logger.info(f"Получен отзыв: {feedback_text}")
-        # Сохраняем отзыв
-        self._save_feedback(feedback_text)
-        logger.info("Отзыв сохранен успешно")
-        await update.message.reply_text(
-            "✅ Спасибо за ваш отзыв! Мы учтем ваши комментарии для улучшения нашего сервиса."
-        )
-        return ConversationHandler.END
+        try:
+            feedback_text = update.message.text.strip()
+            if not feedback_text:
+                await update.message.reply_text(
+                    "❌ Пожалуйста, введите текст отзыва."
+                )
+                return FEEDBACK_TEXT
+                
+            # Добавляем логирование
+            logger.info(f"Получен отзыв: {feedback_text}")
+            
+            # Сохраняем отзыв
+            self._save_feedback(feedback_text)
+            logger.info("Отзыв сохранен успешно")
+            
+            # Отправляем подтверждение
+            await update.message.reply_text(
+                "✅ Спасибо за ваш отзыв! Мы учтем ваши комментарии для улучшения нашего сервиса."
+            )
+            
+            # Завершаем ConversationHandler
+            return ConversationHandler.END
+            
+        except Exception as e:
+            logger.error(f"Ошибка при обработке отзыва: {e}")
+            await update.message.reply_text(
+                "❌ Произошла ошибка при сохранении отзыва. Пожалуйста, попробуйте еще раз."
+            )
+            return FEEDBACK_TEXT
 
     def _save_rating(self, rating):
         """Сохраняет оценку в JSON-файл"""
@@ -505,7 +524,7 @@ class ClientHandler:
         return ConversationHandler.END
 
     async def start_rating_conversation(self, update: Update, context: CallbackContext):
-        """Запускает ConversationHandler для оценки, когда кнопки генерируются напрямую"""
+        """Запускает ConversationHandler для оценки"""
         query = update.callback_query
         await query.answer()
         # Извлекаем рейтинг
@@ -519,20 +538,13 @@ class ClientHandler:
         context.user_data['current_request_id'] = request_id
         # Добавляем визуализацию звезд
         stars = "⭐" * rating
-        # Если оценка меньше 4, инициируем ConversationHandler для обратной связи
+        # Если оценка меньше 4, запрашиваем обратную связь
         if rating < 4:
             await query.edit_message_text(
                 f"Спасибо за оценку {stars}!\n\n"
                 f"Мы стремимся стать лучше. Пожалуйста, расскажите, что мы могли бы улучшить:"
             )
-            # Добавляем логирование
-            # Запускаем новый ConversationHandler для обработки отзыва
-            # Это делается через сообщение, которое запускает новый ConversationHandler
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text="Пожалуйста, напишите ваш отзыв в ответ на это сообщение"
-            )
-            # Регистрируем следующий обработчик вручную
+            logger.info(f"Запрошена обратная связь после оценки {rating} для заявки {request_id}")
             return FEEDBACK_TEXT
         else:
             # Для хороших оценок просто благодарим
