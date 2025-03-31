@@ -399,6 +399,42 @@ def register_delivery_handlers(application, delivery_handler, user_handler, deli
 
     application.add_handler(sc_delivery_handler)
 
+    # ConversationHandler для фотографий при получении товара
+    pickup_photos_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                delivery_handler.handle_confirm_pickup,
+                pattern="^confirm_pickup_"
+            )
+        ],
+        states={
+            CREATE_REQUEST_PHOTOS: [
+                MessageHandler(filters.PHOTO, delivery_handler.handle_pickup_photo),
+                CommandHandler("done", delivery_handler.handle_pickup_photos_done)
+            ]
+        },
+        fallbacks=[CommandHandler("cancel", delivery_handler.cancel_delivery)]
+    )
+    application.add_handler(pickup_photos_handler)
+
+    # ConversationHandler для фотографий при доставке в СЦ
+    delivery_photos_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                delivery_handler.handle_delivered_to_sc,
+                pattern=r"delivered_to_sc_\d+"
+            )
+        ],
+        states={
+            CREATE_REQUEST_PHOTOS: [
+                MessageHandler(filters.PHOTO, delivery_handler.handle_delivery_photo),
+                CommandHandler("done", delivery_handler.handle_delivery_photos_done)
+            ]
+        },
+        fallbacks=[CommandHandler("cancel", delivery_handler.cancel_delivery)]
+    )
+    application.add_handler(delivery_photos_handler)
+
 
 def register_sc_handlers(application, sc_handler, sc_item_handler):
     # Обработчики для СЦ
