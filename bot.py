@@ -11,7 +11,9 @@ from config import (
     CREATE_REQUEST_CATEGORY, CREATE_REQUEST_DATA, CREATE_REQUEST_ADDRESS, CREATE_REQUEST_CONFIRMATION, DATA_DIR,
     SC_MANAGEMENT_ADD_NAME, SC_MANAGEMENT_ADD_ADDRESS, SC_MANAGEMENT_ADD_PHONE, CREATE_REQUEST_COMMENT,
     ENTER_SC_CONFIRMATION_CODE, ENTER_REPAIR_PRICE, CONFIRMATION,
-    RATING_SERVICE, FEEDBACK_TEXT
+    RATING_SERVICE, FEEDBACK_TEXT,
+    ORDER_STATUS_ASSIGNED_TO_SC, ORDER_STATUS_PICKUP_FROM_SC,
+    WAITING_REQUEST_ID
 )
 from handlers.user_handler import UserHandler
 from handlers.client_handler import ClientHandler
@@ -321,6 +323,18 @@ def register_admin_handlers(application, admin_handler, user_handler, sc_managem
             pattern="^back_to_admin$"
         )
     )
+
+    # Добавляем обработчик просмотра чата
+    chat_view_handler = ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^Просмотр чата заявки$"), admin_handler.view_request_chat)],
+        states={
+            'WAITING_REQUEST_ID': [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_handler.view_request_chat)
+            ]
+        },
+        fallbacks=[]
+    )
+    application.add_handler(chat_view_handler)
 
 
 def register_delivery_handlers(application, delivery_handler, user_handler, delivery_sc_handler):

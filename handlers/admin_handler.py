@@ -15,6 +15,7 @@ from utils import notify_delivery
 from datetime import datetime
 import os
 from config import DATA_DIR
+from handlers.user_handler import UserHandler
 
 
 #  TODO: Согласование цены
@@ -816,3 +817,51 @@ class AdminHandler(BaseHandler):
         except Exception as e:
             logger.error(f"🔥 Ошибка при показе новых заявок: {e}")
             await update.message.reply_text("❌ Произошла ошибка при загрузке заявок")
+
+    async def view_request_chat(self, update: Update, context: CallbackContext):
+        """Показывает чат заявки по её номеру"""
+        if not context.user_data.get('waiting_for_request_id'):
+            await update.message.reply_text("Пожалуйста, введите номер заявки:")
+            context.user_data['waiting_for_request_id'] = True
+            return 'WAITING_REQUEST_ID'
+        
+        request_id = update.message.text.strip()
+        chat_file = os.path.join(DATA_DIR, 'chat_sc_client.json')
+        
+        try:
+            if os.path.exists(chat_file):
+                with open(chat_file, 'r', encoding='utf-8') as f:
+                    chat_data = json.load(f)
+            else:
+                await update.message.reply_text("❌ Файл чата не найден")
+                return ConversationHandler.END
+                
+            if request_id in chat_data:
+                messages = chat_data[request_id]
+                if not messages:
+                    await update.message.reply_text(f"❌ В чате заявки #{request_id} пока нет сообщений")
+                    return ConversationHandler.END
+                    
+                # Формируем сообщение с историей чата
+                chat_history = f"💬 История чата заявки #{request_id}:\n\n"
+                for msg in messages:
+                    sender = "👤 Клиент" if msg['sender'] == 'client' else "🏢 СЦ"
+                    chat_history += f"{sender} ({msg['timestamp']}):\n{msg['message']}\n\n"
+                
+                # Разбиваем длинное сообщение на части, если оно превышает лимит Telegram
+                if len(chat_history) > 4000:
+                    parts = [chat_history[i:i+4000] for i in range(0, len(chat_history), 4000)]
+                    for part in parts:
+                        await update.message.reply_text(part)
+                else:
+                    await update.message.reply_text(chat_history)
+            else:
+                await update.message.reply_text(f"❌ Чат для заявки #{request_id} не найден")
+                
+        except Exception as e:
+            logger.error(f"Ошибка при просмотре чата: {e}")
+            await update.message.reply_text("❌ Произошла ошибка при загрузке чата")
+            
+        finally:
+            context.user_data.pop('waiting_for_request_id', None)
+            return ConversationHandler.END

@@ -108,7 +108,8 @@ class UserHandler(BaseHandler):
         keyboard = [
             ["Просмотр заявок", "Новые заявки"],
             ["Создать задачу доставки", "Управление СЦ"],  # управление СЦ: добавть, удалить, список
-            ["Обратная связь", "Документы"]  # обратная связь: отзывы, статистика
+            ["Обратная связь", "Просмотр чата заявки"], # обратная связь: отзывы, статистика
+            ["Документы"]
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         await update.message.reply_text("Админская панель:", reply_markup=reply_markup)
