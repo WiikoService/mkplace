@@ -8,7 +8,7 @@ from telegram.ext import CallbackContext, ConversationHandler
 from config import (
     ORDER_STATUS_IN_SC, SC_ASSIGN_REQUESTS, ADMIN_IDS,
     ORDER_STATUS_DELIVERY_TO_CLIENT, ORDER_STATUS_DELIVERY_TO_SC,
-    ENTER_REPAIR_PRICE
+    ENTER_REPAIR_PRICE, CONFIRMATION
 )
 from handlers.base_handler import BaseHandler
 from database import (
@@ -72,7 +72,10 @@ class SCHandler(BaseHandler):
             return ConversationHandler.END
 
     async def choose_requests(self, update: Update, context: CallbackContext):
-        """Обработчик выбора заявки"""
+        """
+        Обработчик выбора заявки
+        TODO: упростить или переработать отображение комментариев
+        """
         query = update.callback_query
         await query.answer()
         request_id = query.data.split('_')[-1]
@@ -346,7 +349,6 @@ class SCHandler(BaseHandler):
             await update.message.reply_text("✅ Комментарий успешно сохранен!")
         else:
             await update.message.reply_text("❌ Заявка не найдена")
-
         return ConversationHandler.END
 
     async def assign_to_delivery(self, update: Update, context: CallbackContext):
@@ -483,87 +485,156 @@ class SCHandler(BaseHandler):
         """Обработка уведомления о новой заявке"""
         query = update.callback_query
         await query.answer()
-        request_id = query.data.split('_')[-1]
-        
+        request_id = query.data.split('_')[-1]        
         try:
+            user_id = update.effective_user.id
             requests_data = load_requests()
             request = requests_data.get(request_id)
-            
-            if not request:
-                await query.edit_message_text("❌ Заявка не найдена")
+            # Сохраняем ID заявки в контексте пользователя
+            context.user_data['current_request'] = request_id
+            # Добавляем флаг, что ожидаем ввод стоимости и время начала ожидания
+            context.user_data['waiting_for_price'] = True
+            context.user_data['price_entry_time'] = time.time()
+            # Запрашиваем стоимость простым текстом без кнопок
+            await query.edit_message_text(
+                f"Вы приняли заявку #{request_id}.\n\n"
+                f"Пожалуйста, укажите примерную стоимость ремонта (можно указать диапазон):"
+            )            
+        except Exception as e:
+            await query.edit_message_text("Произошла ошибка при обработке запроса")
+
+    async def handle_repair_price(self, update: Update, context: CallbackContext):
+        """Обработка ввода стоимости ремонта"""       
+        # Проверяем, что это обработчик для ввода стоимости
+        if not context.user_data.get('waiting_for_price'):
+            # Если не ожидаем ввод стоимости, то игнорируем сообщение
+            return
+        try:
+            # Сохраняем оригинальный текст вместо преобразования в число
+            price_text = update.message.text.strip()
+            request_id = context.user_data.get('current_request')
+            if not request_id:
+                await update.message.reply_text("❌ Произошла ошибка, запрос не найден")
+                context.user_data.pop('waiting_for_price', None)
+                context.user_data.pop('price_entry_time', None)
                 return
-            
+            # Сохраняем стоимость в контексте без преобразования в число
+            context.user_data['repair_price_text'] = price_text
+            # Сбрасываем флаг ожидания стоимости
+            context.user_data.pop('waiting_for_price', None)
+            context.user_data.pop('price_entry_time', None)
+            # Получаем данные заявки
+            requests_data = load_requests()
+            request = requests_data.get(request_id)
+            if not request:
+                await update.message.reply_text("❌ Заявка не найдена")
+                return
+            # Формируем сообщение с информацией и кнопкой подтверждения
+            message_text = (
+                f"📦 Заявка #{request_id}\n"
+                f"📝 Описание: {request.get('description', 'Нет описания')}\n"
+                f"💰 Указанная стоимость: {price_text} руб.\n\n"
+                f"Нажмите кнопку ниже, чтобы подтвердить принятие заявки с указанной стоимостью:"
+            )
             keyboard = [[
                 InlineKeyboardButton(
-                    "✅ Принять и указать стоимость",
+                    "✅ Принять с указанной стоимостью",
                     callback_data=f"accept_request_price_{request_id}"
                 )
             ]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text(
-                "Укажите примерную стоимость ремонта:",
-                reply_markup=reply_markup
+            # Отправляем сообщение с кнопкой подтверждения
+            await update.message.reply_text(
+                message_text,
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
-            return ENTER_REPAIR_PRICE
-            
         except Exception as e:
-            logger.error(f"Ошибка при обработке уведомления: {e}")
-            await query.edit_message_text("Произошла ошибка при обработке запроса")
-            return ConversationHandler.END
+            await update.message.reply_text("❌ Пожалуйста, введите корректную стоимость")
 
-    async def handle_repair_price(self, update: Update, context: CallbackContext):
-        """Обработка ввода стоимости ремонта"""
+    async def confirm_repair_price(self, update: Update, context: CallbackContext):
+        """Подтверждение стоимости ремонта и принятие заявки"""           
+        query = update.callback_query
+        await query.answer()
+        # Извлекаем ID заявки
+        parts = query.data.split('_')
+        if len(parts) < 4 or parts[0] != "accept" or parts[1] != "request" or parts[2] != "price":
+            logger.error(f"Неверный формат callback_data: {query.data}")
+            await query.edit_message_text("❌ Ошибка: неверный формат данных")
+            return
+        request_id = parts[3]
+        price_text = context.user_data.get('repair_price_text')
+        # Проверяем наличие стоимости
+        if not price_text:
+            await query.edit_message_text("❌ Произошла ошибка: стоимость ремонта не найдена")
+            return
+        # Получаем ID СЦ    
+        sc_id = str(update.effective_user.id)
         try:
-            price = float(update.message.text)
-            request_id = context.user_data.get('current_request')
-            sc_id = str(update.effective_user.id)
-            
+            # Получаем данные заявки
             requests_data = load_requests()
+            if request_id not in requests_data:
+                await query.edit_message_text("❌ Заявка не найдена")
+                return
+            # Получаем данные о сервисном центре
+            users_data = load_users()
+            sc_user = users_data.get(sc_id, {})
+            sc_center_id = sc_user.get('sc_id')
+            if not sc_center_id:
+                await query.edit_message_text("❌ Ошибка: не удалось определить ваш сервисный центр")
+                return
+            # Обновляем статус заявки
             request = requests_data[request_id]
-            
-            # Обновляем данные заявки
-            request.update({
-                'price': price,
-                'assigned_sc': sc_id,
-                'status': 'Ожидает доставку в СЦ'
-            })
+            request['status'] = 'Ожидает доставку'
+            request['assigned_sc'] = sc_center_id
+            request['repair_price'] = price_text
+            request['accepted_at'] = int(time.time())
+            # Сохраняем обновленные данные
             save_requests(requests_data)
-            
-            # Уведомляем админа
-            admin_message = (
-                f"💰 СЦ указал стоимость ремонта\n\n"
-                f"Заявка: #{request_id}\n"
-                f"Стоимость: {price} руб.\n"
-                f"Описание: {request.get('description')}"
+            # Отправляем уведомление клиенту
+            client_id = request.get('client_id')
+            if client_id:
+                try:
+                    notify_message = (
+                        f"✅ Ваша заявка #{request_id} принята сервисным центром!\n\n"
+                        f"💰 Предварительная стоимость: {price_text} руб.\n"
+                        f"📱 Статус заявки изменен на: Ожидает доставку"
+                    )
+                    await notify_client(context.bot, client_id, notify_message)
+                except Exception as e:
+                    logger.error(f"Ошибка при отправке уведомления клиенту: {e}")
+            # Отправляем подтверждение СЦ
+            await query.edit_message_text(
+                f"✅ Заявка #{request_id} принята с указанной стоимостью {price_text} руб.\n"
+                f"Данные сохранены, клиент уведомлен."
             )
-            
-            for admin_id in ADMIN_IDS:
-                await context.bot.send_message(
-                    chat_id=admin_id,
-                    text=admin_message
+            # Отправляем уведомления администраторам о возможности создания задачи доставки
+            service_centers = load_service_centers()
+            sc_data = service_centers.get(sc_center_id, {})
+            sc_name = sc_data.get('name', 'Неизвестный СЦ')
+            keyboard = [[
+                InlineKeyboardButton(
+                    "Создать задачу доставки",
+                    callback_data=f"create_delivery_{request_id}"
                 )
-            
-            # Создаем задачу доставки
-            delivery_tasks = load_delivery_tasks()
-            task_id = str(len(delivery_tasks) + 1)
-            
-            new_task = {
-                'request_id': request_id,
-                'status': 'Ожидает доставку',
-                'created_at': int(time.time()),
-                'delivery_type': 'client_to_sc',
-                'client_address': request.get('location'),
-                'sc_address': request.get('sc_address'),
-                'description': request.get('description'),
-                'price': price
-            }
-            
-            delivery_tasks[task_id] = new_task
-            save_delivery_tasks(delivery_tasks)
-            
-            await update.message.reply_text("✅ Стоимость ремонта сохранена")
-            return ConversationHandler.END
-            
-        except ValueError:
-            await update.message.reply_text("❌ Пожалуйста, введите корректную сумму")
-            return ENTER_REPAIR_PRICE
+            ]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            admin_message = (
+                f"🔄 Заявка принята СЦ и готова к доставке\n\n"
+                f"Заявка: #{request_id}\n"
+                f"СЦ: {sc_name}\n"
+                f"Стоимость ремонта: {price_text} руб.\n"
+                f"Описание: {request.get('description', 'Нет описания')}\n"
+                f"Статус: Ожидает доставку"
+            )
+            # Отправляем уведомления админам
+            for admin_id in ADMIN_IDS:
+                try:
+                    await context.bot.send_message(
+                        chat_id=admin_id,
+                        text=admin_message,
+                        reply_markup=reply_markup
+                    )
+                except Exception as e:
+                    logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+        except Exception as e:
+            logger.error(f"Ошибка при обработке подтверждения: {e}")
+            await query.edit_message_text(f"❌ Произошла ошибка: {str(e)}")

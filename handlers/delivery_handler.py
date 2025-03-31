@@ -422,7 +422,6 @@ class DeliveryHandler(BaseHandler):
                                 photo=photo_file,
                                 caption=f"Фото товара по заявке #{request_id}"
                             )
-                logger.info(f"Уведомление отправлено в СЦ (telegram_id: {sc_telegram_id})")
             except Exception as e:
                 logger.error(f"Ошибка отправки уведомления в СЦ: {str(e)}")
             context.user_data.pop('photos_to_sc', None)
@@ -446,11 +445,12 @@ class DeliveryHandler(BaseHandler):
                 await bot.send_message(chat_id=delivery_id, text=message)
 
     async def show_available_tasks(self, update: Update, context: CallbackContext):
-        """Показать доступные задания"""
-        logger.info("Вызван метод show_available_tasks")
+        """
+        Показать доступные задания
+        TODO: Упростить проверку доступных задач
+        """
         try:
             delivery_tasks = load_delivery_tasks()
-            logger.info(f"Loaded delivery tasks: {delivery_tasks}")
             if not delivery_tasks:
                 await update.message.reply_text("На данный момент нет доступных задач доставки.")
                 return
@@ -458,7 +458,6 @@ class DeliveryHandler(BaseHandler):
                 task_id: task for task_id, task in delivery_tasks.items() 
                 if task.get('status') == "Новая" and not task.get('assigned_delivery_id')
             }
-            logger.info(f"Available tasks: {available_tasks}")
             if not available_tasks:
                 await update.message.reply_text("На данный момент нет доступных задач доставки.")
                 return
@@ -537,7 +536,6 @@ class DeliveryHandler(BaseHandler):
                         f"📍 {task.get('sc_address', 'Не указан')}\n"
                         f"📝 Описание: {task.get('description', '')[:100]}..."
                     )
-                    
                     if status == ORDER_STATUS_DELIVERY_TO_SC:
                         keyboard.append([InlineKeyboardButton(
                             "✅ Доставлено в СЦ", 
@@ -641,7 +639,10 @@ class DeliveryHandler(BaseHandler):
             await update.message.reply_text("Произошла ошибка при загрузке заданий.")
 
     async def cancel_delivery(self, update: Update, context: CallbackContext):
-        """Отмена текущей операции доставки"""
+        """
+        Отмена текущей операции доставки
+        TODO: Сделаать очистку в цикле
+        """
         try:
             # Очищаем данные контекста
             if 'photos_to_sc' in context.user_data:

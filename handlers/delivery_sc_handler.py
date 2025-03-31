@@ -56,7 +56,7 @@ class DeliverySCHandler(DeliveryHandler):
             await query.edit_message_text("Произошла ошибка при обновлении статуса")
 
     async def handle_delivered_to_client(self, update: Update, context: CallbackContext):
-        """Обработка подтверждения доставки клиенту"""
+        """Обработка доставки товара клиенту из СЦ"""
         query = update.callback_query
         await query.answer()
         request_id = query.data.split('_')[-1]
@@ -74,13 +74,39 @@ class DeliverySCHandler(DeliveryHandler):
                     task['status'] = "Завершено"
                     save_delivery_tasks(delivery_tasks)
                     break
-            
             await query.edit_message_text(
                 "✅ Доставка завершена. Спасибо за работу!"
             )
+            # После обновления статуса и уведомления администраторов
+            # отправляем кнопку для начала диалога оценки
+            client_id = requests_data[request_id].get('user_id')
+            if client_id:
+                try:
+                    # Отправляем сообщение об успешной доставке
+                    await context.bot.send_message(
+                        chat_id=client_id,
+                        text=f"✅ Ваша заявка #{request_id} успешно выполнена!"
+                    )
+                    # Отправляем кнопку для запуска диалога оценки
+                    keyboard = [[InlineKeyboardButton(
+                        "🌟 Оценить качество обслуживания", 
+                        callback_data=f"rate_service_{request_id}"
+                    )]]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    await context.bot.send_message(
+                        chat_id=client_id,
+                        text="Пожалуйста, оцените наш сервис:",
+                        reply_markup=reply_markup
+                    )
+                    logger.info(f"Запрос на оценку отправлен клиенту {client_id} для заявки {request_id}")
+                except Exception as e:
+                    logger.error(f"Ошибка при отправке запроса на оценку клиенту: {e}")
+            
+            return ConversationHandler.END
         except Exception as e:
             logger.error(f"Ошибка при обработке доставки клиенту: {e}")
             await query.edit_message_text("Произошла ошибка при обновлении статуса")
+            return ConversationHandler.END
 
     async def accept_delivery_from_sc(self, update: Update, context: CallbackContext):
         """Обработка принятия заказа доставщиком из СЦ"""
@@ -242,7 +268,6 @@ class DeliverySCHandler(DeliveryHandler):
                     chat_id=sc_user_id,
                     text=f"Код подтверждения для передачи товара доставщику: {confirmation_code}"
                 )
-                
                 await query.edit_message_text(
                     "Введите код подтверждения, полученный от СЦ:"
                 )
