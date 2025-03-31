@@ -249,6 +249,44 @@ class DeliveryHandler(BaseHandler):
                             text=delivery_message
                         )
                         logger.info(f"Отправлено сообщение доставщику {delivery_id}")
+                        
+                        # Отправляем уведомление администратору
+                        admin_message = (
+                            f"✅ Клиент подтвердил получение товара доставщиком\n"
+                            f"Заявка: #{request_id}\n"
+                            f"Статус: {new_status}\n"
+                            f"СЦ: {sc_data.get('name', 'Название не указано')}\n"
+                            f"Адрес СЦ: {sc_data.get('address', 'Адрес не указан')}"
+                        )
+                        
+                        # Отправляем фотографии администратору
+                        pickup_photos = requests_data[request_id].get('pickup_photos', [])
+                        if pickup_photos:
+                            # Отправляем первое фото с текстом
+                            if os.path.exists(pickup_photos[0]):
+                                with open(pickup_photos[0], 'rb') as photo_file:
+                                    await context.bot.send_photo(
+                                        chat_id=ADMIN_IDS[0],
+                                        photo=photo_file,
+                                        caption=admin_message
+                                    )
+                            
+                            # Отправляем остальные фото
+                            for photo_path in pickup_photos[1:]:
+                                if os.path.exists(photo_path):
+                                    with open(photo_path, 'rb') as photo_file:
+                                        await context.bot.send_photo(
+                                            chat_id=ADMIN_IDS[0],
+                                            photo=photo_file,
+                                            caption=f"Фото товара по заявке #{request_id}"
+                                        )
+                        else:
+                            # Если фото нет, отправляем только текст
+                            for admin_id in ADMIN_IDS:
+                                await context.bot.send_message(
+                                    chat_id=admin_id,
+                                    text=admin_message
+                                )
                 else:
                     new_status = ORDER_STATUS_CLIENT_REJECTED
                 await query.edit_message_text(
@@ -627,9 +665,21 @@ class DeliveryHandler(BaseHandler):
                 # Отправляем фотографии клиенту для подтверждения
                 client_id = requests_data[request_id].get('user_id')
                 if client_id:
+                    # Получаем данные СЦ
+                    sc_id = requests_data[request_id].get('assigned_sc')
+                    service_centers = load_service_centers()
+                    sc_data = service_centers.get(sc_id, {})
+                    
+                    # Формируем сообщение с информацией о СЦ
+                    sc_info = (
+                        f"🏢 Сервисный центр: {sc_data.get('name', 'Название не указано')}\n"
+                        f"📍 Адрес: {sc_data.get('address', 'Адрес не указан')}\n"
+                        f"📱 Телефон: {sc_data.get('phone', 'Телефон не указан')}\n\n"
+                    )
+                    
                     await context.bot.send_message(
                         chat_id=client_id,
-                        text=f"Доставщик сделал фотографии товара по заявке #{request_id}. Пожалуйста, подтвердите получение:"
+                        text=f"Доставщик сделал фотографии товара по заявке #{request_id}.\n\n{sc_info}Пожалуйста, подтвердите получение:"
                     )
                     
                     for photo_path in photos:
