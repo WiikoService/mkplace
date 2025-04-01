@@ -54,6 +54,7 @@ def main():
     register_delivery_handlers(application, delivery_handler, user_handler, delivery_sc_handler)
     register_sc_handlers(application, sc_handler, sc_item_handler)
     register_callbacks(application, delivery_handler, admin_handler, user_handler, sc_management_handler, delivery_sc_handler)
+    register_user_handlers(application, user_handler)
 
     # Обработчики команд (общие для всех)
     application.add_handler(CommandHandler("start", user_handler.start))
@@ -395,6 +396,10 @@ def register_delivery_handlers(application, delivery_handler, user_handler, deli
             CallbackQueryHandler(
                 delivery_sc_handler.handle_accept_sc_delivery,
                 pattern="^accept_sc_delivery_"
+            ),
+            CallbackQueryHandler(
+                delivery_sc_handler.handle_get_sc_confirmation,
+                pattern="^get_sc_confirmation_"
             )
         ],
         states={
@@ -670,6 +675,21 @@ def register_sc_handlers(application, sc_handler, sc_item_handler):
         sc_handler.docs
     ))
 
+    # Обработчики для выбора даты и времени доставки
+    sc_delivery_date_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(sc_handler.handle_sc_delivery_request, pattern="^sc_delivery_")],
+        states={
+            'SC_SELECT_DELIVERY_DATE': [
+                CallbackQueryHandler(sc_handler.handle_sc_date_selection, pattern="^sc_select_date_")
+            ],
+            'SC_SELECT_DELIVERY_TIME': [
+                CallbackQueryHandler(sc_handler.handle_sc_time_selection, pattern="^sc_select_time_")
+            ]
+        },
+        fallbacks=[CommandHandler('cancel', sc_handler.cancel)]
+    )
+    application.add_handler(sc_delivery_date_handler)
+
 
 def register_callbacks(application, delivery_handler, admin_handler, user_handler, sc_management_handler, delivery_sc_handler):
     # Обработчики callback-запросов
@@ -769,6 +789,34 @@ def register_callbacks(application, delivery_handler, admin_handler, user_handle
         fallbacks=[CommandHandler("cancel", delivery_handler.cancel_delivery)]
     )
     application.add_handler(sc_photo_conv_handler)
+
+
+def register_user_handlers(application, user_handler):
+    # Обработчики для выбора даты и времени доставки
+    delivery_date_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                user_handler.handle_delivery_date_selection,
+                pattern="^select_delivery_date_"
+            )
+        ],
+        states={
+            'SELECT_DELIVERY_TIME': [
+                CallbackQueryHandler(
+                    user_handler.handle_delivery_time_selection,
+                    pattern="^select_delivery_time_"
+                )
+            ],
+            'CONFIRM_DELIVERY_TIME': [
+                CallbackQueryHandler(
+                    user_handler.handle_delivery_time_confirmation,
+                    pattern="^confirm_delivery_time_"
+                )
+            ]
+        },
+        fallbacks=[]
+    )
+    application.add_handler(delivery_date_handler)
 
 
 if __name__ == '__main__':
