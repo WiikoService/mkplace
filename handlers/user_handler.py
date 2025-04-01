@@ -1,8 +1,15 @@
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
 from handlers.base_handler import BaseHandler
-from database import load_users, save_users, load_service_centers
+from database import load_users, save_users, load_service_centers, load_requests, save_requests
 from config import ADMIN_IDS, DELIVERY_IDS, REGISTER
+import logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+logger = logging.getLogger(__name__)
 
 
 class UserHandler(BaseHandler):
@@ -130,3 +137,106 @@ class UserHandler(BaseHandler):
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         await update.message.reply_text("Меню СЦ:", reply_markup=reply_markup)
+
+    async def handle_client_price_approval(self, update: Update, context: CallbackContext):
+        """Обработка согласия клиента с предложенной ценой"""
+        query = update.callback_query
+        await query.answer()
+        request_id = query.data.split('_')[-1]
+        try:
+            requests_data = load_requests()
+            if request_id not in requests_data:
+                await query.edit_message_text("❌ Заявка не найдена")
+                return
+            request = requests_data[request_id]
+            repair_price = request.get('repair_price', 'Не указана')
+            # Обновляем статус заявки
+            request['status'] = 'Ожидает доставку'
+            request['price_approved'] = True
+            save_requests(requests_data)
+            # Отправляем подтверждение клиенту
+            await query.edit_message_text(
+                f"✅ Вы согласились с предложенной стоимостью ремонта:\n"
+                f"Сумма: {repair_price} руб.\n\n"
+                f"Заявка переведена в статус: Ожидает доставку"
+            )
+            # Отправляем уведомление администраторам
+            service_centers = load_service_centers()
+            sc_id = request.get('assigned_sc')
+            sc_data = service_centers.get(sc_id, {})
+            sc_name = sc_data.get('name', 'Неизвестный СЦ')
+            keyboard = [[
+                InlineKeyboardButton(
+                    "Создать задачу доставки",
+                    callback_data=f"create_delivery_{request_id}"
+                )
+            ]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            admin_message = (
+                f"✅ Клиент согласился с предложенной стоимостью\n\n"
+                f"Заявка: #{request_id}\n"
+                f"СЦ: {sc_name}\n"
+                f"Стоимость ремонта: {repair_price} руб.\n"
+                f"Описание: {request.get('description', 'Нет описания')}\n"
+                f"Статус: Ожидает доставку"
+            )
+            for admin_id in ADMIN_IDS:
+                try:
+                    await context.bot.send_message(
+                        chat_id=admin_id,
+                        text=admin_message,
+                        reply_markup=reply_markup
+                    )
+                except Exception as e:
+                    logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+        except Exception as e:
+            logger.error(f"Ошибка при обработке согласия с ценой: {e}")
+            await query.edit_message_text("❌ Произошла ошибка при обработке запроса")
+
+    async def handle_client_price_rejection(self, update: Update, context: CallbackContext):
+        """Обработка отказа клиента от предложенной цены"""
+        query = update.callback_query
+        await query.answer()
+        request_id = query.data.split('_')[-1]
+        try:
+            requests_data = load_requests()
+            if request_id not in requests_data:
+                await query.edit_message_text("❌ Заявка не найдена")
+                return
+            request = requests_data[request_id]
+            repair_price = request.get('repair_price', 'Не указана')
+            # Обновляем статус заявки
+            request['status'] = 'Цена не согласована'
+            request['price_approved'] = False
+            save_requests(requests_data)
+            # Отправляем сообщение клиенту
+            await query.edit_message_text(
+                f"❌ Вы отказались от предложенной стоимости ремонта:\n"
+                f"Сумма: {repair_price} руб.\n\n"
+                f"Заявка переведена в статус: Цена не согласована\n"
+                f"Пожалуйста, свяжитесь с сервисным центром для обсуждения стоимости."
+            )
+            # Отправляем уведомление администраторам
+            service_centers = load_service_centers()
+            sc_id = request.get('assigned_sc')
+            sc_data = service_centers.get(sc_id, {})
+            sc_name = sc_data.get('name', 'Неизвестный СЦ')
+            admin_message = (
+                f"❌ Клиент отказался от предложенной стоимости\n\n"
+                f"Заявка: #{request_id}\n"
+                f"СЦ: {sc_name}\n"
+                f"Стоимость ремонта: {repair_price} руб.\n"
+                f"Описание: {request.get('description', 'Нет описания')}\n"
+                f"Статус: Цена не согласована"
+            )
+            for admin_id in ADMIN_IDS:
+                try:
+                    await context.bot.send_message(
+                        chat_id=admin_id,
+                        text=admin_message
+                    )
+                except Exception as e:
+                    logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+        except Exception as e:
+            logger.error(f"Ошибка при обработке отказа от цены: {e}")
+            await query.edit_message_text("❌ Произошла ошибка при обработке запроса")

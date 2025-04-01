@@ -6,7 +6,7 @@ from config import (
     ORDER_STATUS_DELIVERY_TO_SC, ORDER_STATUS_DELIVERY_TO_CLIENT,
     ORDER_STATUS_CLIENT_REJECTED, ORDER_STATUS_WAITING_SC, CREATE_REQUEST_PHOTOS,
     ORDER_STATUS_PICKUP_FROM_SC, ORDER_STATUS_SC_TO_CLIENT, ORDER_STATUS_IN_SC,
-    ENTER_SC_CONFIRMATION_CODE
+    ENTER_SC_CONFIRMATION_CODE, ORDER_STATUS_NEW
 )
 from handlers.base_handler import BaseHandler
 from database import load_delivery_tasks, load_users, load_requests, save_delivery_tasks, save_requests, save_users, load_service_centers
@@ -190,7 +190,6 @@ class DeliveryHandler(BaseHandler):
         if request_id in requests_data:
             # Сохраняем request_id в контексте для последующего использования
             context.user_data['current_request'] = request_id
-            
             # Запрашиваем фотографии у доставщика
             await query.edit_message_text(
                 "Пожалуйста, сделайте фотографии товара перед получением. "
@@ -258,7 +257,6 @@ class DeliveryHandler(BaseHandler):
                             f"СЦ: {sc_data.get('name', 'Название не указано')}\n"
                             f"Адрес СЦ: {sc_data.get('address', 'Адрес не указан')}"
                         )
-                        
                         # Отправляем фотографии администратору
                         pickup_photos = requests_data[request_id].get('pickup_photos', [])
                         if pickup_photos:
@@ -270,7 +268,6 @@ class DeliveryHandler(BaseHandler):
                                         photo=photo_file,
                                         caption=admin_message
                                     )
-                            
                             # Отправляем остальные фото
                             for photo_path in pickup_photos[1:]:
                                 if os.path.exists(photo_path):
@@ -414,13 +411,16 @@ class DeliveryHandler(BaseHandler):
         """
         try:
             delivery_tasks = load_delivery_tasks()
+            logger.info(f"Загружено задач: {len(delivery_tasks)}")
             if not delivery_tasks:
                 await update.message.reply_text("На данный момент нет доступных задач доставки.")
                 return
+            # Фильтруем только новые задачи
             available_tasks = {
                 task_id: task for task_id, task in delivery_tasks.items() 
-                if task.get('status') == "Новая" and not task.get('assigned_delivery_id')
+                if task.get('status') == "Новая"
             }
+            logger.info(f"Доступных задач: {len(available_tasks)}")
             if not available_tasks:
                 await update.message.reply_text("На данный момент нет доступных задач доставки.")
                 return
@@ -651,17 +651,14 @@ class DeliveryHandler(BaseHandler):
         try:
             request_id = context.user_data.get('current_request')
             photos = context.user_data.get('pickup_photos', [])
-            
             if not photos:
                 await update.message.reply_text("Необходимо добавить хотя бы одно фото!")
                 return CREATE_REQUEST_PHOTOS
-                
             requests_data = load_requests()
             if request_id in requests_data:
                 # Сохраняем фотографии в данных заявки
                 requests_data[request_id]['pickup_photos'] = photos
                 save_requests(requests_data)
-                
                 # Отправляем фотографии клиенту для подтверждения
                 client_id = requests_data[request_id].get('user_id')
                 if client_id:
@@ -669,19 +666,16 @@ class DeliveryHandler(BaseHandler):
                     sc_id = requests_data[request_id].get('assigned_sc')
                     service_centers = load_service_centers()
                     sc_data = service_centers.get(sc_id, {})
-                    
                     # Формируем сообщение с информацией о СЦ
                     sc_info = (
                         f"🏢 Сервисный центр: {sc_data.get('name', 'Название не указано')}\n"
                         f"📍 Адрес: {sc_data.get('address', 'Адрес не указан')}\n"
                         f"📱 Телефон: {sc_data.get('phone', 'Телефон не указан')}\n\n"
                     )
-                    
                     await context.bot.send_message(
                         chat_id=client_id,
                         text=f"Доставщик сделал фотографии товара по заявке #{request_id}.\n\n{sc_info}Пожалуйста, подтвердите получение:"
                     )
-                    
                     for photo_path in photos:
                         if os.path.exists(photo_path):
                             with open(photo_path, 'rb') as photo_file:
@@ -690,7 +684,6 @@ class DeliveryHandler(BaseHandler):
                                     photo=photo_file,
                                     caption=f"Фото товара по заявке #{request_id}"
                                 )
-                    
                     keyboard = [
                         [InlineKeyboardButton("Да, забрал. С фото согласен.", callback_data=f"client_confirm_{request_id}")],
                         [InlineKeyboardButton("Нет, не забрал.", callback_data=f"client_deny_{request_id}")]
@@ -701,17 +694,14 @@ class DeliveryHandler(BaseHandler):
                         text="Подтверждаете получение товара?",
                         reply_markup=reply_markup
                     )
-                
                 # Очищаем данные контекста
                 context.user_data.pop('pickup_photos', None)
                 context.user_data.pop('current_request', None)
-                
                 await update.message.reply_text("✅ Фотографии загружены и отправлены клиенту для подтверждения")
                 return ConversationHandler.END
             else:
                 await update.message.reply_text("Ошибка: заявка не найдена")
                 return ConversationHandler.END
-                
         except Exception as e:
             logger.error(f"Ошибка в handle_pickup_photos_done: {str(e)}")
             await update.message.reply_text("Произошла ошибка при обработке фотографий")

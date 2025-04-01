@@ -336,6 +336,11 @@ def register_admin_handlers(application, admin_handler, user_handler, sc_managem
     )
     application.add_handler(chat_view_handler)
 
+    # Регистрация обработчиков для согласования цены
+    application.add_handler(CallbackQueryHandler(admin_handler.handle_price_approval, pattern="^send_price_approval_"))
+    application.add_handler(CallbackQueryHandler(user_handler.handle_client_price_approval, pattern="^client_approve_price_"))
+    application.add_handler(CallbackQueryHandler(user_handler.handle_client_price_rejection, pattern="^client_reject_price_"))
+
 
 def register_delivery_handlers(application, delivery_handler, user_handler, delivery_sc_handler):
     # Обработчики для доставщика
