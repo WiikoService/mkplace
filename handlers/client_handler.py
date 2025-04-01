@@ -84,7 +84,7 @@ class ClientHandler:
             [KeyboardButton(text="Отправить местоположение", request_location=True)],
             [KeyboardButton(text="Ввести адрес вручную")]
         ]
-        reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
+        reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
         await update.message.reply_text(
             "Отлично! Теперь отправьте свое местоположение или выберите 'Ввести адрес вручную':",
             reply_markup=reply_markup

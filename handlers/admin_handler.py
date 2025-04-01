@@ -867,3 +867,93 @@ class AdminHandler(BaseHandler):
         except Exception as e:
             logger.error(f"Ошибка при отправке запроса на согласование цены: {e}")
             await query.edit_message_text("❌ Произошла ошибка при обработке запроса")
+
+    async def handle_comment_approval(self, update: Update, context: CallbackContext):
+        """Обработка одобрения комментария от администратора"""
+        query = update.callback_query
+        await query.answer()
+        # Получаем request_id и comment из callback_data
+        parts = query.data.split('_')
+        request_id = parts[2]
+        comment = parts[3]  # Комментарий теперь в callback_data
+        
+        try:
+            requests_data = load_requests()
+            if request_id not in requests_data:
+                await query.edit_message_text("❌ Заявка не найдена")
+                return
+            request = requests_data[request_id]
+            # Получаем данные СЦ
+            sc_id = request.get('assigned_sc')
+            service_centers = load_service_centers()
+            sc_data = service_centers.get(sc_id, {})
+            sc_name = sc_data.get('name', 'Неизвестный СЦ')
+            
+            # Сохраняем комментарий в заявку
+            request['comment'] = comment
+            
+            # Обновляем данные заявки
+            requests_data[request_id] = request
+            save_requests(requests_data)
+            
+            # Обновляем сообщение администратора
+            await query.edit_message_text(
+                f"✅ Комментарий от СЦ '{sc_name}' для заявки #{request_id} одобрен.\n"
+                f"Комментарий: {comment}"
+            )
+            
+            # Уведомляем СЦ
+            users_data = load_users()
+            sc_user_id = next(
+                (uid for uid, u_data in users_data.items() 
+                if str(u_data.get('sc_id')) == str(sc_id) and u_data.get('role') == 'sc'),
+                None
+            )
+            if sc_user_id:
+                await context.bot.send_message(
+                    chat_id=int(sc_user_id),
+                    text=f"✅ Ваш комментарий к заявке #{request_id} одобрен администратором."
+                )
+        except Exception as e:
+            logger.error(f"Ошибка при одобрении комментария: {e}")
+            await query.edit_message_text("❌ Произошла ошибка при обработке запроса")
+
+    async def handle_comment_rejection(self, update: Update, context: CallbackContext):
+        """Обработка отклонения комментария от администратора"""
+        query = update.callback_query
+        await query.answer()
+        request_id = query.data.split('_')[-1]
+        try:
+            requests_data = load_requests()
+            if request_id not in requests_data:
+                await query.edit_message_text("❌ Заявка не найдена")
+                return
+            request = requests_data[request_id]
+            # Получаем данные СЦ
+            sc_id = request.get('assigned_sc')
+            service_centers = load_service_centers()
+            sc_data = service_centers.get(sc_id, {})
+            sc_name = sc_data.get('name', 'Неизвестный СЦ')
+            
+            # Обновляем сообщение администратора
+            await query.edit_message_text(
+                f"❌ Комментарий от СЦ '{sc_name}' для заявки #{request_id} отклонен.\n"
+                f"Комментарий: {request.get('comment', 'Нет комментария')}"
+            )
+            
+            # Уведомляем СЦ
+            users_data = load_users()
+            sc_user_id = next(
+                (uid for uid, u_data in users_data.items() 
+                if str(u_data.get('sc_id')) == str(sc_id) and u_data.get('role') == 'sc'),
+                None
+            )
+            if sc_user_id:
+                await context.bot.send_message(
+                    chat_id=int(sc_user_id),
+                    text=f"❌ Ваш комментарий к заявке #{request_id} отклонен администратором.\n"
+                         "Пожалуйста, переформулируйте комментарий и попробуйте снова."
+                )
+        except Exception as e:
+            logger.error(f"Ошибка при отклонении комментария: {e}")
+            await query.edit_message_text("❌ Произошла ошибка при обработке запроса")
