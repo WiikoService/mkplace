@@ -17,10 +17,6 @@ import os
 from config import DATA_DIR
 from handlers.user_handler import UserHandler
 
-
-#  TODO: Согласование цены
-
-
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -876,7 +872,6 @@ class AdminHandler(BaseHandler):
         parts = query.data.split('_')
         request_id = parts[2]
         comment = parts[3]  # Комментарий теперь в callback_data
-        
         try:
             requests_data = load_requests()
             if request_id not in requests_data:
@@ -888,20 +883,16 @@ class AdminHandler(BaseHandler):
             service_centers = load_service_centers()
             sc_data = service_centers.get(sc_id, {})
             sc_name = sc_data.get('name', 'Неизвестный СЦ')
-            
             # Сохраняем комментарий в заявку
             request['comment'] = comment
-            
             # Обновляем данные заявки
             requests_data[request_id] = request
             save_requests(requests_data)
-            
             # Обновляем сообщение администратора
             await query.edit_message_text(
                 f"✅ Комментарий от СЦ '{sc_name}' для заявки #{request_id} одобрен.\n"
                 f"Комментарий: {comment}"
-            )
-            
+            )            
             # Уведомляем СЦ
             users_data = load_users()
             sc_user_id = next(
@@ -934,13 +925,11 @@ class AdminHandler(BaseHandler):
             service_centers = load_service_centers()
             sc_data = service_centers.get(sc_id, {})
             sc_name = sc_data.get('name', 'Неизвестный СЦ')
-            
             # Обновляем сообщение администратора
             await query.edit_message_text(
                 f"❌ Комментарий от СЦ '{sc_name}' для заявки #{request_id} отклонен.\n"
                 f"Комментарий: {request.get('comment', 'Нет комментария')}"
-            )
-            
+            )            
             # Уведомляем СЦ
             users_data = load_users()
             sc_user_id = next(

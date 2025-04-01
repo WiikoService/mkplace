@@ -249,10 +249,8 @@ class UserHandler(BaseHandler):
         query = update.callback_query
         await query.answer()
         request_id = query.data.split('_')[-1]
-        
         # Сохраняем ID заявки в контексте
         context.user_data['delivery_request_id'] = request_id
-        
         # Создаем клавиатуру с датами на ближайшую неделю
         keyboard = []
         current_date = datetime.now()
@@ -270,7 +268,6 @@ class UserHandler(BaseHandler):
                 )
             ])
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
         await query.edit_message_text(
             f"Выберите удобную дату доставки для заявки #{request_id}:",
             reply_markup=reply_markup
@@ -283,11 +280,9 @@ class UserHandler(BaseHandler):
         await query.answer()
         selected_date_str = query.data.split('_', 3)[3]
         request_id = context.user_data.get('delivery_request_id')
-        
         try:
             # Сохраняем выбранную дату
             context.user_data["temp_delivery_date"] = selected_date_str
-            
             # Создаем клавиатуру с временными интервалами
             keyboard = []
             current_hour = 9  # Начинаем с 9 утра
@@ -301,7 +296,6 @@ class UserHandler(BaseHandler):
                 ])
                 current_hour += 1
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
             await query.edit_message_text(
                 "Выберите удобное время доставки:",
                 reply_markup=reply_markup
@@ -331,21 +325,17 @@ class UserHandler(BaseHandler):
                 hour=time_obj.hour,
                 minute=time_obj.minute
             )
-            
             # Получаем данные заявки
             requests_data = load_requests()
             request = requests_data.get(request_id, {})
-            
             # Обновляем статус и добавляем дату доставки
             request['status'] = 'Ожидает доставку из СЦ'
             request['delivery_date'] = final_datetime.strftime("%H:%M %d.%m.%Y")
             requests_data[request_id] = request
             save_requests(requests_data)
-            
             # Очищаем временные данные
             if "temp_delivery_date" in context.user_data:
                 del context.user_data["temp_delivery_date"]
-            
             # Уведомляем администраторов
             keyboard = [[
                 InlineKeyboardButton(
@@ -361,7 +351,6 @@ class UserHandler(BaseHandler):
                 f"Дата доставки: {request['delivery_date']}\n"
                 f"Статус: Ожидает доставку из СЦ"
             )
-            
             # Отправляем уведомления админам
             notification_sent = False
             for admin_id in ADMIN_IDS:
@@ -374,7 +363,6 @@ class UserHandler(BaseHandler):
                     notification_sent = True
                 except Exception as e:
                     logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
-            
             if notification_sent:
                 await query.edit_message_text(
                     f"✅ Дата доставки для заявки #{request_id} установлена:\n"
@@ -392,6 +380,5 @@ class UserHandler(BaseHandler):
             await query.edit_message_text(
                 "Произошла ошибка при обработке времени. Попробуйте еще раз."
             )
-            return 'SELECT_DELIVERY_TIME'
-            
+            return 'SELECT_DELIVERY_TIME'            
         return ConversationHandler.END
