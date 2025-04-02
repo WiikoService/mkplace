@@ -11,7 +11,7 @@ from config import (
     ASSIGN_REQUEST, ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK,
     ORDER_STATUS_ASSIGNED_TO_SC, ORDER_STATUS_PICKUP_FROM_SC, ORDER_STATUS_NEW
 )
-from utils import notify_delivery
+from utils import notify_client
 from datetime import datetime
 import os
 from config import DATA_DIR
@@ -233,7 +233,7 @@ class AdminHandler(BaseHandler):
         }
         delivery_tasks[task_id] = delivery_task
         save_delivery_tasks(delivery_tasks)
-        await notify_delivery(context.bot, DELIVERY_IDS, delivery_task, detailed=True)
+        await notify_client(context.bot, DELIVERY_IDS, delivery_task, detailed=True)
         return task_id, delivery_task
 
     async def notify_deliveries(self, context: CallbackContext, task_data: dict):
@@ -465,60 +465,64 @@ class AdminHandler(BaseHandler):
                 )
 
     async def handle_create_delivery_from_sc(self, update: Update, context: CallbackContext):
-        """Обработка создания задачи доставки по запросу от СЦ"""
+        """Обработка создания задачи доставки из СЦ"""
         query = update.callback_query
         await query.answer()
-        request_id = query.data.split('_')[-1]
-        requests_data = load_requests()
-        request = requests_data.get(request_id)
-        if not request:
-            await query.edit_message_text("❌ Заявка не найдена")
-            return ConversationHandler.END
-        # Проверяем текущий статус
-        current_status = request.get('status')
-        if current_status not in ['Ожидает доставку']:
-            await query.edit_message_text(
-                f"❌ Неверный статус заявки #{request_id}: {current_status}"
-            )
-            return ConversationHandler.END
+        
         try:
-            # Создаем задачу доставки
+            request_id = query.data.split('_')[-1]
+            requests_data = load_requests()
             delivery_tasks = load_delivery_tasks()
-            task_id = str(len(delivery_tasks) + 1)
-            sc_id = request.get('assigned_sc')
-            service_centers = load_service_centers()
-            sc_data = service_centers.get(sc_id, {})
-            delivery_task = {
-                'task_id': task_id,
-                'request_id': request_id,
-                'status': ORDER_STATUS_NEW,
-                'sc_name': sc_data.get('name'),
-                'sc_address': sc_data.get('address'),
-                'client_name': request.get('user_name'),
-                'client_address': request.get('location_display'),
-                'client_phone': request.get('user_phone'),
-                'description': request.get('description'),
-                'is_sc_to_client': True
+            
+            if request_id not in requests_data:
+                await query.edit_message_text("Ошибка: заявка не найдена.")
+                return
+            
+            request = requests_data[request_id]
+            
+            # Получаем текущую дату в формате DD.MM.YYYY
+            today = datetime.now().strftime("%d.%m.%Y")
+            
+            # Проверяем, что дата доставки сегодняшняя
+            if not request.get('desired_date', '').endswith(today):
+                await query.edit_message_text(
+                    "Ошибка: можно создать задачу доставки только на сегодняшний день."
+                )
+                return
+            
+            # Создаем новую задачу доставки
+            new_task_id = str(len(delivery_tasks) + 1)
+            new_task = {
+                "task_id": new_task_id,
+                "request_id": request_id,
+                "status": "Новая",
+                "sc_name": request.get('sc_name', 'Не указан'),
+                "sc_address": request.get('sc_address', 'Не указан'),
+                "client_name": request.get('user_name', 'Не указан'),
+                "client_address": request.get('location_display', 'Не указан'),
+                "client_phone": request.get('user_phone', 'Не указан'),
+                "description": request.get('description', 'Нет описания'),
+                "is_sc_to_client": True,
+                "desired_date": request.get('desired_date', '')  # Копируем дату из заявки
             }
-            delivery_tasks[task_id] = delivery_task
+            
+            delivery_tasks[new_task_id] = new_task
             save_delivery_tasks(delivery_tasks)
+            
             # Обновляем статус заявки
-            request['status'] = ORDER_STATUS_NEW
-            requests_data[request_id] = request
+            requests_data[request_id]['status'] = ORDER_STATUS_PICKUP_FROM_SC
             save_requests(requests_data)
-            # Уведомляем доставщиков
-            await notify_delivery(context.bot, DELIVERY_IDS, delivery_task, detailed=True)
+            
             await query.edit_message_text(
-                f"✅ Задача доставки #{task_id} создана и отправлена доставщикам.\n"
-                f"Заявка: #{request_id}"
+                f"✅ Задача доставки #{new_task_id} создана.\n"
+                f"Заявка: #{request_id}\n"
+                f"Время доставки: {request.get('desired_date', '').split()[0]}\n"
+                f"Доставщики могут принять задачу в разделе 'Доступные задания'"
             )
-            return ConversationHandler.END
+            
         except Exception as e:
-            logger.error(f"Ошибка создания задачи доставки: {e}")
-            await query.edit_message_text(
-                f"❌ Ошибка при создании задачи доставки: {str(e)}"
-            )
-            return ConversationHandler.END
+            logger.error(f"Ошибка при создании задачи доставки: {e}")
+            await query.edit_message_text("Произошла ошибка при создании задачи доставки.")
 
     async def show_delivery_tasks(self, update: Update, context: CallbackContext):
         """Показ списка заявок для создания задачи доставки"""
@@ -559,49 +563,61 @@ class AdminHandler(BaseHandler):
         """Обработка создания задачи доставки из СЦ"""
         query = update.callback_query
         await query.answer()
-        request_id = query.data.split('_')[-1]
-        requests_data = load_requests()
-        request = requests_data.get(request_id)
-        if not request:
-            await query.edit_message_text("❌ Заявка не найдена")
-            return ConversationHandler.END
+        
         try:
+            request_id = query.data.split('_')[-1]
+            requests_data = load_requests()
             delivery_tasks = load_delivery_tasks()
-            task_id = str(len(delivery_tasks) + 1)
-            sc_id = request.get('assigned_sc')
-            service_centers = load_service_centers()
-            sc_data = service_centers.get(sc_id, {})
-            # Создаем специальную задачу доставки из СЦ
-            delivery_task = {
-                'task_id': task_id,
-                'request_id': request_id,
-                'status': 'Ожидает доставщика',
-                'sc_name': sc_data.get('name'),
-                'sc_address': sc_data.get('address'),
-                'client_name': request.get('user_name'),
-                'client_address': request.get('location_display'),
-                'client_phone': request.get('user_phone'),
-                'description': request.get('description'),
-                'is_sc_to_client': True,
-                'delivery_type': 'sc_to_client'
+            
+            if request_id not in requests_data:
+                await query.edit_message_text("Ошибка: заявка не найдена.")
+                return
+            
+            request = requests_data[request_id]
+            
+            # Получаем текущую дату в формате DD.MM.YYYY
+            today = datetime.now().strftime("%d.%m.%Y")
+            
+            # Проверяем, что дата доставки сегодняшняя
+            if not request.get('desired_date', '').endswith(today):
+                await query.edit_message_text(
+                    "Ошибка: можно создать задачу доставки только на сегодняшний день."
+                )
+                return
+            
+            # Создаем новую задачу доставки
+            new_task_id = str(len(delivery_tasks) + 1)
+            new_task = {
+                "task_id": new_task_id,
+                "request_id": request_id,
+                "status": "Новая",
+                "sc_name": request.get('sc_name', 'Не указан'),
+                "sc_address": request.get('sc_address', 'Не указан'),
+                "client_name": request.get('user_name', 'Не указан'),
+                "client_address": request.get('location_display', 'Не указан'),
+                "client_phone": request.get('user_phone', 'Не указан'),
+                "description": request.get('description', 'Нет описания'),
+                "is_sc_to_client": True,
+                "desired_date": request.get('desired_date', '')  # Копируем дату из заявки
             }
-            delivery_tasks[task_id] = delivery_task
+            
+            delivery_tasks[new_task_id] = new_task
             save_delivery_tasks(delivery_tasks)
+            
             # Обновляем статус заявки
-            request['status'] = 'Ожидает доставщика'
-            requests_data[request_id] = request
+            requests_data[request_id]['status'] = ORDER_STATUS_PICKUP_FROM_SC
             save_requests(requests_data)
-            # Уведомляем доставщиков с новым форматом сообщения
-            await notify_delivery(context.bot, DELIVERY_IDS, delivery_task)
+            
             await query.edit_message_text(
-                f"✅ Задача доставки из СЦ #{task_id} создана и отправлена доставщикам.\n"
-                f"Заявка: #{request_id}"
+                f"✅ Задача доставки #{new_task_id} создана.\n"
+                f"Заявка: #{request_id}\n"
+                f"Время доставки: {request.get('desired_date', '').split()[0]}\n"
+                f"Доставщики могут принять задачу в разделе 'Доступные задания'"
             )
-            return ConversationHandler.END
+            
         except Exception as e:
-            logger.error(f"Ошибка при создании задачи доставки из СЦ: {e}")
-            await query.edit_message_text("❌ Произошла ошибка при создании задачи")
-            return ConversationHandler.END
+            logger.error(f"Ошибка при создании задачи доставки: {e}")
+            await query.edit_message_text("Произошла ошибка при создании задачи доставки.")
 
     async def show_feedback(self, update: Update, context: CallbackContext):
         """Показывает статистику обратной связи"""
@@ -991,7 +1007,8 @@ class AdminHandler(BaseHandler):
                 'description': request.get('description', 'Нет описания'),
                 'status': ORDER_STATUS_NEW,
                 'created_at': int(time.time()),
-                'is_sc_to_client': False
+                'is_sc_to_client': False,
+                'desired_date': request.get('desired_date', '')  # Копируем дату из заявки
             }
             delivery_tasks[task_id] = delivery_task
             save_delivery_tasks(delivery_tasks)
@@ -1003,6 +1020,7 @@ class AdminHandler(BaseHandler):
             await query.edit_message_text(
                 f"✅ Задача доставки #{task_id} создана.\n"
                 f"Заявка: #{request_id}\n"
+                f"Время доставки: {request.get('desired_date', '').split()[0]}\n"
                 f"Доставщики могут посмотреть доступные задания в соответствующем разделе."
             )
         else:

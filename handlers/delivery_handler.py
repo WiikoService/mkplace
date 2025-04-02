@@ -422,10 +422,8 @@ class DeliveryHandler(BaseHandler):
             # Фильтруем только новые задачи на сегодня
             available_tasks = {}
             for task_id, task in delivery_tasks.items():
-                request_id = task.get('request_id')
                 if (task.get('status') == "Новая" and 
-                    request_id in requests_data and
-                    requests_data[request_id].get('desired_date', '').endswith(today)):
+                    task.get('desired_date', '').endswith(today)):
                     available_tasks[task_id] = task
             
             logger.info(f"Доступных задач на сегодня: {len(available_tasks)}")
@@ -441,9 +439,8 @@ class DeliveryHandler(BaseHandler):
             )
 
             for task_id, task in available_tasks.items():
-                request_id = task.get('request_id')
-                # Извлекаем время из desired_date заявки
-                delivery_time = requests_data[request_id].get('desired_date', '').split()[0]  # Получаем время (HH:MM)
+                # Извлекаем время из desired_date задачи
+                delivery_time = task.get('desired_date', '').split()[0]  # Получаем время (HH:MM)
                 
                 keyboard = [[
                     InlineKeyboardButton(
