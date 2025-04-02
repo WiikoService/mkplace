@@ -16,6 +16,7 @@ import random
 import requests
 import os
 import time
+from datetime import datetime
 
 from smsby import SMSBY
 
@@ -248,7 +249,6 @@ class DeliveryHandler(BaseHandler):
                             text=delivery_message
                         )
                         logger.info(f"Отправлено сообщение доставщику {delivery_id}")
-                        
                         # Отправляем уведомление администратору
                         admin_message = (
                             f"✅ Клиент подтвердил получение товара доставщиком\n"
@@ -406,25 +406,45 @@ class DeliveryHandler(BaseHandler):
 
     async def show_available_tasks(self, update: Update, context: CallbackContext):
         """
-        Показать доступные задания
-        TODO: Упростить проверку доступных задач
+        Показать доступные задания на сегодня
         """
         try:
             delivery_tasks = load_delivery_tasks()
+            requests_data = load_requests()
             logger.info(f"Загружено задач: {len(delivery_tasks)}")
             if not delivery_tasks:
                 await update.message.reply_text("На данный момент нет доступных задач доставки.")
                 return
-            # Фильтруем только новые задачи
-            available_tasks = {
-                task_id: task for task_id, task in delivery_tasks.items() 
-                if task.get('status') == "Новая"
-            }
-            logger.info(f"Доступных задач: {len(available_tasks)}")
+
+            # Получаем текущую дату в формате DD.MM.YYYY
+            today = datetime.now().strftime("%d.%m.%Y")
+            
+            # Фильтруем только новые задачи на сегодня
+            available_tasks = {}
+            for task_id, task in delivery_tasks.items():
+                request_id = task.get('request_id')
+                if (task.get('status') == "Новая" and 
+                    request_id in requests_data and
+                    requests_data[request_id].get('desired_date', '').endswith(today)):
+                    available_tasks[task_id] = task
+            
+            logger.info(f"Доступных задач на сегодня: {len(available_tasks)}")
             if not available_tasks:
-                await update.message.reply_text("На данный момент нет доступных задач доставки.")
+                await update.message.reply_text(
+                    "На сегодня нет доступных задач доставки.\n"
+                    "Пожалуйста, проверьте завтра или позже."
+                )
                 return
+
+            await update.message.reply_text(
+                f"📦 Доступные задачи доставки на сегодня ({today}):"
+            )
+
             for task_id, task in available_tasks.items():
+                request_id = task.get('request_id')
+                # Извлекаем время из desired_date заявки
+                delivery_time = requests_data[request_id].get('desired_date', '').split()[0]  # Получаем время (HH:MM)
+                
                 keyboard = [[
                     InlineKeyboardButton(
                         "Принять задачу", 
@@ -435,7 +455,7 @@ class DeliveryHandler(BaseHandler):
                 message = (
                     f"📦 Задача доставки #{task_id}\n"
                     f"Заявка: #{task['request_id']}\n"
-                    f"Статус: {task['status']}\n"
+                    f"Время доставки: {delivery_time}\n"
                     f"Сервисный центр: {task['sc_name']}\n"
                     f"Адрес клиента: {task['client_address']}\n"
                     f"Клиент: {task['client_name']}\n"
