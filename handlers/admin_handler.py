@@ -889,9 +889,7 @@ class AdminHandler(BaseHandler):
         comment = parts[3]  # Комментарий теперь в callback_data
         try:
             requests_data = load_requests()
-            if request_id not in requests_data:
-                await query.edit_message_text("❌ Заявка не найдена")
-                return
+
             request = requests_data[request_id]
             # Получаем данные СЦ
             sc_id = request.get('assigned_sc')

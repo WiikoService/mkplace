@@ -234,7 +234,7 @@ class DeliveryHandler(BaseHandler):
             await query.edit_message_text(message, reply_markup=reply_markup)
             
             # Уведомляем всех остальных доставщиков
-            await self.update_delivery_messages(task_id, delivery_tasks)
+            await self.update_delivery_messages(context.bot, task_id, task_data)
             
             # Уведомляем клиента или СЦ в зависимости от типа доставки
             if is_sc_to_client or delivery_type == 'sc_to_client':
@@ -500,47 +500,21 @@ class DeliveryHandler(BaseHandler):
             await update.message.reply_text("Произошла ошибка при обработке фотографий")
             return ConversationHandler.END
 
-    async def update_delivery_messages(self, task_id, delivery_tasks):
-        """Обновление сообщений для других доставщиков при принятии задачи"""
+    async def update_delivery_messages(self, bot, task_id, task_data):
+        """Обновляет сообщения для других доставщиков"""
         try:
+            # Получаем ID доставщика, который взял заказ
+            assigned_delivery_id = task_data.get('assigned_delivery_id', '')
+            
+            # Формируем сообщение об обновлении
+            message = f"Заказ #{task_id} был принят другим доставщиком и больше не доступен."
+            
+            # Отправляем сообщение другим доставщикам
             from config import DELIVERY_IDS
-            
-            # Получаем задачу, которая была принята
-            task_data = delivery_tasks.get(task_id, {})
-            if not task_data:
-                logger.error(f"Не удалось найти данные задачи {task_id} для обновления сообщений")
-                return
-            
-            # Получаем ID доставщика, который принял задачу
-            assigned_delivery_id = task_data.get('assigned_delivery_id')
-            if not assigned_delivery_id:
-                logger.error(f"ID доставщика не найден в задаче {task_id}")
-                return
-                
-            # Получаем request_id для этой задачи
-            request_id = task_data.get('request_id')
-            if not request_id:
-                logger.error(f"request_id не найден в задаче {task_id}")
-                return
-            
-            # Определяем тип доставки
-            is_sc_to_client = task_data.get('is_sc_to_client', False)
-            delivery_type = task_data.get('delivery_type', '')
-            
-            # Формируем сообщение для других доставщиков
-            message = (
-                f"❌ Задача #{task_id} уже принята другим доставщиком.\n"
-                f"Заявка: #{request_id}\n"
-                f"Тип: {'Доставка из СЦ клиенту' if is_sc_to_client or delivery_type == 'sc_to_client' else 'Доставка от клиента в СЦ'}\n"
-                f"СЦ: {task_data.get('sc_name', 'Не указан')}\n"
-                f"Статус: {task_data.get('status', 'Не указан')}"
-            )
-            
-            # Отправляем сообщение всем доставщикам, кроме того, кто принял задачу
             for delivery_id in DELIVERY_IDS:
                 if str(delivery_id) != str(assigned_delivery_id):
                     try:
-                        await self.bot.send_message(
+                        await bot.send_message(
                             chat_id=int(delivery_id), 
                             text=message
                         )

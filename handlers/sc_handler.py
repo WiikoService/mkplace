@@ -419,12 +419,12 @@ class SCHandler(BaseHandler):
         # Уведомляем клиента о необходимости выбрать дату доставки
         client_id = request.get('user_id')
         if client_id:
-        keyboard = [[
-            InlineKeyboardButton(
-                    "📅 Выбрать дату доставки",
-                    callback_data=f"select_delivery_date_{request_id}"
-                )
-            ]]
+            keyboard = [[
+                InlineKeyboardButton(
+                        "📅 Выбрать дату доставки",
+                        callback_data=f"select_delivery_date_{request_id}"
+                    )
+                ]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await context.bot.send_message(
                 chat_id=int(client_id),
@@ -474,33 +474,33 @@ class SCHandler(BaseHandler):
         selected_time = query.data.split('_', 3)[3]
         temp_date = context.user_data.get("temp_delivery_date")
         request_id = context.user_data.get('delivery_request_id')
-        try:
-            # Комбинируем дату и время
-            date_obj = datetime.strptime(temp_date, "%H:%M %d.%m.%Y")
-            time_obj = datetime.strptime(selected_time, "%H:%M")
-            # Создаем финальную дату с выбранным временем
-            final_datetime = date_obj.replace(
-                hour=time_obj.hour,
-                minute=time_obj.minute
+
+        # Комбинируем дату и время
+        date_obj = datetime.strptime(temp_date, "%H:%M %d.%m.%Y")
+        time_obj = datetime.strptime(selected_time, "%H:%M")
+        # Создаем финальную дату с выбранным временем
+        final_datetime = date_obj.replace(
+            hour=time_obj.hour,
+            minute=time_obj.minute
+        )
+        # Получаем данные заявки
+        requests_data = load_requests()
+        request = requests_data.get(request_id, {})
+        # Обновляем статус и добавляем дату доставки
+        request['status'] = 'Ожидает доставку из СЦ'
+        request['delivery_date'] = final_datetime.strftime("%H:%M %d.%m.%Y")
+        requests_data[request_id] = request
+        save_requests(requests_data)
+        # Очищаем временные данные
+        if "temp_delivery_date" in context.user_data:
+            del context.user_data["temp_delivery_date"]
+        # Уведомляем администраторов
+        keyboard = [[
+            InlineKeyboardButton(
+                "Создать задачу доставки из СЦ", 
+                callback_data=f"create_sc_delivery_{request_id}"
             )
-            # Получаем данные заявки
-            requests_data = load_requests()
-            request = requests_data.get(request_id, {})
-            # Обновляем статус и добавляем дату доставки
-            request['status'] = 'Ожидает доставку из СЦ'
-            request['delivery_date'] = final_datetime.strftime("%H:%M %d.%m.%Y")
-            requests_data[request_id] = request
-            save_requests(requests_data)
-            # Очищаем временные данные
-            if "temp_delivery_date" in context.user_data:
-                del context.user_data["temp_delivery_date"]
-            # Уведомляем администраторов
-            keyboard = [[
-                InlineKeyboardButton(
-                    "Создать задачу доставки из СЦ", 
-                    callback_data=f"create_sc_delivery_{request_id}"
-                )
-            ]]
+        ]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         admin_message = (
                 f"🔄 Запрос на доставку из СЦ\n\n"
@@ -510,7 +510,7 @@ class SCHandler(BaseHandler):
                 f"Статус: Ожидает доставку из СЦ"
         )
             # Отправляем уведомления админам
-            notification_sent = False
+        notification_sent = False
         for admin_id in ADMIN_IDS:
             try:
                 await context.bot.send_message(
@@ -518,7 +518,7 @@ class SCHandler(BaseHandler):
                     text=admin_message,
                     reply_markup=reply_markup
                 )
-                    notification_sent = True
+                notification_sent = True
             except Exception as e:
                 logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
             if notification_sent:
@@ -530,14 +530,9 @@ class SCHandler(BaseHandler):
                 request['status'] = ORDER_STATUS_DELIVERY_TO_SC
                 requests_data[request_id] = request
                 save_requests(requests_data)
-                await query.edit_message_text(
-                    f"❌ Не удалось отправить заявку #{request_id} в доставку. Попробуйте позже."
-                )
-        except ValueError as e:
         await query.edit_message_text(
-                "Произошла ошибка при обработке времени. Попробуйте еще раз."
+                    f"❌ Не удалось отправить заявку #{request_id} в доставку. Попробуйте позже."
         )
-            return 'SC_SELECT_DELIVERY_TIME'
             
         return ConversationHandler.END
 
