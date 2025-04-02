@@ -405,61 +405,62 @@ class DeliveryHandler(BaseHandler):
                 await bot.send_message(chat_id=delivery_id, text=message)
 
     async def show_available_tasks(self, update: Update, context: CallbackContext):
-        """
-        Показать доступные задания на сегодня
-        """
+        """Показать доступные задания доставки"""
         try:
             delivery_tasks = load_delivery_tasks()
-            requests_data = load_requests()
-            logger.info(f"Загружено задач: {len(delivery_tasks)}")
-            if not delivery_tasks:
-                await update.message.reply_text("На данный момент нет доступных задач доставки.")
-                return
-
+            available_tasks = {}
+            
             # Получаем текущую дату в формате DD.MM.YYYY
             today = datetime.now().strftime("%d.%m.%Y")
             
-            # Фильтруем только новые задачи на сегодня
-            available_tasks = {}
+            # Фильтруем задачи по статусу и дате
             for task_id, task in delivery_tasks.items():
-                if (task.get('status') == "Новая" and 
+                if (task.get('status') == 'Новая' and 
                     task.get('desired_date', '').endswith(today)):
                     available_tasks[task_id] = task
             
-            logger.info(f"Доступных задач на сегодня: {len(available_tasks)}")
             if not available_tasks:
                 await update.message.reply_text(
-                    "На сегодня нет доступных задач доставки.\n"
-                    "Пожалуйста, проверьте завтра или позже."
+                    f"На сегодня ({today}) нет доступных заданий доставки."
                 )
                 return
-
+            
+            # Отправляем заголовок с текущей датой
             await update.message.reply_text(
-                f"📦 Доступные задачи доставки на сегодня ({today}):"
+                f"📦 Доступные задания на сегодня ({today}):"
             )
-
+            
+            # Отправляем каждую задачу отдельным сообщением
             for task_id, task in available_tasks.items():
-                # Извлекаем время из desired_date задачи
-                delivery_time = task.get('desired_date', '').split()[0]  # Получаем время (HH:MM)
+                # Определяем тип доставки
+                delivery_type = "Доставка из СЦ" if task.get('delivery_type') == 'sc_to_client' else "Доставка клиенту"
+                
+                # Извлекаем время доставки
+                delivery_time = task.get('desired_date', '').split()[0] if task.get('desired_date') else 'Не указано'
                 
                 keyboard = [[
                     InlineKeyboardButton(
-                        "Принять задачу", 
+                        "Принять заказ",
                         callback_data=f"accept_delivery_{task['request_id']}"
                     )
                 ]]
                 reply_markup = InlineKeyboardMarkup(keyboard)
+                
                 message = (
-                    f"📦 Задача доставки #{task_id}\n"
-                    f"Заявка: #{task['request_id']}\n"
-                    f"Время доставки: {delivery_time}\n"
-                    f"Сервисный центр: {task['sc_name']}\n"
-                    f"Адрес клиента: {task['client_address']}\n"
-                    f"Клиент: {task['client_name']}\n"
-                    f"Телефон: {task['client_phone']}\n"
-                    f"Описание: {task['description'][:100]}..."
+                    f"📦 Задача #{task_id}\n"
+                    f"Тип: {delivery_type}\n"
+                    f"Время: {delivery_time}\n\n"
+                    f"1️⃣ Забрать из:\n"
+                    f"🏢 {task.get('sc_name', 'Не указан')}\n"
+                    f"📍 {task.get('sc_address', 'Не указан')}\n\n"
+                    f"2️⃣ Доставить клиенту:\n"
+                    f"👤 {task.get('client_name', 'Не указан')}\n"
+                    f"📍 {task.get('client_address', 'Не указан')}\n"
+                    f"📱 {task.get('client_phone', 'Не указан')}\n\n"
+                    f"📝 Описание: {task.get('description', '')[:100]}..."
                 )
                 await update.message.reply_text(message, reply_markup=reply_markup)
+                
         except Exception as e:
             logger.error(f"Ошибка при показе доступных заданий: {e}")
             await update.message.reply_text("Произошла ошибка при загрузке заданий.")

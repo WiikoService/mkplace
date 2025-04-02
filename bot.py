@@ -274,14 +274,14 @@ def register_admin_handlers(application, admin_handler, user_handler, sc_managem
     application.add_handler(ConversationHandler(
         entry_points=[
             CallbackQueryHandler(
-                admin_handler.handle_create_delivery_from_sc,
+                admin_handler.handle_create_sc_delivery,
                 pattern="^create_delivery_"
             )
         ],
         states={
             CREATE_DELIVERY_TASK: [
                 CallbackQueryHandler(
-                    admin_handler.handle_create_delivery_from_sc,
+                    admin_handler.handle_create_sc_delivery,
                     pattern="^create_delivery_"
                 )
             ]
