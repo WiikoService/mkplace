@@ -23,7 +23,6 @@ logger = logging.getLogger(__name__)
 
 
 class ClientHandler:
-
     category = [  # TODO: определить список категорий
         'Ремонт телефонов', 'Ремонт телевизоров',
         'Ремонт обуви', 'Ремонт одежды', 'Ремонт мебели',
@@ -84,7 +83,7 @@ class ClientHandler:
             [KeyboardButton(text="Отправить местоположение", request_location=True)],
             [KeyboardButton(text="Ввести адрес вручную")]
         ]
-        reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
+        reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
         await update.message.reply_text(
             "Отлично! Теперь отправьте свое местоположение или выберите 'Ввести адрес вручную':",
             reply_markup=reply_markup
@@ -444,22 +443,17 @@ class ClientHandler:
                     "❌ Пожалуйста, введите текст отзыва."
                 )
                 return FEEDBACK_TEXT
-                
             # Добавляем логирование
             logger.info(f"Получен отзыв: {feedback_text}")
-            
             # Сохраняем отзыв
             self._save_feedback(feedback_text)
             logger.info("Отзыв сохранен успешно")
-            
             # Отправляем подтверждение
             await update.message.reply_text(
                 "✅ Спасибо за ваш отзыв! Мы учтем ваши комментарии для улучшения нашего сервиса."
             )
-            
             # Завершаем ConversationHandler
             return ConversationHandler.END
-            
         except Exception as e:
             logger.error(f"Ошибка при обработке отзыва: {e}")
             await update.message.reply_text(
@@ -467,7 +461,7 @@ class ClientHandler:
             )
             return FEEDBACK_TEXT
 
-    def _save_rating(self, rating):
+    def _save_rating(self, rating): # TODO: переписать в database.py
         """Сохраняет оценку в JSON-файл"""
         feedback_file = os.path.join(DATA_DIR, 'feedback.json')
         # Загружаем существующие данные или создаем новые
@@ -492,7 +486,7 @@ class ClientHandler:
         except Exception as e:
             logger.error(f"Ошибка при сохранении оценки: {e}")
 
-    def _save_feedback(self, feedback_text):
+    def _save_feedback(self, feedback_text): # TODO: переписать в database.py
         """Сохраняет отзыв в JSON-файл"""
         feedback_file = os.path.join(DATA_DIR, 'feedback.json')
         # Загружаем существующие данные

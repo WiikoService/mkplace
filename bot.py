@@ -11,7 +11,9 @@ from config import (
     CREATE_REQUEST_CATEGORY, CREATE_REQUEST_DATA, CREATE_REQUEST_ADDRESS, CREATE_REQUEST_CONFIRMATION, DATA_DIR,
     SC_MANAGEMENT_ADD_NAME, SC_MANAGEMENT_ADD_ADDRESS, SC_MANAGEMENT_ADD_PHONE, CREATE_REQUEST_COMMENT,
     ENTER_SC_CONFIRMATION_CODE, ENTER_REPAIR_PRICE, CONFIRMATION,
-    RATING_SERVICE, FEEDBACK_TEXT
+    RATING_SERVICE, FEEDBACK_TEXT,
+    ORDER_STATUS_ASSIGNED_TO_SC, ORDER_STATUS_PICKUP_FROM_SC,
+    WAITING_REQUEST_ID
 )
 from handlers.user_handler import UserHandler
 from handlers.client_handler import ClientHandler
@@ -52,6 +54,7 @@ def main():
     register_delivery_handlers(application, delivery_handler, user_handler, delivery_sc_handler)
     register_sc_handlers(application, sc_handler, sc_item_handler)
     register_callbacks(application, delivery_handler, admin_handler, user_handler, sc_management_handler, delivery_sc_handler)
+    register_user_handlers(application, user_handler)
 
     # Обработчики команд (общие для всех)
     application.add_handler(CommandHandler("start", user_handler.start))
@@ -322,6 +325,27 @@ def register_admin_handlers(application, admin_handler, user_handler, sc_managem
         )
     )
 
+    # Добавляем обработчик просмотра чата
+    chat_view_handler = ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^Просмотр чата заявки$"), admin_handler.view_request_chat)],
+        states={
+            'WAITING_REQUEST_ID': [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_handler.view_request_chat)
+            ]
+        },
+        fallbacks=[]
+    )
+    application.add_handler(chat_view_handler)
+
+    # Регистрация обработчиков для согласования цены
+    application.add_handler(CallbackQueryHandler(admin_handler.handle_price_approval, pattern="^send_price_approval_"))
+    application.add_handler(CallbackQueryHandler(user_handler.handle_client_price_approval, pattern="^client_approve_price_"))
+    application.add_handler(CallbackQueryHandler(user_handler.handle_client_price_rejection, pattern="^client_reject_price_"))
+    
+    # Регистрация обработчиков для комментариев
+    application.add_handler(CallbackQueryHandler(admin_handler.handle_comment_approval, pattern="^approve_comment_"))
+    application.add_handler(CallbackQueryHandler(admin_handler.handle_comment_rejection, pattern="^reject_comment_"))
+
 
 def register_delivery_handlers(application, delivery_handler, user_handler, delivery_sc_handler):
     # Обработчики для доставщика
@@ -372,6 +396,10 @@ def register_delivery_handlers(application, delivery_handler, user_handler, deli
             CallbackQueryHandler(
                 delivery_sc_handler.handle_accept_sc_delivery,
                 pattern="^accept_sc_delivery_"
+            ),
+            CallbackQueryHandler(
+                delivery_sc_handler.handle_get_sc_confirmation,
+                pattern="^get_sc_confirmation_"
             )
         ],
         states={
@@ -398,6 +426,42 @@ def register_delivery_handlers(application, delivery_handler, user_handler, deli
     )
 
     application.add_handler(sc_delivery_handler)
+
+    # ConversationHandler для фотографий при получении товара
+    pickup_photos_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                delivery_handler.handle_confirm_pickup,
+                pattern="^confirm_pickup_"
+            )
+        ],
+        states={
+            CREATE_REQUEST_PHOTOS: [
+                MessageHandler(filters.PHOTO, delivery_handler.handle_pickup_photo),
+                CommandHandler("done", delivery_handler.handle_pickup_photos_done)
+            ]
+        },
+        fallbacks=[CommandHandler("cancel", delivery_handler.cancel_delivery)]
+    )
+    application.add_handler(pickup_photos_handler)
+
+    # ConversationHandler для фотографий при доставке в СЦ
+    delivery_photos_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                delivery_handler.handle_delivered_to_sc,
+                pattern=r"delivered_to_sc_\d+"
+            )
+        ],
+        states={
+            CREATE_REQUEST_PHOTOS: [
+                MessageHandler(filters.PHOTO, delivery_handler.handle_delivery_photo),
+                CommandHandler("done", delivery_handler.handle_delivery_photos_done)
+            ]
+        },
+        fallbacks=[CommandHandler("cancel", delivery_handler.cancel_delivery)]
+    )
+    application.add_handler(delivery_photos_handler)
 
 
 def register_sc_handlers(application, sc_handler, sc_item_handler):
@@ -611,6 +675,21 @@ def register_sc_handlers(application, sc_handler, sc_item_handler):
         sc_handler.docs
     ))
 
+    # Обработчики для выбора даты и времени доставки
+    sc_delivery_date_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(sc_handler.handle_sc_delivery_request, pattern="^sc_delivery_")],
+        states={
+            'SC_SELECT_DELIVERY_DATE': [
+                CallbackQueryHandler(sc_handler.handle_sc_date_selection, pattern="^sc_select_date_")
+            ],
+            'SC_SELECT_DELIVERY_TIME': [
+                CallbackQueryHandler(sc_handler.handle_sc_time_selection, pattern="^sc_select_time_")
+            ]
+        },
+        fallbacks=[CommandHandler('cancel', sc_handler.cancel)]
+    )
+    application.add_handler(sc_delivery_date_handler)
+
 
 def register_callbacks(application, delivery_handler, admin_handler, user_handler, sc_management_handler, delivery_sc_handler):
     # Обработчики callback-запросов
@@ -710,6 +789,34 @@ def register_callbacks(application, delivery_handler, admin_handler, user_handle
         fallbacks=[CommandHandler("cancel", delivery_handler.cancel_delivery)]
     )
     application.add_handler(sc_photo_conv_handler)
+
+
+def register_user_handlers(application, user_handler):
+    # Обработчики для выбора даты и времени доставки
+    delivery_date_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                user_handler.handle_delivery_date_selection,
+                pattern="^select_delivery_date_"
+            )
+        ],
+        states={
+            'SELECT_DELIVERY_TIME': [
+                CallbackQueryHandler(
+                    user_handler.handle_delivery_time_selection,
+                    pattern="^select_delivery_time_"
+                )
+            ],
+            'CONFIRM_DELIVERY_TIME': [
+                CallbackQueryHandler(
+                    user_handler.handle_delivery_time_confirmation,
+                    pattern="^confirm_delivery_time_"
+                )
+            ]
+        },
+        fallbacks=[]
+    )
+    application.add_handler(delivery_date_handler)
 
 
 if __name__ == '__main__':

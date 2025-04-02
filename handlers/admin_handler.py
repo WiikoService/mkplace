@@ -9,16 +9,14 @@ from database import (
 )
 from config import (
     ASSIGN_REQUEST, ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK,
-    ORDER_STATUS_ASSIGNED_TO_SC, ORDER_STATUS_PICKUP_FROM_SC
+    ORDER_STATUS_ASSIGNED_TO_SC, ORDER_STATUS_PICKUP_FROM_SC, ORDER_STATUS_NEW
 )
 from utils import notify_delivery
 from datetime import datetime
 import os
 from config import DATA_DIR
-
-
-#  TODO: Согласование цены
-
+from handlers.user_handler import UserHandler
+import time
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -412,27 +410,6 @@ class AdminHandler(BaseHandler):
         await update.message.reply_text("Введите номер заявки для создания задачи доставки:")
         return CREATE_DELIVERY_TASK
 
-    async def handle_create_delivery_input(self, update: Update, context: CallbackContext):
-        """Обработчик ввода номера заявки для создания задачи доставки"""
-        request_id = update.message.text.strip()
-        requests_data = load_requests()
-        if request_id not in requests_data:
-            await update.message.reply_text(f"Заявка #{request_id} не найдена")
-            return ConversationHandler.END
-        request = requests_data[request_id]
-        if not request.get('assigned_sc'):
-            await update.message.reply_text("Заявка должна быть сначала привязана к сервисному центру")
-            return ConversationHandler.END
-        service_centers = load_service_centers()
-        sc_id = request['assigned_sc']
-        sc_name = next((sc['name'] for sc in service_centers if str(sc['id']) == str(sc_id)), None)
-        if not sc_name:
-            await update.message.reply_text("Сервисный центр не найден")
-            return ConversationHandler.END
-        task_id, task_data = await self.create_delivery_task(update, context, request_id, sc_name)
-        await update.message.reply_text(f"Задача доставки #{task_id} создана. Доставщики уведомлены.")
-        return ConversationHandler.END
-
     async def handle_reject_request(self, update: Update, context: CallbackContext):
         """Обработка отклонения заявки"""
         query = update.callback_query
@@ -514,7 +491,7 @@ class AdminHandler(BaseHandler):
             delivery_task = {
                 'task_id': task_id,
                 'request_id': request_id,
-                'status': ORDER_STATUS_PICKUP_FROM_SC,
+                'status': ORDER_STATUS_NEW,
                 'sc_name': sc_data.get('name'),
                 'sc_address': sc_data.get('address'),
                 'client_name': request.get('user_name'),
@@ -526,7 +503,7 @@ class AdminHandler(BaseHandler):
             delivery_tasks[task_id] = delivery_task
             save_delivery_tasks(delivery_tasks)
             # Обновляем статус заявки
-            request['status'] = ORDER_STATUS_PICKUP_FROM_SC
+            request['status'] = ORDER_STATUS_NEW
             requests_data[request_id] = request
             save_requests(requests_data)
             # Уведомляем доставщиков
@@ -633,7 +610,6 @@ class AdminHandler(BaseHandler):
             await query.answer()
         else:
             query = None
-            
         feedback_file = os.path.join(DATA_DIR, 'feedback.json')
         try:
             if os.path.exists(feedback_file):
@@ -654,10 +630,8 @@ class AdminHandler(BaseHandler):
             else:
                 await update.message.reply_text(message)
             return
-            
         ratings = feedback_data.get('ratings', [])
         reviews = feedback_data.get('reviews', [])
-        
         if not ratings and not reviews:
             message = "📊 Пока нет данных обратной связи."
             if query:
@@ -665,7 +639,6 @@ class AdminHandler(BaseHandler):
             else:
                 await update.message.reply_text(message)
             return
-            
         # Подсчитываем статистику
         total_ratings = len(ratings)
         if total_ratings > 0:
@@ -676,7 +649,6 @@ class AdminHandler(BaseHandler):
         else:
             avg_rating = 0
             rating_distribution = {i: 0 for i in range(1, 6)}
-            
         # Формируем сообщение
         message = "📊 Статистика обратной связи:\n\n"
         message += f"Всего оценок: {total_ratings}\n"
@@ -686,16 +658,13 @@ class AdminHandler(BaseHandler):
             count = rating_distribution[rating]
             stars = "⭐" * rating
             message += f"{stars}: {count}\n"
-            
         if reviews:
             message += f"\nВсего отзывов: {len(reviews)}"
-            
         # Добавляем кнопки
         keyboard = []
         if reviews:
             keyboard.append([InlineKeyboardButton("📝 Показать отзывы", callback_data="show_reviews")])
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
         if query:
             await query.edit_message_text(message, reply_markup=reply_markup)
         else:
@@ -705,7 +674,6 @@ class AdminHandler(BaseHandler):
         """Показывает список отзывов"""
         query = update.callback_query
         await query.answer()
-        
         feedback_file = os.path.join(DATA_DIR, 'feedback.json')
         try:
             if os.path.exists(feedback_file):
@@ -718,12 +686,10 @@ class AdminHandler(BaseHandler):
             logger.error(f"Ошибка при загрузке файла обратной связи: {e}")
             await query.edit_message_text("❌ Ошибка при загрузке данных отзывов.")
             return
-            
         reviews = feedback_data.get('reviews', [])
         if not reviews:
             await query.edit_message_text("📝 Пока нет отзывов от клиентов.")
             return
-            
         # Берем последние 10 отзывов
         recent_reviews = reviews[-10:]
         message = "📝 Последние отзывы клиентов:\n\n"
@@ -731,7 +697,6 @@ class AdminHandler(BaseHandler):
             date = review.get('timestamp', 'Нет даты')
             text = review.get('text', 'Нет текста')
             message += f"📅 {date}\n💬 {text}\n\n"
-            
         # Добавляем кнопку возврата к статистике
         keyboard = [[InlineKeyboardButton("🔙 Назад к статистике", callback_data="back_to_stats")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -747,13 +712,10 @@ class AdminHandler(BaseHandler):
                 rid: req for rid, req in requests_data.items() 
                 if req.get('status') == 'Новая'
             }
-            
             if not new_requests:
                 await update.message.reply_text("📭 Нет новых заявок для назначения.")
                 return
-
             logger.debug(f"📋 Найдено {len(new_requests)} новых заявок")
-            
             # Отправляем каждую заявку отдельным сообщением с кнопками
             for request_id, request in new_requests.items():
                 try:
@@ -765,13 +727,11 @@ class AdminHandler(BaseHandler):
                         f"📍 Адрес: {request.get('location', 'Не указан')}\n"
                         f"📝 Описание: {request.get('description', 'Нет описания')}\n"
                     )
-                    
                     # Добавляем дату, если она есть
                     if isinstance(request.get('desired_date'), datetime):
                         message_text += f"🕒 Желаемая дата: {request['desired_date'].strftime('%d.%m.%Y %H:%M')}"
                     else:
                         message_text += f"🕒 Желаемая дата: {request.get('desired_date', 'Не указана')}"
-
                     # Создаем клавиатуру с двумя кнопками
                     keyboard = [
                         [
@@ -786,13 +746,11 @@ class AdminHandler(BaseHandler):
                         ]
                     ]
                     reply_markup = InlineKeyboardMarkup(keyboard)
-
                     # Отправляем сообщение
                     await update.message.reply_text(
                         text=message_text,
                         reply_markup=reply_markup
                     )
-
                     # Если есть фотографии, отправляем их
                     photos = request.get('photos', [])
                     if photos:
@@ -806,13 +764,246 @@ class AdminHandler(BaseHandler):
                                     media_group.append(InputMediaPhoto(photo))
                         if media_group:
                             await update.message.reply_media_group(media=media_group)
-
                 except Exception as e:
                     logger.error(f"❌ Ошибка при обработке заявки {request_id}: {e}")
                     continue
-
             logger.info("✅ Успешно показаны все новые заявки")
-            
         except Exception as e:
             logger.error(f"🔥 Ошибка при показе новых заявок: {e}")
             await update.message.reply_text("❌ Произошла ошибка при загрузке заявок")
+
+    async def view_request_chat(self, update: Update, context: CallbackContext):
+        """Показывает чат заявки по её номеру"""
+        if not context.user_data.get('waiting_for_request_id'):
+            await update.message.reply_text("Пожалуйста, введите номер заявки:")
+            context.user_data['waiting_for_request_id'] = True
+            return 'WAITING_REQUEST_ID'
+        request_id = update.message.text.strip()
+        chat_file = os.path.join(DATA_DIR, 'chat_sc_client.json')
+        try:
+            if os.path.exists(chat_file):
+                with open(chat_file, 'r', encoding='utf-8') as f:
+                    chat_data = json.load(f)
+            else:
+                await update.message.reply_text("❌ Файл чата не найден")
+                return ConversationHandler.END
+            if request_id in chat_data:
+                messages = chat_data[request_id]
+                if not messages:
+                    await update.message.reply_text(f"❌ В чате заявки #{request_id} пока нет сообщений")
+                    return ConversationHandler.END
+                # Формируем сообщение с историей чата
+                chat_history = f"💬 История чата заявки #{request_id}:\n\n"
+                for msg in messages:
+                    sender = "👤 Клиент" if msg['sender'] == 'client' else "🏢 СЦ"
+                    chat_history += f"{sender} ({msg['timestamp']}):\n{msg['message']}\n\n"
+                # Добавляем кнопку возврата в админское меню
+                keyboard = [[InlineKeyboardButton("🔙 Назад в меню", callback_data="back_to_admin")]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                # Разбиваем длинное сообщение на части, если оно превышает лимит Telegram
+                if len(chat_history) > 4000:
+                    parts = [chat_history[i:i+4000] for i in range(0, len(chat_history), 4000)]
+                    for i, part in enumerate(parts):
+                        if i == len(parts) - 1:
+                            await update.message.reply_text(part, reply_markup=reply_markup)
+                        else:
+                            await update.message.reply_text(part)
+                else:
+                    await update.message.reply_text(chat_history, reply_markup=reply_markup)
+            else:
+                await update.message.reply_text(f"❌ Чат для заявки #{request_id} не найден")
+        except Exception as e:
+            logger.error(f"Ошибка при просмотре чата: {e}")
+            await update.message.reply_text("❌ Произошла ошибка при загрузке чата")
+        finally:
+            context.user_data.pop('waiting_for_request_id', None)
+            return ConversationHandler.END
+
+    async def handle_price_approval(self, update: Update, context: CallbackContext):
+        """Обработка согласования цены с клиентом"""
+        query = update.callback_query
+        await query.answer()
+        request_id = query.data.split('_')[-1]
+        try:
+            requests_data = load_requests()
+            if request_id not in requests_data:
+                await query.edit_message_text("❌ Заявка не найдена")
+                return
+            request = requests_data[request_id]
+            repair_price = request.get('repair_price', 'Не указана')
+            # Формируем сообщение для клиента
+            client_message = (
+                f"💰 Сервисный центр предложил предварительную стоимость ремонта:\n"
+                f"Сумма: {repair_price} руб.\n\n"
+                f"Вы согласны с предварительной стоимостью?"
+            )
+            # Создаем клавиатуру для клиента
+            keyboard = [
+                [
+                    InlineKeyboardButton("✅ Согласен", callback_data=f"client_approve_price_{request_id}"),
+                    InlineKeyboardButton("❌ Не согласен", callback_data=f"client_reject_price_{request_id}")
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            # Отправляем сообщение клиенту
+            client_id = request.get('user_id')
+            if client_id:
+                await context.bot.send_message(
+                    chat_id=client_id,
+                    text=client_message,
+                    reply_markup=reply_markup
+                )
+                # Обновляем сообщение админу
+                await query.edit_message_text(
+                    f"✅ Запрос на согласование цены отправлен клиенту.\n"
+                    f"Заявка: #{request_id}\n"
+                    f"Сумма: {repair_price} руб."
+                )
+            else:
+                await query.edit_message_text("❌ Ошибка: не удалось найти ID клиента")
+        except Exception as e:
+            logger.error(f"Ошибка при отправке запроса на согласование цены: {e}")
+            await query.edit_message_text("❌ Произошла ошибка при обработке запроса")
+
+    async def handle_comment_approval(self, update: Update, context: CallbackContext):
+        """Обработка одобрения комментария от администратора"""
+        query = update.callback_query
+        await query.answer()
+        # Получаем request_id и comment из callback_data
+        parts = query.data.split('_')
+        request_id = parts[2]
+        comment = parts[3]  # Комментарий теперь в callback_data
+        try:
+            requests_data = load_requests()
+            if request_id not in requests_data:
+                await query.edit_message_text("❌ Заявка не найдена")
+                return
+            request = requests_data[request_id]
+            # Получаем данные СЦ
+            sc_id = request.get('assigned_sc')
+            service_centers = load_service_centers()
+            sc_data = service_centers.get(sc_id, {})
+            sc_name = sc_data.get('name', 'Неизвестный СЦ')
+            # Сохраняем комментарий в заявку
+            request['comment'] = comment
+            # Обновляем данные заявки
+            requests_data[request_id] = request
+            save_requests(requests_data)
+            # Обновляем сообщение администратора
+            await query.edit_message_text(
+                f"✅ Комментарий от СЦ '{sc_name}' для заявки #{request_id} одобрен.\n"
+                f"Комментарий: {comment}"
+            )            
+            # Уведомляем СЦ
+            users_data = load_users()
+            sc_user_id = next(
+                (uid for uid, u_data in users_data.items() 
+                if str(u_data.get('sc_id')) == str(sc_id) and u_data.get('role') == 'sc'),
+                None
+            )
+            if sc_user_id:
+                await context.bot.send_message(
+                    chat_id=int(sc_user_id),
+                    text=f"✅ Ваш комментарий к заявке #{request_id} одобрен администратором."
+                )
+        except Exception as e:
+            logger.error(f"Ошибка при одобрении комментария: {e}")
+            await query.edit_message_text("❌ Произошла ошибка при обработке запроса")
+
+    async def handle_comment_rejection(self, update: Update, context: CallbackContext):
+        """Обработка отклонения комментария от администратора"""
+        query = update.callback_query
+        await query.answer()
+        request_id = query.data.split('_')[-1]
+        try:
+            requests_data = load_requests()
+            if request_id not in requests_data:
+                await query.edit_message_text("❌ Заявка не найдена")
+                return
+            request = requests_data[request_id]
+            # Получаем данные СЦ
+            sc_id = request.get('assigned_sc')
+            service_centers = load_service_centers()
+            sc_data = service_centers.get(sc_id, {})
+            sc_name = sc_data.get('name', 'Неизвестный СЦ')
+            # Обновляем сообщение администратора
+            await query.edit_message_text(
+                f"❌ Комментарий от СЦ '{sc_name}' для заявки #{request_id} отклонен.\n"
+                f"Комментарий: {request.get('comment', 'Нет комментария')}"
+            )            
+            # Уведомляем СЦ
+            users_data = load_users()
+            sc_user_id = next(
+                (uid for uid, u_data in users_data.items() 
+                if str(u_data.get('sc_id')) == str(sc_id) and u_data.get('role') == 'sc'),
+                None
+            )
+            if sc_user_id:
+                await context.bot.send_message(
+                    chat_id=int(sc_user_id),
+                    text=f"❌ Ваш комментарий к заявке #{request_id} отклонен администратором.\n"
+                         "Пожалуйста, переформулируйте комментарий и попробуйте снова."
+                )
+        except Exception as e:
+            logger.error(f"Ошибка при отклонении комментария: {e}")
+            await query.edit_message_text("❌ Произошла ошибка при обработке запроса")
+
+    async def handle_admin_delivery_request(self, update: Update, context: CallbackContext):
+        """Обработка запроса на доставку от администратора"""
+        query = update.callback_query
+        await query.answer()
+        request_id = query.data.split('_')[-1]
+        requests_data = load_requests()
+        delivery_tasks = load_delivery_tasks()
+        users_data = load_users()
+        service_centers = load_service_centers()
+
+        if request_id in requests_data:
+            request = requests_data[request_id]
+            sc_id = request.get('assigned_sc')
+            sc_data = service_centers.get(sc_id, {})
+            client_id = request.get('user_id')
+            client_data = users_data.get(client_id, {})
+            
+            # Получаем текущую дату в формате DD.MM.YYYY
+            today = datetime.now().strftime("%d.%m.%Y")
+            
+            # Проверяем, что дата доставки на сегодня
+            if not request.get('desired_date', '').endswith(today):
+                await query.edit_message_text(
+                    "❌ Заявка не может быть доставлена сегодня.\n"
+                    "Пожалуйста, проверьте дату доставки."
+                )
+                return
+
+            # Создаем задачу доставки
+            task_id = str(len(delivery_tasks) + 1)
+            delivery_task = {
+                'id': task_id,
+                'request_id': request_id,
+                'sc_id': sc_id,
+                'sc_name': sc_data.get('name', 'Не указан'),
+                'sc_address': sc_data.get('address', 'Не указан'),
+                'client_id': client_id,
+                'client_name': client_data.get('name', 'Не указан'),
+                'client_phone': client_data.get('phone', 'Не указан'),
+                'client_address': request.get('location', 'Не указан'),
+                'description': request.get('description', 'Нет описания'),
+                'status': ORDER_STATUS_NEW,
+                'created_at': int(time.time()),
+                'is_sc_to_client': False
+            }
+            delivery_tasks[task_id] = delivery_task
+            save_delivery_tasks(delivery_tasks)
+
+            # Обновляем статус заявки
+            request['status'] = ORDER_STATUS_NEW
+            save_requests(requests_data)
+
+            await query.edit_message_text(
+                f"✅ Задача доставки #{task_id} создана.\n"
+                f"Заявка: #{request_id}\n"
+                f"Доставщики могут посмотреть доступные задания в соответствующем разделе."
+            )
+        else:
+            await query.edit_message_text("❌ Заявка не найдена.")

@@ -92,23 +92,19 @@ class SCItemHandler(SCHandler):
                 logger.error("Отсутствует request_id в контексте")
                 await update.message.reply_text("Ошибка: сессия устарела. Начните заново.")
                 return ConversationHandler.END
-
             # Проверка наличия фотографий
             photos = context.user_data.get('sc_photos', [])
             if not photos:
                 logger.warning(f"Нет фото для заявки {request_id}")
                 await update.message.reply_text("Необходимо добавить хотя бы одно фото!")
                 return CREATE_REQUEST_PHOTOS
-
             # Загрузка данных
             requests_data = load_requests()
-
             # Проверка существования заявки
             if request_id not in requests_data:
                 logger.error(f"Заявка {request_id} не найдена")
                 await update.message.reply_text("Ошибка: заявка не найдена.")
                 return ConversationHandler.END
-
             # Обновление данных заявки
             request_data = requests_data[request_id]
             request_data.update({
@@ -116,7 +112,6 @@ class SCItemHandler(SCHandler):
                 'sc_acceptance_photos': photos
             })
             save_requests(requests_data)
-
             # Обновление задач доставки
             delivery_tasks = load_delivery_tasks()
             for task in delivery_tasks.values():
@@ -124,7 +119,6 @@ class SCItemHandler(SCHandler):
                     task['status'] = ORDER_STATUS_IN_SC
                     break
             save_delivery_tasks(delivery_tasks)
-
             # Уведомление клиента
             client_id = request_data.get('user_id')
             if client_id:
@@ -137,7 +131,6 @@ class SCItemHandler(SCHandler):
                     logger.info(f"Клиент {client_id} уведомлён")
                 except Exception as e:
                     logger.error(f"Ошибка уведомления клиента: {str(e)}")
-
             # Уведомление администраторов
             for admin_id in ADMIN_IDS:
                 try:
@@ -153,7 +146,6 @@ class SCItemHandler(SCHandler):
                             )
                 except Exception as e:
                     logger.error(f"Ошибка отправки фото админу {admin_id}: {str(e)}")
-
             # Уведомление доставщика
             delivery_id = request_data.get('assigned_delivery')
             if delivery_id:
@@ -170,14 +162,11 @@ class SCItemHandler(SCHandler):
                     logger.error(f"Ошибка уведомления доставщика: {str(e)}")
             else:
                 logger.warning(f"Для заявки {request_id} не указан доставщик")
-
             # Очистка контекста
             context.user_data.pop('awaiting_photo_sc', None)
             context.user_data.pop('sc_photos', None)
-
             await update.message.reply_text("✅ Товар принят в работу.")
             return ConversationHandler.END
-
         except Exception as e:
             logger.error(f"Критическая ошибка в handle_photos_done: {str(e)}", exc_info=True)
             await update.message.reply_text("⚠️ Произошла критическая ошибка. Обратитесь к администратору.")

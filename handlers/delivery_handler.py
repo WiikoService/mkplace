@@ -6,7 +6,7 @@ from config import (
     ORDER_STATUS_DELIVERY_TO_SC, ORDER_STATUS_DELIVERY_TO_CLIENT,
     ORDER_STATUS_CLIENT_REJECTED, ORDER_STATUS_WAITING_SC, CREATE_REQUEST_PHOTOS,
     ORDER_STATUS_PICKUP_FROM_SC, ORDER_STATUS_SC_TO_CLIENT, ORDER_STATUS_IN_SC,
-    ENTER_SC_CONFIRMATION_CODE
+    ENTER_SC_CONFIRMATION_CODE, ORDER_STATUS_NEW
 )
 from handlers.base_handler import BaseHandler
 from database import load_delivery_tasks, load_users, load_requests, save_delivery_tasks, save_requests, save_users, load_service_centers
@@ -16,6 +16,7 @@ import random
 import requests
 import os
 import time
+from datetime import datetime
 
 from smsby import SMSBY
 
@@ -180,7 +181,6 @@ class DeliveryHandler(BaseHandler):
         """
         Обработка подтверждения(отказа) передачи предмета клиентом
         Отправка смс клиенту с кодом подтверждения
-        TODO: сделать смс - отдельным методом (не срочно)
         """
         query = update.callback_query
         await query.answer()
@@ -189,89 +189,14 @@ class DeliveryHandler(BaseHandler):
         delivery_tasks = load_delivery_tasks()
         users_data = load_users()
         if request_id in requests_data:
-            requests_data[request_id]['status'] = 'Ожидает подтверждения клиента'
-            # обновляем статус задачи
-            for task in delivery_tasks:
-                if isinstance(task, dict) and task.get('request_id') == request_id:
-                    task['status'] = 'Ожидает подтверждения клиента'
-                    break
-            save_delivery_tasks(delivery_tasks)
-            client_id = requests_data[request_id].get('user_id')
-            client_data = users_data.get(str(client_id), {})
-            if client_id:
-                try:
-                    keyboard = [
-                        [InlineKeyboardButton("Да, забрал", callback_data=f"client_confirm_{request_id}")],
-                        [InlineKeyboardButton("Нет, не забрал", callback_data=f"client_deny_{request_id}")]
-                    ]
-                    reply_markup = InlineKeyboardMarkup(keyboard)
-                    await context.bot.send_message(
-                        chat_id=client_id,
-                        text=f"Доставщик сообщает, что забрал ваш предмет по заявке №{request_id}. Подтверждаете?",
-                        reply_markup=reply_markup
-                    )
-                    """
-                    # Отправка SMS с кодом
-                    if 'phone' in client_data:
-                        try:
-                            phone = client_data['phone'].replace('+', '')
-                            logger.info(f"Отправка SMS на номер: {phone}")
-                            sms_client = SMSBY(SMS_TOKEN, 'by')
-                            logger.info("Создание объекта пароля...")
-                            password_response = sms_client.create_password_object('numbers', 4)
-                            logger.info(f"Ответ создания пароля: {password_response}")
-                            if 'result' in password_response and 'password_object_id' in password_response['result']:
-                                password_object_id = password_response['result']['password_object_id']
-                                logger.info(f"ID объекта пароля: {password_object_id}")
-                                alphanames = sms_client.get_alphanames()
-                                logger.info(f"Доступные альфа-имена: {alphanames}")
-                                if alphanames:
-                                    alphaname_id = next(iter(alphanames.keys()))
-                                    sms_message = f"Код подтверждения для заявки #{request_id}: %CODE%"
-                                    logger.info(f"Отправка SMS с сообщением: {sms_message}")
-                                    sms_response = sms_client.send_sms_message_with_code(
-                                        password_object_id=password_object_id,
-                                        phone=phone,
-                                        message=sms_message,
-                                        alphaname_id=alphaname_id  # альфа-имя
-                                    )
-                                    logger.info(f"Ответ отправки SMS: {sms_response}")
-                                else:
-                                    logger.error("Нет доступных альфа-имен")
-                                    raise Exception("Нет доступных альфа-имен для отправки SMS")
-                                if 'code' in sms_response:
-                                    requests_data[request_id]['sms_id'] = sms_response.get('sms_id')
-                                    requests_data[request_id]['confirmation_code'] = sms_response['code']
-                                    save_requests(requests_data)
-                                    await context.bot.send_message(
-                                        chat_id=client_id,
-                                        text=f"На ваш номер телефона отправлен код подтверждения. Пожалуйста, введите его:"
-                                    )
-                                    context.user_data['current_request'] = request_id
-                                    return ENTER_CONFIRMATION_CODE
-                                else:
-                                    logger.error(f"Ошибка отправки SMS: нет кода в ответе")
-                                    raise Exception("Не удалось отправить SMS")
-                            else:
-                                logger.error(f"Ошибка создания пароля: {password_response}")
-                                raise Exception("Не удалось создать объект пароля")
-                        except Exception as e:
-                            logger.error(f"Ошибка при отправке SMS: {str(e)}")
-                            await context.bot.send_message(
-                                chat_id=client_id,
-                                text="Извините, возникла проблема с отправкой SMS. Пожалуйста, используйте кнопки подтверждения выше."
-                            )
-                            """
-                    await query.edit_message_text(
-                        f"Вы подтвердили получение предмета по заявке №{request_id}. "
-                        "Ожидаем подтверждения клиента."
-                    )
-                except Exception as e:
-                    logger.error(f"Ошибка при отправке уведомления: {str(e)}")
-                    await query.edit_message_text("Произошла ошибка при отправке уведомления клиенту.")
-                    return ConversationHandler.END
-            else:
-                await query.edit_message_text("ID клиента не найден для заявки.")
+            # Сохраняем request_id в контексте для последующего использования
+            context.user_data['current_request'] = request_id
+            # Запрашиваем фотографии у доставщика
+            await query.edit_message_text(
+                "Пожалуйста, сделайте фотографии товара перед получением. "
+                "Когда закончите, отправьте /done"
+            )
+            return CREATE_REQUEST_PHOTOS
         else:
             await query.edit_message_text("Произошла ошибка. Заказ не найден.")
 
@@ -324,6 +249,41 @@ class DeliveryHandler(BaseHandler):
                             text=delivery_message
                         )
                         logger.info(f"Отправлено сообщение доставщику {delivery_id}")
+                        # Отправляем уведомление администратору
+                        admin_message = (
+                            f"✅ Клиент подтвердил получение товара доставщиком\n"
+                            f"Заявка: #{request_id}\n"
+                            f"Статус: {new_status}\n"
+                            f"СЦ: {sc_data.get('name', 'Название не указано')}\n"
+                            f"Адрес СЦ: {sc_data.get('address', 'Адрес не указан')}"
+                        )
+                        # Отправляем фотографии администратору
+                        pickup_photos = requests_data[request_id].get('pickup_photos', [])
+                        if pickup_photos:
+                            # Отправляем первое фото с текстом
+                            if os.path.exists(pickup_photos[0]):
+                                with open(pickup_photos[0], 'rb') as photo_file:
+                                    await context.bot.send_photo(
+                                        chat_id=ADMIN_IDS[0],
+                                        photo=photo_file,
+                                        caption=admin_message
+                                    )
+                            # Отправляем остальные фото
+                            for photo_path in pickup_photos[1:]:
+                                if os.path.exists(photo_path):
+                                    with open(photo_path, 'rb') as photo_file:
+                                        await context.bot.send_photo(
+                                            chat_id=ADMIN_IDS[0],
+                                            photo=photo_file,
+                                            caption=f"Фото товара по заявке #{request_id}"
+                                        )
+                        else:
+                            # Если фото нет, отправляем только текст
+                            for admin_id in ADMIN_IDS:
+                                await context.bot.send_message(
+                                    chat_id=admin_id,
+                                    text=admin_message
+                                )
                 else:
                     new_status = ORDER_STATUS_CLIENT_REJECTED
                 await query.edit_message_text(
@@ -409,7 +369,7 @@ class DeliveryHandler(BaseHandler):
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 # Отправляем текстовое сообщение
                 await context.bot.send_message(
-                    chat_id=sc_telegram_id,  # Используем telegram_id вместо sc_id
+                    chat_id=sc_telegram_id,
                     text=sc_message,
                     reply_markup=reply_markup
                 )
@@ -418,7 +378,7 @@ class DeliveryHandler(BaseHandler):
                     if os.path.exists(photo_path):
                         with open(photo_path, 'rb') as photo_file:
                             await context.bot.send_photo(
-                                chat_id=sc_telegram_id,  # Используем telegram_id вместо sc_id
+                                chat_id=sc_telegram_id,
                                 photo=photo_file,
                                 caption=f"Фото товара по заявке #{request_id}"
                             )
@@ -446,22 +406,45 @@ class DeliveryHandler(BaseHandler):
 
     async def show_available_tasks(self, update: Update, context: CallbackContext):
         """
-        Показать доступные задания
-        TODO: Упростить проверку доступных задач
+        Показать доступные задания на сегодня
         """
         try:
             delivery_tasks = load_delivery_tasks()
+            requests_data = load_requests()
+            logger.info(f"Загружено задач: {len(delivery_tasks)}")
             if not delivery_tasks:
                 await update.message.reply_text("На данный момент нет доступных задач доставки.")
                 return
-            available_tasks = {
-                task_id: task for task_id, task in delivery_tasks.items() 
-                if task.get('status') == "Новая" and not task.get('assigned_delivery_id')
-            }
+
+            # Получаем текущую дату в формате DD.MM.YYYY
+            today = datetime.now().strftime("%d.%m.%Y")
+            
+            # Фильтруем только новые задачи на сегодня
+            available_tasks = {}
+            for task_id, task in delivery_tasks.items():
+                request_id = task.get('request_id')
+                if (task.get('status') == "Новая" and 
+                    request_id in requests_data and
+                    requests_data[request_id].get('desired_date', '').endswith(today)):
+                    available_tasks[task_id] = task
+            
+            logger.info(f"Доступных задач на сегодня: {len(available_tasks)}")
             if not available_tasks:
-                await update.message.reply_text("На данный момент нет доступных задач доставки.")
+                await update.message.reply_text(
+                    "На сегодня нет доступных задач доставки.\n"
+                    "Пожалуйста, проверьте завтра или позже."
+                )
                 return
+
+            await update.message.reply_text(
+                f"📦 Доступные задачи доставки на сегодня ({today}):"
+            )
+
             for task_id, task in available_tasks.items():
+                request_id = task.get('request_id')
+                # Извлекаем время из desired_date заявки
+                delivery_time = requests_data[request_id].get('desired_date', '').split()[0]  # Получаем время (HH:MM)
+                
                 keyboard = [[
                     InlineKeyboardButton(
                         "Принять задачу", 
@@ -472,7 +455,7 @@ class DeliveryHandler(BaseHandler):
                 message = (
                     f"📦 Задача доставки #{task_id}\n"
                     f"Заявка: #{task['request_id']}\n"
-                    f"Статус: {task['status']}\n"
+                    f"Время доставки: {delivery_time}\n"
                     f"Сервисный центр: {task['sc_name']}\n"
                     f"Адрес клиента: {task['client_address']}\n"
                     f"Клиент: {task['client_name']}\n"
@@ -668,4 +651,78 @@ class DeliveryHandler(BaseHandler):
             await update.message.reply_text(
                 "Произошла ошибка при отмене. Вернитесь в меню доставщика."
             )
+            return ConversationHandler.END
+
+    async def handle_pickup_photo(self, update: Update, context: CallbackContext):
+        """Обработка фотографий при получении товара"""
+        if 'pickup_photos' not in context.user_data:
+            context.user_data['pickup_photos'] = []
+            
+        photo = update.message.photo[-1]
+        photo_file = await context.bot.get_file(photo.file_id)
+        photo_path = f"photos/pickup_{len(context.user_data['pickup_photos'])}_{context.user_data['current_request']}.jpg"
+        await photo_file.download_to_drive(photo_path)
+        context.user_data['pickup_photos'].append(photo_path)
+        await update.message.reply_text("Фото добавлено. Отправьте /done когда закончите.")
+        return CREATE_REQUEST_PHOTOS
+
+    async def handle_pickup_photos_done(self, update: Update, context: CallbackContext):
+        """Завершение процесса фотографирования при получении товара"""
+        try:
+            request_id = context.user_data.get('current_request')
+            photos = context.user_data.get('pickup_photos', [])
+            if not photos:
+                await update.message.reply_text("Необходимо добавить хотя бы одно фото!")
+                return CREATE_REQUEST_PHOTOS
+            requests_data = load_requests()
+            if request_id in requests_data:
+                # Сохраняем фотографии в данных заявки
+                requests_data[request_id]['pickup_photos'] = photos
+                save_requests(requests_data)
+                # Отправляем фотографии клиенту для подтверждения
+                client_id = requests_data[request_id].get('user_id')
+                if client_id:
+                    # Получаем данные СЦ
+                    sc_id = requests_data[request_id].get('assigned_sc')
+                    service_centers = load_service_centers()
+                    sc_data = service_centers.get(sc_id, {})
+                    # Формируем сообщение с информацией о СЦ
+                    sc_info = (
+                        f"🏢 Сервисный центр: {sc_data.get('name', 'Название не указано')}\n"
+                        f"📍 Адрес: {sc_data.get('address', 'Адрес не указан')}\n"
+                        f"📱 Телефон: {sc_data.get('phone', 'Телефон не указан')}\n\n"
+                    )
+                    await context.bot.send_message(
+                        chat_id=client_id,
+                        text=f"Доставщик сделал фотографии товара по заявке #{request_id}.\n\n{sc_info}Пожалуйста, подтвердите получение:"
+                    )
+                    for photo_path in photos:
+                        if os.path.exists(photo_path):
+                            with open(photo_path, 'rb') as photo_file:
+                                await context.bot.send_photo(
+                                    chat_id=client_id,
+                                    photo=photo_file,
+                                    caption=f"Фото товара по заявке #{request_id}"
+                                )
+                    keyboard = [
+                        [InlineKeyboardButton("Да, забрал. С фото согласен.", callback_data=f"client_confirm_{request_id}")],
+                        [InlineKeyboardButton("Нет, не забрал.", callback_data=f"client_deny_{request_id}")]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    await context.bot.send_message(
+                        chat_id=client_id,
+                        text="Подтверждаете получение товара?",
+                        reply_markup=reply_markup
+                    )
+                # Очищаем данные контекста
+                context.user_data.pop('pickup_photos', None)
+                context.user_data.pop('current_request', None)
+                await update.message.reply_text("✅ Фотографии загружены и отправлены клиенту для подтверждения")
+                return ConversationHandler.END
+            else:
+                await update.message.reply_text("Ошибка: заявка не найдена")
+                return ConversationHandler.END
+        except Exception as e:
+            logger.error(f"Ошибка в handle_pickup_photos_done: {str(e)}")
+            await update.message.reply_text("Произошла ошибка при обработке фотографий")
             return ConversationHandler.END

@@ -1,5 +1,5 @@
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from telegram import (
     Update, InlineKeyboardButton, InlineKeyboardMarkup,
     ReplyKeyboardMarkup, ReplyKeyboardRemove
@@ -310,43 +310,59 @@ class SCHandler(BaseHandler):
         return 'HANDLE_SC_COMMENT'
 
     async def save_comment(self, update: Update, context: CallbackContext):
-        """Сохраняет комментарий в заявку"""
+        """Отправляет комментарий на согласование администратору"""
         user_comment = update.message.text
         request_id = context.user_data.get('current_request_id')
         message_id = context.user_data.get('comment_message_id')
         requests_data = load_requests()
         if request_id in requests_data:
-            requests_data[request_id]['comment'] = user_comment
-            save_requests(requests_data)
             request_data = requests_data[request_id]
-            message_text = (
-                f"📌 Заявка #{request_id}\n"
-                f"🔧 Статус: {request_data['status']}\n"
-                f"👤 Клиент: {request_data['user_name']}\n"
-                f"📞 Телефон: {request_data.get('client_phone', 'не указан')}\n"
-                f"📝 Описание: {request_data['description']}\n"
-                f"🏠 Адрес: {request_data['location_display']}\n"
-                f"💬 Комментарий СЦ: {user_comment}"
+            # Получаем данные СЦ
+            user_id = str(update.effective_user.id)
+            users_data = load_users()
+            sc_user = users_data.get(user_id, {})
+            sc_center_id = sc_user.get('sc_id')
+            service_centers = load_service_centers()
+            sc_data = service_centers.get(sc_center_id, {})
+            sc_name = sc_data.get('name', 'Неизвестный СЦ')
+            # Формируем сообщение для администратора
+            admin_message = (
+                f"📝 Новый комментарий от СЦ требует согласования\n\n"
+                f"Заявка: #{request_id}\n"
+                f"СЦ: {sc_name}\n"
+                f"Комментарий: {user_comment}\n"
+                f"Описание заявки: {request_data.get('description', 'Нет описания')}"
             )
+            # Создаем клавиатуру для администратора с комментарием в callback_data
             keyboard = [
-                [InlineKeyboardButton("💬 Чат с клиентом", callback_data=f"sc_chat_{request_id}")],
-                [InlineKeyboardButton("📝 Комментарий", callback_data=f"sc_comment_{request_id}")],
-                [InlineKeyboardButton("🔙 Вернуться к списку", callback_data="sc_back_to_list")]
+                [
+                    InlineKeyboardButton("✅ Одобрить", callback_data=f"approve_comment_{request_id}_{user_comment}"),
+                    InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_comment_{request_id}")
+                ]
             ]
-            try:
-                await context.bot.edit_message_text(
-                    chat_id=update.effective_chat.id,
-                    message_id=message_id,
-                    text=message_text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as e:
-                logger.error(f"Ошибка при обновлении сообщения: {e}")
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            # Отправляем уведомление администраторам
+            notification_sent = False
+            for admin_id in ADMIN_IDS:
+                try:
+                    await context.bot.send_message(
+                        chat_id=admin_id,
+                        text=admin_message,
+                        reply_markup=reply_markup
+                    )
+                    notification_sent = True
+                except Exception as e:
+                    logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+            if notification_sent:
                 await update.message.reply_text(
-                    message_text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
+                    "✅ Комментарий отправлен на согласование администратору.\n"
+                    "Ожидайте подтверждения."
                 )
-            await update.message.reply_text("✅ Комментарий успешно сохранен!")
+            else:
+                await update.message.reply_text(
+                    "❌ Не удалось отправить комментарий на согласование.\n"
+                    "Пожалуйста, попробуйте позже."
+                )
         else:
             await update.message.reply_text("❌ Заявка не найдена")
         return ConversationHandler.END
@@ -397,46 +413,132 @@ class SCHandler(BaseHandler):
             )
             return ConversationHandler.END
         # Обновляем статус заявки
-        request['status'] = 'Ожидает доставку из СЦ'  # Новый статус
+        request['status'] = 'Ожидает выбора даты доставки'
         requests_data[request_id] = request
         save_requests(requests_data)
-        # Уведомляем администраторов с новым callback_data
-        keyboard = [[
-            InlineKeyboardButton(
-                "Создать задачу доставки из СЦ", 
-                callback_data=f"create_sc_delivery_{request_id}"  # Новый callback_data
-            )
-        ]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        admin_message = (
-            f"🔄 Запрос на доставку из СЦ\n\n"
-            f"Заявка: #{request_id}\n"
-            f"Описание: {request.get('description', 'Нет описания')}\n"
-            f"Статус: Ожидает доставку из СЦ"
-        )
-        # Отправляем уведомления админам
-        notification_sent = False
-        for admin_id in ADMIN_IDS:
-            try:
-                await context.bot.send_message(
-                    chat_id=admin_id,
-                    text=admin_message,
-                    reply_markup=reply_markup
+        # Уведомляем клиента о необходимости выбрать дату доставки
+        client_id = request.get('user_id')
+        if client_id:
+            keyboard = [[
+                InlineKeyboardButton(
+                    "📅 Выбрать дату доставки",
+                    callback_data=f"select_delivery_date_{request_id}"
                 )
-                notification_sent = True
-            except Exception as e:
-                logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
-        if notification_sent:
-            await query.edit_message_text(
-                f"✅ Заявка #{request_id} отправлена на рассмотрение администраторам."
+            ]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await context.bot.send_message(
+                chat_id=int(client_id),
+                text=(
+                    f"🔄 Сервисный центр готов отправить ваш заказ #{request_id} в доставку.\n"
+                    "Пожалуйста, выберите удобную дату и время доставки."
+                ),
+                reply_markup=reply_markup
             )
-        else:
-            request['status'] = current_status
+        # Уведомляем СЦ
+        await query.edit_message_text(
+            f"✅ Заявка #{request_id} отправлена клиенту для выбора даты доставки.\n"
+            "Ожидайте подтверждения от клиента."
+        )
+        return ConversationHandler.END
+
+    async def handle_sc_date_selection(self, update: Update, context: CallbackContext):
+        """Обработка выбора даты доставки"""
+        query = update.callback_query
+        await query.answer()
+        # Получаем выбранную дату из callback_data и сохраняем во временные данные
+        selected_date_str = query.data.split('_', 3)[3]
+        context.user_data["temp_delivery_date"] = selected_date_str
+        # Создаем клавиатуру с временными интервалами
+        keyboard = []
+        current_hour = 9  # Начинаем с 9 утра
+        while current_hour <= 20:  # До 20:00
+            time_str = f"{current_hour:02d}:00"
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"🕐 {time_str}",
+                    callback_data=f"sc_select_time_{time_str}"
+                )
+            ])
+            current_hour += 1
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            "Выберите удобное время доставки:",
+            reply_markup=reply_markup
+        )
+        return 'SC_SELECT_DELIVERY_TIME'
+
+    async def handle_sc_time_selection(self, update: Update, context: CallbackContext):
+        """Обработка выбора времени доставки"""
+        query = update.callback_query
+        await query.answer()
+        selected_time = query.data.split('_', 3)[3]
+        temp_date = context.user_data.get("temp_delivery_date")
+        request_id = context.user_data.get('delivery_request_id')
+        try:
+            # Комбинируем дату и время
+            date_obj = datetime.strptime(temp_date, "%H:%M %d.%m.%Y")
+            time_obj = datetime.strptime(selected_time, "%H:%M")
+            # Создаем финальную дату с выбранным временем
+            final_datetime = date_obj.replace(
+                hour=time_obj.hour,
+                minute=time_obj.minute
+            )
+            # Получаем данные заявки
+            requests_data = load_requests()
+            request = requests_data.get(request_id, {})
+            # Обновляем статус и добавляем дату доставки
+            request['status'] = 'Ожидает доставку из СЦ'
+            request['delivery_date'] = final_datetime.strftime("%H:%M %d.%m.%Y")
             requests_data[request_id] = request
             save_requests(requests_data)
-            await query.edit_message_text(
-                f"❌ Не удалось отправить заявку #{request_id} в доставку. Попробуйте позже."
+            # Очищаем временные данные
+            if "temp_delivery_date" in context.user_data:
+                del context.user_data["temp_delivery_date"]
+            # Уведомляем администраторов
+            keyboard = [[
+                InlineKeyboardButton(
+                    "Создать задачу доставки из СЦ", 
+                    callback_data=f"create_sc_delivery_{request_id}"
+                )
+            ]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            admin_message = (
+                f"🔄 Запрос на доставку из СЦ\n\n"
+                f"Заявка: #{request_id}\n"
+                f"Описание: {request.get('description', 'Нет описания')}\n"
+                f"Дата доставки: {request['delivery_date']}\n"
+                f"Статус: Ожидает доставку из СЦ"
             )
+            # Отправляем уведомления админам
+            notification_sent = False
+            for admin_id in ADMIN_IDS:
+                try:
+                    await context.bot.send_message(
+                        chat_id=admin_id,
+                        text=admin_message,
+                        reply_markup=reply_markup
+                    )
+                    notification_sent = True
+                except Exception as e:
+                    logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+            if notification_sent:
+                await query.edit_message_text(
+                    f"✅ Заявка #{request_id} отправлена на рассмотрение администраторам.\n"
+                    f"Дата доставки: {request['delivery_date']}"
+                )
+            else:
+                request['status'] = ORDER_STATUS_DELIVERY_TO_SC
+                requests_data[request_id] = request
+                save_requests(requests_data)
+                await query.edit_message_text(
+                    f"❌ Не удалось отправить заявку #{request_id} в доставку. Попробуйте позже."
+                )
+        except ValueError as e:
+            await query.edit_message_text(
+                "Произошла ошибка при обработке времени. Попробуйте еще раз."
+            )
+            return 'SC_SELECT_DELIVERY_TIME'
+            
         return ConversationHandler.END
 
     async def call_to_admin(self, update: Update, context: CallbackContext):
@@ -583,47 +685,30 @@ class SCHandler(BaseHandler):
                 return
             # Обновляем статус заявки
             request = requests_data[request_id]
-            request['status'] = 'Ожидает доставку'
+            request['status'] = 'Ожидает согласования цены'
             request['assigned_sc'] = sc_center_id
             request['repair_price'] = price_text
             request['accepted_at'] = int(time.time())
             # Сохраняем обновленные данные
             save_requests(requests_data)
-            # Отправляем уведомление клиенту
-            client_id = request.get('client_id')
-            if client_id:
-                try:
-                    notify_message = (
-                        f"✅ Ваша заявка #{request_id} принята сервисным центром!\n\n"
-                        f"💰 Предварительная стоимость: {price_text} руб.\n"
-                        f"📱 Статус заявки изменен на: Ожидает доставку"
-                    )
-                    await notify_client(context.bot, client_id, notify_message)
-                except Exception as e:
-                    logger.error(f"Ошибка при отправке уведомления клиенту: {e}")
-            # Отправляем подтверждение СЦ
-            await query.edit_message_text(
-                f"✅ Заявка #{request_id} принята с указанной стоимостью {price_text} руб.\n"
-                f"Данные сохранены, клиент уведомлен."
-            )
-            # Отправляем уведомления администраторам о возможности создания задачи доставки
+            # Отправляем уведомление администраторам для согласования цены
             service_centers = load_service_centers()
             sc_data = service_centers.get(sc_center_id, {})
             sc_name = sc_data.get('name', 'Неизвестный СЦ')
             keyboard = [[
                 InlineKeyboardButton(
-                    "Создать задачу доставки",
-                    callback_data=f"create_delivery_{request_id}"
+                    "Отправить на согласование клиенту",
+                    callback_data=f"send_price_approval_{request_id}"
                 )
             ]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             admin_message = (
-                f"🔄 Заявка принята СЦ и готова к доставке\n\n"
+                f"🔄 Заявка принята СЦ и требует согласования цены\n\n"
                 f"Заявка: #{request_id}\n"
                 f"СЦ: {sc_name}\n"
                 f"Стоимость ремонта: {price_text} руб.\n"
                 f"Описание: {request.get('description', 'Нет описания')}\n"
-                f"Статус: Ожидает доставку"
+                f"Статус: Ожидает согласования цены"
             )
             # Отправляем уведомления админам
             for admin_id in ADMIN_IDS:
@@ -635,6 +720,11 @@ class SCHandler(BaseHandler):
                     )
                 except Exception as e:
                     logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+            # Отправляем подтверждение СЦ
+            await query.edit_message_text(
+                f"✅ Заявка #{request_id} принята с указанной стоимостью {price_text} руб.\n"
+                f"Данные сохранены, ожидается согласование цены с клиентом."
+            )
         except Exception as e:
             logger.error(f"Ошибка при обработке подтверждения: {e}")
             await query.edit_message_text(f"❌ Произошла ошибка: {str(e)}")
