@@ -9,7 +9,7 @@ from database import (
 )
 from config import (
     ASSIGN_REQUEST, ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK,
-    ORDER_STATUS_ASSIGNED_TO_SC, ORDER_STATUS_PICKUP_FROM_SC, ORDER_STATUS_NEW
+    ORDER_STATUS_ASSIGNED_TO_SC, ORDER_STATUS_PICKUP_FROM_SC, ORDER_STATUS_NEW, ORDER_STATUS_DELIVERY_TO_SC
 )
 from utils import notify_client
 from datetime import datetime
@@ -473,6 +473,7 @@ class AdminHandler(BaseHandler):
             request_id = query.data.split('_')[-1]
             requests_data = load_requests()
             delivery_tasks = load_delivery_tasks()
+            service_centers = load_service_centers()
             
             if request_id not in requests_data:
                 await query.edit_message_text("❌ Ошибка: заявка не найдена.")
@@ -480,16 +481,22 @@ class AdminHandler(BaseHandler):
             
             request = requests_data[request_id]
             
+            # Получаем данные СЦ из service_centers по идентификатору assigned_sc
+            sc_id = request.get('assigned_sc')
+            sc_data = service_centers.get(sc_id, {})
+            sc_name = sc_data.get('name', 'Не указан')
+            sc_address = sc_data.get('address', 'Не указан')
+            
             # Создаем новую задачу доставки
             new_task_id = str(len(delivery_tasks) + 1)
             new_task = {
                 "task_id": new_task_id,
                 "request_id": request_id,
                 "status": "Новая",
-                "sc_name": request.get('sc_name', 'Не указан'),
-                "sc_address": request.get('sc_address', 'Не указан'),
+                "sc_name": sc_name,
+                "sc_address": sc_address,
                 "client_name": request.get('user_name', 'Не указан'),
-                "client_address": request.get('location_display', 'Не указан'),
+                "client_address": request.get('location', 'Не указан'),
                 "client_phone": request.get('user_phone', 'Не указан'),
                 "description": request.get('description', 'Нет описания'),
                 "delivery_type": "sc_to_client",  # Указываем тип доставки
@@ -507,6 +514,10 @@ class AdminHandler(BaseHandler):
             await query.edit_message_text(
                 f"✅ Задача доставки #{new_task_id} создана.\n"
                 f"Заявка: #{request_id}\n"
+                f"Тип: Доставка из СЦ клиенту\n"
+                f"СЦ: {sc_name}\n"
+                f"Адрес СЦ: {sc_address}\n"
+                f"Адрес клиента: {request.get('location', 'Не указан')}\n"
                 f"Время доставки: {request.get('desired_date', '').split()[0]}\n"
                 f"Доставщики могут принять задачу в разделе 'Доступные задания'"
             )
@@ -811,6 +822,62 @@ class AdminHandler(BaseHandler):
         except Exception as e:
             logger.error(f"Ошибка при отправке запроса на согласование цены: {e}")
             await query.edit_message_text("❌ Произошла ошибка при обработке запроса")
+
+    async def handle_client_price_approved(self, update: Update, context: CallbackContext):
+        """Обработка подтверждения цены клиентом и создание задачи доставки"""
+        query = update.callback_query
+        await query.answer()
+        request_id = query.data.split('_')[-1]
+
+        # Загружаем данные с обработкой ошибок
+        requests_data = load_requests()
+
+        delivery_tasks = load_delivery_tasks()
+                
+        service_centers = load_service_centers()
+            
+        request = requests_data.get(request_id)
+
+            
+        # Обновляем статус подтверждения цены
+        request['price_approved'] = True
+        save_requests(requests_data)
+        
+        # Получаем данные СЦ
+        sc_id = request.get('assigned_sc')
+        sc_data = service_centers.get(sc_id, {})
+        
+        # Создаем задачу доставки ОТ КЛИЕНТА В СЦ
+        new_task_id = str(len(delivery_tasks) + 1)
+        new_task = {
+            'task_id': new_task_id,
+            'request_id': request_id,
+            'status': 'Новая',
+            'sc_name': sc_data.get('name', 'Не указан'),
+            'sc_address': sc_data.get('address', 'Не указан'),
+            'client_name': request.get('user_name', 'Не указан'),
+            'client_address': request.get('location', 'Не указан'),
+            'client_phone': request.get('user_phone', 'Не указан'),
+            'description': request.get('description', ''),
+            'delivery_type': 'client_to_sc',
+            'is_sc_to_client': False,
+            'desired_date': request.get('desired_date', '')
+        }
+        
+        delivery_tasks[new_task_id] = new_task
+        save_delivery_tasks(delivery_tasks)
+        
+        # Обновляем статус заявки
+        request['status'] = ORDER_STATUS_DELIVERY_TO_SC
+        save_requests(requests_data)
+        
+        await query.edit_message_text(
+            f"✅ Клиент подтвердил цену для заявки #{request_id}\n"
+            f"Создана задача доставки #{new_task_id}\n"
+            f"Тип: Доставка от клиента в СЦ\n"
+            f"СЦ: {sc_data.get('name', 'Не указан')}\n"
+            f"Адрес клиента: {request.get('location', 'Не указан')}"
+        )
 
     async def handle_comment_approval(self, update: Update, context: CallbackContext):
         """Обработка одобрения комментария от администратора"""

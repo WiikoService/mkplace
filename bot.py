@@ -690,6 +690,12 @@ def register_sc_handlers(application, sc_handler, sc_item_handler):
     )
     application.add_handler(sc_delivery_date_handler)
 
+    # Регистрация обработчика для создания задачи доставки из СЦ к клиенту
+    application.add_handler(CallbackQueryHandler(
+        sc_handler.create_return_delivery,
+        pattern="^create_return_delivery_"
+    ))
+
 
 def register_callbacks(application, delivery_handler, admin_handler, user_handler, sc_management_handler, delivery_sc_handler):
     # Обработчики callback-запросов
