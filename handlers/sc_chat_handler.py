@@ -1,10 +1,11 @@
 import time
 from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, InputMediaPhoto
 from telegram.ext import CallbackContext, ConversationHandler
 from handlers.sc_handler import SCHandler
 from database import load_requests, load_chat_history, save_chat_history, load_users
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -79,33 +80,78 @@ class SCChatHandler(SCHandler):
                 await self.show_chat_history_keyboard(update, context, request_id)
             return 'HANDLE_SC_CHAT'
         
-        # Основная логика обработки сообщений
+        # Получаем данные чата
         chat_data = context.user_data.get('active_chat', {})
         request_id = chat_data.get('request_id')
         client_id = chat_data['participants']['client_id']
-        # Формируем сообщение с кнопкой ответа
+        timestamp = datetime.now().strftime("%H:%M %d-%m-%Y")
+        
+        # Формируем кнопку ответа
         reply_markup = InlineKeyboardMarkup([[
             InlineKeyboardButton("✉️ Ответить", callback_data=f"client_reply_{request_id}")
         ]])
+        
         try:
-            # Отправляем сообщение клиенту с кнопкой
-            await context.bot.send_message(
-                chat_id=int(client_id),
-                text=f"📩 *Сообщение от СЦ по заявке #{request_id}:*\n{message.text}",
-                parse_mode='Markdown',
-                reply_markup=reply_markup
-            )
-            await message.reply_text("✅ Сообщение доставлено")
-            # Сохраняем в историю
-            self.save_chat_history(
-                request_id,
-                'sc',
-                message.text,
-                datetime.now().strftime("%H:%M %d-%m-%Y")
-            )
+            # Проверяем, отправлено ли фото
+            if message.photo:
+                # Получаем фото с наилучшим качеством (последнее в списке)
+                photo = message.photo[-1]
+                photo_file = await context.bot.get_file(photo.file_id)
+                
+                # Создаем уникальное имя файла
+                file_name = f"chat_sc_{request_id}_{timestamp.replace(':', '-').replace(' ', '_')}.jpg"
+                photo_path = f"photos/{file_name}"
+                
+                # Скачиваем и сохраняем фото
+                await photo_file.download_to_drive(photo_path)
+                
+                # Отправляем фото клиенту
+                caption = f"📷 *Фото от СЦ по заявке #{request_id}*"
+                if message.caption:
+                    caption += f"\n{message.caption}"
+                    
+                await context.bot.send_photo(
+                    chat_id=int(client_id),
+                    photo=open(photo_path, 'rb'),
+                    caption=caption,
+                    parse_mode='Markdown',
+                    reply_markup=reply_markup
+                )
+                
+                # Сохраняем в историю
+                self.save_chat_history(
+                    request_id,
+                    'sc',
+                    f"[ФОТО: {photo_path}]" + (f" с комментарием: {message.caption}" if message.caption else ""),
+                    timestamp,
+                    photo_path=photo_path
+                )
+                
+                await message.reply_text("✅ Фото доставлено")
+                
+            else:  # Это текстовое сообщение
+                # Отправляем текст клиенту
+                await context.bot.send_message(
+                    chat_id=int(client_id),
+                    text=f"📩 *Сообщение от СЦ по заявке #{request_id}:*\n{message.text}",
+                    parse_mode='Markdown',
+                    reply_markup=reply_markup
+                )
+                
+                # Сохраняем в историю
+                self.save_chat_history(
+                    request_id,
+                    'sc',
+                    message.text,
+                    timestamp
+                )
+                
+                await message.reply_text("✅ Сообщение доставлено")
+                
         except Exception as e:
             logger.error(f"Ошибка отправки: {str(e)}")
             await message.reply_text("❌ Не удалось отправить сообщение")
+        
         return 'HANDLE_SC_CHAT'
 
     async def handle_client_reply(self, update: Update, context: CallbackContext):
@@ -159,7 +205,7 @@ class SCChatHandler(SCHandler):
         return 'HANDLE_CLIENT_REPLY'
 
     async def handle_client_message(self, update: Update, context: CallbackContext):
-        """Обработка сообщений с валидацией контекста и кнопкой выхода"""
+        """Обработка сообщений от клиента"""
         message = update.message
         
         # Проверяем, не была ли нажата кнопка отмены
@@ -168,6 +214,7 @@ class SCChatHandler(SCHandler):
             await message.reply_text("✅ Отправка сообщения отменена", reply_markup=ReplyKeyboardRemove())
             return ConversationHandler.END
         
+        # Проверяем валидность сессии
         chat_data = context.user_data.get('active_client_chat')
         if not chat_data or time.time() - chat_data.get('last_active', 0) > 300:
             await message.reply_text("❌ Сессия устарела. Начните новый диалог.", reply_markup=ReplyKeyboardRemove())
@@ -176,19 +223,63 @@ class SCChatHandler(SCHandler):
         
         request_id = chat_data['request_id']
         sc_user_id = chat_data['sc_user_id']
+        timestamp = datetime.now().strftime("%H:%M %d-%m-%Y")
+        
         try:
-            await context.bot.send_message(
-                chat_id=int(sc_user_id),
-                text=f"📩 *Ответ клиента по заявке #{request_id}:*\n{message.text}",
-                parse_mode='Markdown'
-            )
-            self.save_chat_history(
-                request_id,
-                'client',
-                message.text,
-                datetime.now().strftime("%H:%M %d-%m-%Y")
-            )
+            # Обработка фото
+            if message.photo:
+                # Получаем фото с наилучшим качеством
+                photo = message.photo[-1]
+                photo_file = await context.bot.get_file(photo.file_id)
+                
+                # Создаем уникальное имя файла
+                file_name = f"chat_client_{request_id}_{timestamp.replace(':', '-').replace(' ', '_')}.jpg"
+                photo_path = f"photos/{file_name}"
+                
+                # Скачиваем и сохраняем фото
+                await photo_file.download_to_drive(photo_path)
+                
+                # Отправляем фото в СЦ
+                caption = f"📷 *Фото от клиента по заявке #{request_id}*"
+                if message.caption:
+                    caption += f"\n{message.caption}"
+                    
+                await context.bot.send_photo(
+                    chat_id=int(sc_user_id),
+                    photo=open(photo_path, 'rb'),
+                    caption=caption,
+                    parse_mode='Markdown'
+                )
+                
+                # Сохраняем в историю
+                self.save_chat_history(
+                    request_id,
+                    'client',
+                    f"[ФОТО: {photo_path}]" + (f" с комментарием: {message.caption}" if message.caption else ""),
+                    timestamp,
+                    photo_path=photo_path
+                )
+                
+            else:  # Это текстовое сообщение
+                # Отправляем текст в СЦ
+                await context.bot.send_message(
+                    chat_id=int(sc_user_id),
+                    text=f"📩 *Ответ клиента по заявке #{request_id}:*\n{message.text}",
+                    parse_mode='Markdown'
+                )
+                
+                # Сохраняем в историю
+                self.save_chat_history(
+                    request_id,
+                    'client',
+                    message.text,
+                    timestamp
+                )
+            
+            # Обновляем временную метку активности
             context.user_data['active_client_chat']['last_active'] = time.time()
+            
+            # Показываем кнопки для продолжения общения
             reply_markup = InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton(
@@ -201,16 +292,19 @@ class SCChatHandler(SCHandler):
                     )
                 ]
             ])
+            
             await message.reply_text(
                 "✅ Сообщение доставлено:",
                 reply_markup=reply_markup
             )
+            
         except Exception as e:
             logger.error(f"Ошибка: {str(e)}")
             await message.reply_text("❌ Ошибка отправки")
+        
         return 'HANDLE_CLIENT_REPLY'
 
-    def save_chat_history(self, request_id, sender, message, timestamp):
+    def save_chat_history(self, request_id, sender, message, timestamp, photo_path=None):
         """Сохранение истории переписки"""
         chat_history = load_chat_history()
         entry = {
@@ -218,8 +312,14 @@ class SCChatHandler(SCHandler):
             'message': message,
             'timestamp': timestamp
         }
+        
+        # Если есть фото, добавляем его путь
+        if photo_path:
+            entry['photo_path'] = photo_path
+        
         if request_id not in chat_history:
             chat_history[request_id] = []
+        
         chat_history[request_id].append(entry)
         save_chat_history(chat_history)
 
@@ -260,30 +360,64 @@ class SCChatHandler(SCHandler):
         query = update.callback_query
         await query.answer()
         request_id = query.data.split('_')[-1]
-        chat_history = load_chat_history().get(request_id, [])
-        if not chat_history:
-            await query.message.reply_text("История переписки пуста.")
-            return
-        history_text = f"📜 История переписки по заявке #{request_id}:\n\n"
-        for entry in chat_history:
-            sender = "СЦ" if entry['sender'] == 'sc' else "Клиент"
-            history_text += (
-                f"👤 {sender} ({entry['timestamp']}):\n"
-                f"{entry['message']}\n\n"
-            )
-        await query.message.reply_text(history_text)
+        await self._show_chat_history(update, context, request_id, is_callback=True)
 
     async def show_chat_history_keyboard(self, update: Update, context: CallbackContext, request_id):
         """Показывает историю переписки по заявке через клавиатуру"""
+        await self._show_chat_history(update, context, request_id, is_callback=False)
+
+    async def _show_chat_history(self, update: Update, context: CallbackContext, request_id, is_callback=True):
+        """Универсальный метод для отображения истории чата"""
         chat_history = load_chat_history().get(request_id, [])
+        
         if not chat_history:
-            await update.message.reply_text("История переписки пуста.")
+            if is_callback:
+                await update.callback_query.message.reply_text("История переписки пуста.")
+            else:
+                await update.message.reply_text("История переписки пуста.")
             return
+        
         history_text = f"📜 История переписки по заявке #{request_id}:\n\n"
+        photo_entries = []
+        
         for entry in chat_history:
             sender = "СЦ" if entry['sender'] == 'sc' else "Клиент"
-            history_text += (
-                f"👤 {sender} ({entry['timestamp']}):\n"
-                f"{entry['message']}\n\n"
-            )
-        await update.message.reply_text(history_text) 
+            timestamp = entry.get('timestamp', '(время не указано)')
+            
+            # Проверяем, содержит ли сообщение фото
+            if 'photo_path' in entry:
+                photo_entries.append({
+                    'sender': sender,
+                    'message': entry['message'],
+                    'timestamp': timestamp,
+                    'photo_path': entry['photo_path']
+                })
+                history_text += f"👤 {sender} ({timestamp}): [Отправлено фото]\n\n"
+            else:
+                history_text += f"👤 {sender} ({timestamp}):\n{entry['message']}\n\n"
+        
+        # Отправляем текстовую историю
+        if is_callback:
+            await update.callback_query.message.reply_text(history_text)
+        else:
+            await update.message.reply_text(history_text)
+        
+        # Отправляем фотографии отдельными сообщениями
+        for photo_entry in photo_entries:
+            try:
+                photo_path = photo_entry['photo_path']
+                if os.path.exists(photo_path):
+                    if is_callback:
+                        await update.callback_query.message.reply_photo(
+                            photo=open(photo_path, 'rb'),
+                            caption=f"👤 {photo_entry['sender']} ({photo_entry['timestamp']})"
+                        )
+                    else:
+                        await update.message.reply_photo(
+                            photo=open(photo_path, 'rb'),
+                            caption=f"👤 {photo_entry['sender']} ({photo_entry['timestamp']})"
+                        )
+                else:
+                    logger.warning(f"Файл не найден: {photo_path}")
+            except Exception as e:
+                logger.error(f"Ошибка при отправке фото: {str(e)}") 

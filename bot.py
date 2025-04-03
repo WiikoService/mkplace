@@ -610,6 +610,7 @@ def register_sc_handlers(application, sc_handler, sc_item_handler, sc_chat_handl
         states={
             'HANDLE_SC_CHAT': [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, sc_chat_handler.handle_sc_chat),
+                MessageHandler(filters.PHOTO, sc_chat_handler.handle_sc_chat),
                 CallbackQueryHandler(
                     sc_chat_handler.close_chat,
                     pattern=r"^close_chat_"
@@ -635,7 +636,7 @@ def register_sc_handlers(application, sc_handler, sc_item_handler, sc_chat_handl
         states={
             'HANDLE_CLIENT_REPLY': [
                 MessageHandler(
-                    filters.TEXT & ~filters.COMMAND, 
+                    (filters.TEXT | filters.PHOTO) & ~filters.COMMAND,
                     sc_chat_handler.handle_client_message
                 ),
                 CallbackQueryHandler(
