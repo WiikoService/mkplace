@@ -43,6 +43,18 @@ class AdminHandler(BaseHandler):
                 logger.error(f"❌ Request {request_id} not found")
                 await query.edit_message_text("Заявка не найдена")
                 return
+            
+            # Форматируем местоположение
+            location = request.get('location', {})
+            if isinstance(location, dict):
+                if location.get('type') == 'coordinates':
+                    address = location.get('address', 'Адрес не определен')
+                    location_str = f"{address} (координаты: {location.get('latitude')}, {location.get('longitude')})"
+                else:
+                    location_str = location.get('address', 'Адрес не указан')
+            else:
+                location_str = str(location)
+            
             # Формируем сообщение для СЦ
             logger.debug("📝 Forming message text")
             try:
@@ -50,7 +62,7 @@ class AdminHandler(BaseHandler):
                     f"📦 Заявка #{request_id}\n"
                     f"👤 Клиент: {request.get('user_name', 'Не указан')}\n"
                     f"📱 Телефон: {request.get('user_phone', 'Не указан')}\n"
-                    f"📍 Адрес: {request.get('location', 'Не указан')}\n"
+                    f"📍 Адрес: {location_str}\n"
                     f"📝 Описание: {request.get('description', 'Нет описания')}\n"
                 )
                 # Безопасно добавляем дату
@@ -63,6 +75,7 @@ class AdminHandler(BaseHandler):
             except Exception as e:
                 logger.error(f"❌ Error forming message text: {str(e)}")
                 message_text = f"📦 Заявка #{request_id}"
+            
             # Создаем клавиатуру
             keyboard = [[
                 InlineKeyboardButton(
@@ -72,6 +85,7 @@ class AdminHandler(BaseHandler):
             ]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             logger.debug("⌨️ Keyboard created")
+            
             # Безопасно отправляем фото
             photos = request.get('photos', [])
             if photos:
@@ -90,6 +104,7 @@ class AdminHandler(BaseHandler):
                         logger.debug("🖼️ Photos sent successfully")
                 except Exception as e:
                     logger.error(f"❌ Error sending photos: {str(e)}")
+            
             # Редактируем сообщение
             await query.edit_message_text(
                 text=message_text,
@@ -118,6 +133,18 @@ class AdminHandler(BaseHandler):
                 await query.edit_message_text("❌ Заявка не найдена")
                 return
             request = requests_data[rid]
+            
+            # Форматируем местоположение
+            location = request.get('location', {})
+            if isinstance(location, dict):
+                if location.get('type') == 'coordinates':
+                    address = location.get('address', 'Адрес не определен')
+                    location_str = f"{address} (координаты: {location.get('latitude')}, {location.get('longitude')})"
+                else:
+                    location_str = location.get('address', 'Адрес не указан')
+            else:
+                location_str = str(location)
+            
             logger.debug(f"📄 Request data: {json.dumps(request, indent=2, ensure_ascii=False)}")
             # Поиск СЦ
             users_data = load_users()
@@ -131,6 +158,7 @@ class AdminHandler(BaseHandler):
                 logger.warning("⚠️ No SC users available")
                 await query.edit_message_text("❌ Нет доступных сервисных центров")
                 return
+            
             # Отправка уведомлений
             success_count = 0
             for uid, sc_id in sc_users:
@@ -156,12 +184,17 @@ class AdminHandler(BaseHandler):
                                 chat_id=uid,
                                 media=media
                             )
-                    # Отправка упрощенного сообщения
+                    
+                    # Отправка сообщения с форматированным адресом
                     await context.bot.send_message(
                         chat_id=uid,
                         text=(
                             f"📦 Новая заявка #{rid}\n\n"
-                            f"📝 Описание: {request.get('description', 'Не указано')}"
+                            f"👤 Клиент: {request.get('user_name', 'Не указан')}\n"
+                            f"📱 Телефон: {request.get('user_phone', 'Не указан')}\n"
+                            f"📍 Адрес: {location_str}\n"
+                            f"📝 Описание: {request.get('description', 'Не указано')}\n"
+                            f"🕒 Желаемая дата: {request.get('desired_date', 'Не указана')}"
                         ),
                         reply_markup=InlineKeyboardMarkup([[
                             InlineKeyboardButton(
@@ -175,6 +208,7 @@ class AdminHandler(BaseHandler):
                 except Exception as e:
                     logger.error(f"🚨 Error sending to SC {sc_id}: {str(e)}")
                     continue
+            
             if success_count > 0:
                 # Обновляем заявку
                 requests_data[rid]['status'] = 'Отправлена в СЦ'

@@ -152,15 +152,34 @@ class SCHandler(BaseHandler):
         chat_data = context.user_data.get('active_chat', {})
         request_id = chat_data.get('request_id')
         client_id = chat_data['participants']['client_id']
+        
+        # Получаем данные заявки для форматирования адреса
+        requests_data = load_requests()
+        request = requests_data.get(request_id, {})
+        
+        # Форматируем адрес
+        location = request.get('location', {})
+        if isinstance(location, dict):
+            if location.get('type') == 'coordinates':
+                address = location.get('address', 'Адрес не определен')
+                location_str = f"{address} (координаты: {location.get('latitude')}, {location.get('longitude')})"
+            else:
+                location_str = location.get('address', 'Адрес не указан')
+        else:
+            location_str = str(location)
+        
         # Формируем сообщение с кнопкой ответа
         reply_markup = InlineKeyboardMarkup([[
             InlineKeyboardButton("✉️ Ответить", callback_data=f"client_reply_{request_id}")
         ]])
+        
         try:
             # Отправляем сообщение клиенту с кнопкой
             await context.bot.send_message(
                 chat_id=int(client_id),
-                text=f"📩 *Сообщение от СЦ по заявке #{request_id}:*\n{message.text}",
+                text=f"📩 *Сообщение от СЦ по заявке #{request_id}:*\n"
+                    f"📍 Адрес: {location_str}\n\n"
+                    f"{message.text}",
                 parse_mode='Markdown',
                 reply_markup=reply_markup
             )
@@ -743,6 +762,17 @@ class SCHandler(BaseHandler):
             sc_id = request.get('assigned_sc')
             sc_data = service_centers.get(sc_id, {})
             
+            # Форматируем адрес клиента
+            location = request.get('location', {})
+            if isinstance(location, dict):
+                if location.get('type') == 'coordinates':
+                    address = location.get('address', 'Адрес не определен')
+                    location_str = f"{address} (координаты: {location.get('latitude')}, {location.get('longitude')})"
+                else:
+                    location_str = location.get('address', 'Адрес не указан')
+            else:
+                location_str = str(location)
+            
             # Создаем задачу доставки ИЗ СЦ КЛИЕНТУ
             new_task_id = str(len(delivery_tasks) + 1)
             new_task = {
@@ -752,7 +782,7 @@ class SCHandler(BaseHandler):
                 'sc_name': sc_data.get('name', 'Не указан'),
                 'sc_address': sc_data.get('address', 'Не указан'),
                 'client_name': request.get('user_name', 'Не указан'),
-                'client_address': request.get('location', 'Не указан'),
+                'client_address': location_str,  # Используем отформатированный адрес
                 'client_phone': request.get('user_phone', 'Не указан'),
                 'description': request.get('description', ''),
                 'delivery_type': 'sc_to_client',  # Вторая доставка - из СЦ
@@ -771,7 +801,7 @@ class SCHandler(BaseHandler):
                 f"✅ Создана задача доставки #{new_task_id}\n"
                 f"Тип: Доставка из СЦ клиенту\n"
                 f"СЦ: {sc_data.get('name', 'Не указан')}\n"
-                f"Адрес клиента: {request.get('location', 'Не указан')}"
+                f"Адрес клиента: {location_str}"
             )
             
         except Exception as e:
