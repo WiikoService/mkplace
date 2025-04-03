@@ -26,6 +26,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class AdminHandler(BaseHandler):
+
     async def handle_assign_sc(self, update: Update, context: CallbackContext):
         """Обработка нажатия кнопки 'Привязать к СЦ'"""
         logger.info("🛠️ START handle_assign_sc")
