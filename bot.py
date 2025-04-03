@@ -23,6 +23,7 @@ from handlers.sc_handler import SCHandler
 from handlers.sc_item_handler import SCItemHandler
 from handlers.admin_sc_management_handler import SCManagementHandler
 from handlers.delivery_sc_handler import DeliverySCHandler
+from handlers.sc_chat_handler import SCChatHandler
 
 from database import ensure_data_dir
 from utils import ensure_photos_dir
@@ -44,6 +45,7 @@ def main():
     sc_management_handler = SCManagementHandler()
     sc_item_handler = SCItemHandler()
     delivery_sc_handler = DeliverySCHandler()
+    sc_chat_handler = SCChatHandler()
 
     # Создание приложения
     application = Application.builder().token(TELEGRAM_API_TOKEN).build()
@@ -52,7 +54,7 @@ def main():
     register_client_handlers(application, client_handler, user_handler)
     register_admin_handlers(application, admin_handler, user_handler, sc_management_handler)
     register_delivery_handlers(application, delivery_handler, user_handler, delivery_sc_handler)
-    register_sc_handlers(application, sc_handler, sc_item_handler)
+    register_sc_handlers(application, sc_handler, sc_item_handler, sc_chat_handler)
     register_callbacks(application, delivery_handler, admin_handler, user_handler, sc_management_handler, delivery_sc_handler)
     register_user_handlers(application, user_handler)
 
@@ -514,7 +516,7 @@ def register_delivery_handlers(application, delivery_handler, user_handler, deli
     application.add_handler(delivery_photos_handler)
 
 
-def register_sc_handlers(application, sc_handler, sc_item_handler):
+def register_sc_handlers(application, sc_handler, sc_item_handler, sc_chat_handler):
     # Обработчики для СЦ
 
     application.add_handler(MessageHandler(filters.Regex("^Меню СЦ$"), sc_handler.show_sc_menu))
@@ -601,21 +603,21 @@ def register_sc_handlers(application, sc_handler, sc_item_handler):
     application.add_handler(ConversationHandler(
         entry_points=[
             CallbackQueryHandler(
-                sc_handler.sc_to_user_chat,
+                sc_chat_handler.sc_to_user_chat,
                 pattern=r"^sc_chat_"
             )
         ],
         states={
             'HANDLE_SC_CHAT': [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, sc_handler.handle_sc_chat),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, sc_chat_handler.handle_sc_chat),
                 CallbackQueryHandler(
-                    sc_handler.close_chat,
+                    sc_chat_handler.close_chat,
                     pattern=r"^close_chat_"
                 )
             ]
         },
         fallbacks=[
-            CommandHandler('cancel', sc_handler.close_chat)
+            CommandHandler('cancel', sc_chat_handler.close_chat)
         ],
         map_to_parent={
             ConversationHandler.END: ConversationHandler.END
@@ -626,7 +628,7 @@ def register_sc_handlers(application, sc_handler, sc_item_handler):
     application.add_handler(ConversationHandler(
         entry_points=[
             CallbackQueryHandler(
-                sc_handler.handle_client_reply,
+                sc_chat_handler.handle_client_reply,
                 pattern=r"^client_reply_"
             )
         ],
@@ -634,24 +636,24 @@ def register_sc_handlers(application, sc_handler, sc_item_handler):
             'HANDLE_CLIENT_REPLY': [
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND, 
-                    sc_handler.handle_client_message
+                    sc_chat_handler.handle_client_message
                 ),
                 CallbackQueryHandler(
-                    sc_handler.handle_client_reply,
+                    sc_chat_handler.handle_client_reply,
                     pattern=r"^client_reply_"
                 ),
                 CallbackQueryHandler(
-                    sc_handler.cancel_client_chat,
+                    sc_chat_handler.cancel_client_chat,
                     pattern=r"^cancel_chat_"
                 ),
                 CallbackQueryHandler(
-                    sc_handler.close_chat,
+                    sc_chat_handler.close_chat,
                     pattern=r"^close_chat_"
                 )
             ]
         },
         fallbacks=[
-            CommandHandler('cancel', sc_handler.close_chat),
+            CommandHandler('cancel', sc_chat_handler.close_chat),
             MessageHandler(filters.ALL, lambda u,c: None)
         ],
         map_to_parent={
@@ -662,12 +664,12 @@ def register_sc_handlers(application, sc_handler, sc_item_handler):
 
     # Обработчик закрытия чата
     application.add_handler(CallbackQueryHandler(
-        sc_handler.close_chat,
+        sc_chat_handler.close_chat,
         pattern=r"^close_chat_"
     ))
 
     application.add_handler(CallbackQueryHandler(
-        sc_handler.show_chat_history,
+        sc_chat_handler.show_chat_history,
         pattern=r"^chat_history_"
     ))
 
