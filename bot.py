@@ -25,7 +25,7 @@ from handlers.admin_sc_management_handler import SCManagementHandler
 from handlers.delivery_sc_handler import DeliverySCHandler
 from handlers.sc_chat_handler import SCChatHandler
 
-from database import ensure_data_dir
+from database import ensure_data_dir, load_users
 from utils import ensure_photos_dir
 
 logging.basicConfig(
@@ -33,7 +33,6 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-
 
 def main():
     # Создание экземпляров обработчиков
@@ -52,7 +51,7 @@ def main():
 
     # Регистрация обработчиков
     register_client_handlers(application, client_handler, user_handler)
-    register_admin_handlers(application, admin_handler, user_handler, sc_management_handler)
+    register_admin_handlers(application, admin_handler, user_handler, sc_handler, sc_management_handler)
     register_delivery_handlers(application, delivery_handler, user_handler, delivery_sc_handler)
     register_sc_handlers(application, sc_handler, sc_item_handler, sc_chat_handler)
     register_callbacks(application, delivery_handler, admin_handler, user_handler, sc_management_handler, delivery_sc_handler)
@@ -183,8 +182,13 @@ def register_client_handlers(application, client_handler, user_handler):
     
     application.add_handler(rating_handler)
 
+    # Обработчик документов для клиентов
+    application.add_handler(MessageHandler(
+        filters.Regex("^Документы$"),
+        client_handler.show_documents
+    ))
 
-def register_admin_handlers(application, admin_handler, user_handler, sc_management_handler):
+def register_admin_handlers(application, admin_handler, user_handler, sc_handler, sc_management_handler):
 
     # Обработчики для администратора
     application.add_handler(MessageHandler(filters.Regex("^Просмотр заявок$"), admin_handler.view_requests))
@@ -348,6 +352,11 @@ def register_admin_handlers(application, admin_handler, user_handler, sc_managem
     application.add_handler(CallbackQueryHandler(admin_handler.handle_comment_approval, pattern="^approve_comment_"))
     application.add_handler(CallbackQueryHandler(admin_handler.handle_comment_rejection, pattern="^reject_comment_"))
 
+    # Обработчик документов для СЦ
+    application.add_handler(MessageHandler(
+        filters.Regex("^Документы$"),
+        sc_handler.docs
+    ))
 
 def register_delivery_handlers(application, delivery_handler, user_handler, delivery_sc_handler):
     # Обработчики для доставщика
@@ -428,6 +437,16 @@ def register_delivery_handlers(application, delivery_handler, user_handler, deli
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
                     delivery_sc_handler.handle_client_confirmation_code
+                )
+            ],
+            CREATE_REQUEST_PHOTOS: [
+                MessageHandler(
+                    filters.PHOTO,
+                    delivery_sc_handler.handle_delivery_photos
+                ),
+                CommandHandler(
+                    "done",
+                    delivery_sc_handler.handle_delivery_photos_done
                 )
             ]
         },
@@ -521,25 +540,22 @@ def register_sc_handlers(application, sc_handler, sc_item_handler, sc_chat_handl
 
     application.add_handler(MessageHandler(filters.Regex("^Меню СЦ$"), sc_handler.show_sc_menu))
 
-    # НОВЫЙ ПОДХОД: Регистрируем отдельные обработчики вместо ConversationHandler
-    
     # 1. Обработчик кнопки "Принять заявку" от СЦ - самый высокий приоритет
     application.add_handler(
         CallbackQueryHandler(
             sc_handler.handle_request_notification,
             pattern=r"^sc_accept_"
         ),
-        group=0  # Высший приоритет
+        group=0
     )
     
     # 2. Обработчик для ввода стоимости ремонта - высокий приоритет
-    # Этот обработчик должен быть ВЫШЕ других обработчиков текстовых сообщений
     application.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
             sc_handler.handle_repair_price
         ),
-        group=1  # Высокий приоритет для обработки текста
+        group=1
     )
     
     # 3. Обработчик нажатия кнопки "Принять с указанной стоимостью"
@@ -548,7 +564,7 @@ def register_sc_handlers(application, sc_handler, sc_item_handler, sc_chat_handl
             sc_handler.confirm_repair_price,
             pattern=r"^accept_request_price_"
         ),
-        group=0  # Высший приоритет для callback-запросов
+        group=0
     )
 
     # Сначала регистрируем ConversationHandler для фотографий
@@ -720,12 +736,6 @@ def register_sc_handlers(application, sc_handler, sc_item_handler, sc_chat_handl
     application.add_handler(MessageHandler(
         filters.Text(["Связаться с администратором"]),
         sc_handler.call_to_admin
-    ))
-
-    # Добавляем обработчик для отображения документов
-    application.add_handler(MessageHandler(
-        filters.Text(["Документы"]),
-        sc_handler.docs
     ))
 
     # Обработчики для выбора даты и времени доставки

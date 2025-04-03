@@ -89,20 +89,24 @@ class SCChatHandler(SCHandler):
         ]])
         
         try:
-            # Проверяем, отправлено ли фото
             if message.photo:
+                # Получаем фото наилучшего качества
                 photo = message.photo[-1]
                 photo_file = await context.bot.get_file(photo.file_id)
                 
+                # Генерируем уникальное имя файла
                 file_name = f"chat_sc_{request_id}_{timestamp.replace(':', '-').replace(' ', '_')}.jpg"
                 photo_path = f"photos/{file_name}"
                 
+                # Сохраняем фото
                 await photo_file.download_to_drive(photo_path)
                 
+                # Формируем подпись
                 caption = f"📷 *Фото от СЦ по заявке #{request_id}*"
                 if message.caption:
                     caption += f"\n{message.caption}"
-                    
+                
+                # Отправляем фото клиенту
                 await context.bot.send_photo(
                     chat_id=int(client_id),
                     photo=open(photo_path, 'rb'),
@@ -111,10 +115,11 @@ class SCChatHandler(SCHandler):
                     reply_markup=reply_markup
                 )
                 
+                # Сохраняем в историю
                 self.save_chat_history(
                     request_id,
                     'sc',
-                    f"[ФОТО: {photo_path}]" + (f" с комментарием: {message.caption}" if message.caption else ""),
+                    message.caption if message.caption else "Фото без комментария",
                     timestamp,
                     photo_path=photo_path
                 )
@@ -193,20 +198,24 @@ class SCChatHandler(SCHandler):
         timestamp = datetime.now().strftime("%H:%M %d.%m.%Y")
         
         try:
-            # Обработка фото
             if message.photo:
+                # Получаем фото наилучшего качества
                 photo = message.photo[-1]
                 photo_file = await context.bot.get_file(photo.file_id)
                 
+                # Генерируем уникальное имя файла
                 file_name = f"chat_client_{request_id}_{timestamp.replace(':', '-').replace(' ', '_')}.jpg"
                 photo_path = f"photos/{file_name}"
                 
+                # Сохраняем фото
                 await photo_file.download_to_drive(photo_path)
                 
+                # Формируем подпись
                 caption = f"📷 *Фото от клиента по заявке #{request_id}*"
                 if message.caption:
                     caption += f"\n{message.caption}"
-                    
+                
+                # Отправляем фото СЦ
                 await context.bot.send_photo(
                     chat_id=int(sc_user_id),
                     photo=open(photo_path, 'rb'),
@@ -214,10 +223,11 @@ class SCChatHandler(SCHandler):
                     parse_mode='Markdown'
                 )
                 
+                # Сохраняем в историю
                 self.save_chat_history(
                     request_id,
                     'client',
-                    f"[ФОТО: {photo_path}]" + (f" с комментарием: {message.caption}" if message.caption else ""),
+                    message.caption if message.caption else "Фото без комментария",
                     timestamp,
                     photo_path=photo_path
                 )
@@ -242,21 +252,12 @@ class SCChatHandler(SCHandler):
             # Показываем кнопки для продолжения общения
             reply_markup = InlineKeyboardMarkup([
                 [
-                    InlineKeyboardButton(
-                        "✉️ Отправить еще", 
-                        callback_data=f"client_reply_{request_id}"
-                    ),
-                    InlineKeyboardButton(
-                        "❌ Закрыть чат", 
-                        callback_data=f"close_chat_{request_id}"
-                    )
+                    InlineKeyboardButton("✉️ Отправить еще", callback_data=f"client_reply_{request_id}"),
+                    InlineKeyboardButton("❌ Закрыть чат", callback_data=f"close_chat_{request_id}")
                 ]
             ])
             
-            await message.reply_text(
-                "✅ Сообщение доставлено:",
-                reply_markup=reply_markup
-            )
+            await message.reply_text("✅ Сообщение доставлено:", reply_markup=reply_markup)
             
         except Exception as e:
             logger.error(f"Ошибка: {str(e)}")
@@ -284,7 +285,6 @@ class SCChatHandler(SCHandler):
         await query.edit_message_text("Чат закрыт")
         return ConversationHandler.END
 
-    # Остальные методы остаются без изменений
     def save_chat_history(self, request_id, sender, message, timestamp, photo_path=None):
         """Сохранение истории переписки"""
         chat_history = load_chat_history()
@@ -325,47 +325,55 @@ class SCChatHandler(SCHandler):
                 await update.message.reply_text("История переписки пуста.")
             return
         
-        history_text = f"📜 История переписки по заявке #{request_id}:\n\n"
-        photo_entries = []
-        
+        # Отправляем сообщения в хронологическом порядке
         for entry in chat_history:
             sender = "СЦ" if entry['sender'] == 'sc' else "Клиент"
             timestamp = entry.get('timestamp', '(время не указано)')
             
-            if 'photo_path' in entry:
-                photo_entries.append({
-                    'sender': sender,
-                    'message': entry['message'],
-                    'timestamp': timestamp,
-                    'photo_path': entry['photo_path']
-                })
-                history_text += f"👤 {sender} ({timestamp}): [Отправлено фото]\n\n"
-            else:
-                history_text += f"👤 {sender} ({timestamp}):\n{entry['message']}\n\n"
-        
-        if is_callback:
-            await update.callback_query.message.reply_text(history_text)
-        else:
-            await update.message.reply_text(history_text)
-        
-        for photo_entry in photo_entries:
             try:
-                photo_path = photo_entry['photo_path']
-                if os.path.exists(photo_path):
-                    if is_callback:
-                        await update.callback_query.message.reply_photo(
-                            photo=open(photo_path, 'rb'),
-                            caption=f"👤 {photo_entry['sender']} ({photo_entry['timestamp']})"
-                        )
+                if 'photo_path' in entry:
+                    photo_path = entry['photo_path']
+                    if os.path.exists(photo_path):
+                        caption = f"👤 {sender} ({timestamp})"
+                        if entry['message'] and entry['message'] != "Фото без комментария":
+                            caption += f"\n{entry['message']}"
+                        
+                        if is_callback:
+                            await update.callback_query.message.reply_photo(
+                                photo=open(photo_path, 'rb'),
+                                caption=caption
+                            )
+                        else:
+                            await update.message.reply_photo(
+                                photo=open(photo_path, 'rb'),
+                                caption=caption
+                            )
                     else:
-                        await update.message.reply_photo(
-                            photo=open(photo_path, 'rb'),
-                            caption=f"👤 {photo_entry['sender']} ({photo_entry['timestamp']})"
-                        )
+                        logger.warning(f"Файл не найден: {photo_path}")
+                        text = f"👤 {sender} ({timestamp}):\n[Фото недоступно]"
+                        if entry['message'] and entry['message'] != "Фото без комментария":
+                            text += f"\n{entry['message']}"
+                        
+                        if is_callback:
+                            await update.callback_query.message.reply_text(text)
+                        else:
+                            await update.message.reply_text(text)
                 else:
-                    logger.warning(f"Файл не найден: {photo_path}")
+                    text = f"👤 {sender} ({timestamp}):\n{entry['message']}"
+                    if is_callback:
+                        await update.callback_query.message.reply_text(text)
+                    else:
+                        await update.message.reply_text(text)
             except Exception as e:
-                logger.error(f"Ошибка при отправке фото: {str(e)}")
+                logger.error(f"Ошибка при отправке сообщения: {str(e)}")
+                try:
+                    error_text = f"👤 {sender} ({timestamp}):\nНе удалось отобразить сообщение"
+                    if is_callback:
+                        await update.callback_query.message.reply_text(error_text)
+                    else:
+                        await update.message.reply_text(error_text)
+                except Exception as e2:
+                    logger.error(f"Ошибка при отправке сообщения об ошибке: {str(e2)}")
 
     async def show_sc_menu(self, update: Update, context: CallbackContext):
         """Показывает меню СЦ"""

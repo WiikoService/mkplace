@@ -732,45 +732,71 @@ class AdminHandler(BaseHandler):
             await update.message.reply_text("❌ Произошла ошибка при загрузке заявок")
 
     async def view_request_chat(self, update: Update, context: CallbackContext):
-        """Показывает чат заявки по её номеру"""
+        """Показывает чат заявки по её номеру с фото"""
         if not context.user_data.get('waiting_for_request_id'):
             await update.message.reply_text("Пожалуйста, введите номер заявки:")
             context.user_data['waiting_for_request_id'] = True
             return 'WAITING_REQUEST_ID'
+        
         request_id = update.message.text.strip()
         chat_file = os.path.join(DATA_DIR, 'chat_sc_client.json')
+        
         try:
-            if os.path.exists(chat_file):
-                with open(chat_file, 'r', encoding='utf-8') as f:
-                    chat_data = json.load(f)
-            else:
+            if not os.path.exists(chat_file):
                 await update.message.reply_text("❌ Файл чата не найден")
                 return ConversationHandler.END
-            if request_id in chat_data:
-                messages = chat_data[request_id]
-                if not messages:
-                    await update.message.reply_text(f"❌ В чате заявки #{request_id} пока нет сообщений")
-                    return ConversationHandler.END
-                # Формируем сообщение с историей чата
-                chat_history = f"💬 История чата заявки #{request_id}:\n\n"
-                for msg in messages:
-                    sender = "👤 Клиент" if msg['sender'] == 'client' else "🏢 СЦ"
-                    chat_history += f"{sender} ({msg['timestamp']}):\n{msg['message']}\n\n"
-                # Добавляем кнопку возврата в админское меню
-                keyboard = [[InlineKeyboardButton("🔙 Назад в меню", callback_data="back_to_admin")]]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                # Разбиваем длинное сообщение на части, если оно превышает лимит Telegram
-                if len(chat_history) > 4000:
-                    parts = [chat_history[i:i+4000] for i in range(0, len(chat_history), 4000)]
-                    for i, part in enumerate(parts):
-                        if i == len(parts) - 1:
-                            await update.message.reply_text(part, reply_markup=reply_markup)
-                        else:
-                            await update.message.reply_text(part)
-                else:
-                    await update.message.reply_text(chat_history, reply_markup=reply_markup)
-            else:
+                
+            with open(chat_file, 'r', encoding='utf-8') as f:
+                chat_data = json.load(f)
+                
+            if request_id not in chat_data:
                 await update.message.reply_text(f"❌ Чат для заявки #{request_id} не найден")
+                return ConversationHandler.END
+                
+            messages = chat_data[request_id]
+            if not messages:
+                await update.message.reply_text(f"❌ В чате заявки #{request_id} пока нет сообщений")
+                return ConversationHandler.END
+
+            # Отправляем заголовок
+            await update.message.reply_text(f"💬 История чата заявки #{request_id}:")
+
+            # Обрабатываем каждое сообщение
+            for msg in messages:
+                sender = "👤 Клиент" if msg['sender'] == 'client' else "🏢 СЦ"
+                timestamp = msg.get('timestamp', 'без даты')
+                
+                # Если есть фото
+                if 'photo_path' in msg and os.path.exists(msg['photo_path']):
+                    caption = f"{sender} ({timestamp}):\n{msg.get('message', '')}"
+                    
+                    try:
+                        with open(msg['photo_path'], 'rb') as photo_file:
+                            await context.bot.send_photo(
+                                chat_id=update.effective_chat.id,
+                                photo=photo_file,
+                                caption=caption[:1024]  # Ограничение длины подписи в Telegram
+                            )
+                    except Exception as photo_error:
+                        logger.error(f"Ошибка отправки фото: {photo_error}")
+                        await update.message.reply_text(
+                            f"{sender} ({timestamp}): [Не удалось загрузить фото]\n"
+                            f"{msg.get('message', '')}"
+                        )
+                else:
+                    # Текстовое сообщение
+                    message_text = f"{sender} ({timestamp}):\n{msg.get('message', '')}"
+                    
+                    # Разбиваем длинные сообщения
+                    if len(message_text) > 4000:
+                        parts = [message_text[i:i+4000] for i in range(0, len(message_text), 4000)]
+                        for part in parts:
+                            await update.message.reply_text(part)
+                    else:
+                        await update.message.reply_text(message_text)
+                        
+        except json.JSONDecodeError:
+            await update.message.reply_text("❌ Ошибка чтения файла чата")
         except Exception as e:
             logger.error(f"Ошибка при просмотре чата: {e}")
             await update.message.reply_text("❌ Произошла ошибка при загрузке чата")
