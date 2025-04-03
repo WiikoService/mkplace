@@ -128,54 +128,161 @@ class DeliveryHandler(BaseHandler):
         """Принятие задачи доставщиком."""
         query = update.callback_query
         await query.answer()
-        request_id = query.data.split('_')[-1]
-        requests_data = load_requests()
-        delivery_tasks = load_delivery_tasks()
-        if request_id in requests_data:
-            requests_data[request_id]['status'] = 'Доставщик в пути к клиенту'
-            requests_data[request_id]['assigned_delivery'] = str(query.from_user.id)
-            save_requests(requests_data)
-            for task in delivery_tasks:
-                if isinstance(task, dict) and task.get('request_id') == request_id:
-                    task['status'] = 'Доставщик в пути к клиенту'
-                    task['assigned_delivery_id'] = str(query.from_user.id)
+        
+        try:
+            # Получаем ID заявки из callback_data
+            request_id = query.data.split('_')[-1]
+            
+            # Загружаем данные
+            requests_data = load_requests()
+            delivery_tasks = load_delivery_tasks()
+            
+            # Находим задачу с указанным request_id
+            task_id = None
+            task_data = None
+            
+            for task_key, task in delivery_tasks.items():
+                if task.get('request_id') == request_id and task.get('status') == 'Новая':
+                    task_id = task_key
+                    task_data = task
                     break
+            
+            if not task_id or not task_data:
+                await query.edit_message_text("❌ Задание не найдено или уже принято другим доставщиком.")
+                return
+            
+            # Получаем информацию о доставщике
+            user_id = update.effective_user.id
+            user_name = update.effective_user.first_name
+            
+            # Проверяем тип доставки
+            is_sc_to_client = task_data.get('is_sc_to_client', False)
+            delivery_type = task_data.get('delivery_type', '')
+            
+            # Обновляем статус задачи
+            task_data['status'] = 'В процессе'
+            task_data['assigned_delivery_id'] = str(user_id)
+            task_data['assigned_delivery_name'] = user_name
+            delivery_tasks[task_id] = task_data
             save_delivery_tasks(delivery_tasks)
-            latitude = requests_data[request_id].get('latitude')
-            longitude = requests_data[request_id].get('longitude')
-            keyboard = [
-                [InlineKeyboardButton("Подтвердить получение", callback_data=f"confirm_pickup_{request_id}")],
-                [InlineKeyboardButton("Открыть карту", url=f"https://yandex.ru/maps?rtext=~{latitude}%2C{longitude}&rtt=auto")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            message_text = f"Вы приняли заказ №{request_id}. Статус: Доставщик в пути к клиенту\n"
-            if latitude and longitude:
-                message_text += f"Координаты клиента: {latitude}, {longitude}"
-            else:
-                message_text += "Координаты клиента недоступны"
-            await query.edit_message_text(message_text, reply_markup=reply_markup)
-            # Уведомляем клиента
-            client_id = requests_data[request_id].get('user_id')
-            if client_id:
-                await context.bot.send_message(
-                    chat_id=client_id,
-                    text=f"Доставщик принял ваш заказ №{request_id} и направляется к вам."
+            
+            # Обновляем статус заявки
+            if request_id in requests_data:
+                if is_sc_to_client or delivery_type == 'sc_to_client':
+                    requests_data[request_id]['status'] = ORDER_STATUS_PICKUP_FROM_SC
+                else:
+                    requests_data[request_id]['status'] = ORDER_STATUS_DELIVERY_TO_SC
+                
+                requests_data[request_id]['assigned_delivery'] = str(user_id)
+                save_requests(requests_data)
+            
+            # Формируем сообщение и клавиатуру для доставщика
+            if is_sc_to_client or delivery_type == 'sc_to_client':
+                # Доставка из СЦ клиенту
+                message = (
+                    f"✅ Вы приняли заказ #{task_id}\n"
+                    f"Тип: 📤 Доставка ИЗ СЦ КЛИЕНТУ\n\n"
+                    f"1️⃣ Забрать из СЦ:\n"
+                    f"🏢 {task_data.get('sc_name', 'Не указан')}\n"
+                    f"📍 {task_data.get('sc_address', 'Не указан')}\n"
+                    f"☎️ {task_data.get('sc_phone', 'Не указан')}\n\n"
+                    f"2️⃣ Доставить клиенту:\n"
+                    f"👤 {task_data.get('client_name', 'Не указан')}\n"
+                    f"📍 {task_data.get('client_address', 'Не указан')}\n"
+                    f"📱 {task_data.get('client_phone', 'Не указан')}\n\n"
+                    f"📋 Инструкции:\n"
+                    f"1. Заберите устройство из СЦ\n"
+                    f"2. Подтвердите получение из СЦ кнопкой 'Забрал из СЦ'\n"
+                    f"3. Доставьте устройство клиенту\n"
+                    f"4. Получите код подтверждения от клиента"
                 )
+                
+                keyboard = [[
+                    InlineKeyboardButton(
+                        "✅ Забрал из СЦ", 
+                        callback_data=f"picked_up_from_sc_{request_id}"
+                    )
+                ]]
+            else:
+                # Доставка от клиента в СЦ
+                message = (
+                    f"✅ Вы приняли заказ #{task_id}\n"
+                    f"Тип: 📥 Доставка ОТ КЛИЕНТА В СЦ\n\n"
+                    f"1️⃣ Забрать у клиента:\n"
+                    f"👤 {task_data.get('client_name', 'Не указан')}\n"
+                    f"📍 {task_data.get('client_address', 'Не указан')}\n"
+                    f"📱 {task_data.get('client_phone', 'Не указан')}\n\n"
+                    f"2️⃣ Доставить в СЦ:\n"
+                    f"🏢 {task_data.get('sc_name', 'Не указан')}\n"
+                    f"📍 {task_data.get('sc_address', 'Не указан')}\n"
+                    f"☎️ {task_data.get('sc_phone', 'Не указан')}\n\n"
+                    f"📋 Инструкции:\n"
+                    f"1. Заберите устройство у клиента\n"
+                    f"2. Подтвердите получение от клиента кнопкой 'Получено от клиента'\n"
+                    f"3. Доставьте устройство в СЦ\n"
+                    f"4. Получите код подтверждения от СЦ"
+                )
+                
+                keyboard = [[
+                    InlineKeyboardButton(
+                        "✅ Получено от клиента", 
+                        callback_data=f"confirm_pickup_{request_id}"
+                    )
+                ]]
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(message, reply_markup=reply_markup)
+            
+            # Уведомляем всех остальных доставщиков
+            await self.update_delivery_messages(context.bot, task_id, task_data)
+            
+            # Уведомляем клиента или СЦ в зависимости от типа доставки
+            if is_sc_to_client or delivery_type == 'sc_to_client':
+                # Уведомляем клиента, что заказ принят в доставку из СЦ
+                client_id = requests_data[request_id].get('user_id')
+                if client_id:
+                    client_message = (
+                        f"🚚 Доставщик принял ваш заказ №{request_id} и направляется в сервисный центр.\n"
+                        f"Скоро ваше устройство будет у вас!"
+                    )
+                    await context.bot.send_message(
+                        chat_id=client_id,
+                        text=client_message
+                    )
+            else:
+                # Уведомляем клиента, что заказ принят в доставку от клиента в СЦ
+                client_id = requests_data[request_id].get('user_id')
+                if client_id:
+                    client_message = (
+                        f"🚚 Доставщик принял ваш заказ №{request_id} и направляется к вам.\n"
+                        f"Ожидайте доставщика по адресу: {task_data.get('client_address', 'указанному в заказе')}."
+                    )
+                    await context.bot.send_message(
+                        chat_id=client_id,
+                        text=client_message
+                    )
+            
             # Уведомляем администраторов
             user = load_users().get(str(query.from_user.id), {})
-            delivery_name = user.get('name', 'Неизвестный доставщик')
+            delivery_name = user.get('name', user_name)
             delivery_phone = user.get('phone', 'Номер не указан')
-            admin_message = f"Заказ №{request_id} принят доставщиком.\n"
-            admin_message += f"Доставщик: {delivery_name} - +{delivery_phone}\n"
-            admin_message += "Статус: Доставщик в пути к клиенту"
+            
+            admin_message = (
+                f"✅ Заказ №{request_id} принят доставщиком.\n"
+                f"Доставщик: {delivery_name} - {delivery_phone}\n"
+                f"Тип: {'Доставка из СЦ клиенту' if is_sc_to_client or delivery_type == 'sc_to_client' else 'Доставка от клиента в СЦ'}\n"
+                f"Статус: {requests_data[request_id]['status']}"
+            )
+            
             for admin_id in ADMIN_IDS:
                 await context.bot.send_message(
                     chat_id=admin_id,
-                    text=admin_message,
-                    parse_mode='Markdown'
+                    text=admin_message
                 )
-        else:
-            await query.edit_message_text("Произошла ошибка. Заказ не найден.")
+                
+        except Exception as e:
+            logger.error(f"Ошибка при принятии задания доставки: {e}")
+            await query.edit_message_text("❌ Произошла ошибка при принятии задания. Пожалуйста, попробуйте еще раз.")
 
     async def handle_confirm_pickup(self, update: Update, context: CallbackContext):
         """
@@ -393,76 +500,123 @@ class DeliveryHandler(BaseHandler):
             await update.message.reply_text("Произошла ошибка при обработке фотографий")
             return ConversationHandler.END
 
-    async def update_delivery_messages(self, bot: Bot, task_id: int, task_data: dict):
-        """Обновление сообщений доставщикам."""
-        from config import DELIVERY_IDS
-        for delivery_id in DELIVERY_IDS:
-            if delivery_id != task_data['assigned_to']:
-                message = f"Задача доставки #{task_id} принята другим доставщиком.\n"
-                message += f"Заявка: #{task_data['request_id']}\n"
-                message += f"СЦ: {task_data['sc_name']}\n"
-                message += f"Статус: {task_data['status']}"
-                await bot.send_message(chat_id=delivery_id, text=message)
+    async def update_delivery_messages(self, bot, task_id, task_data):
+        """Обновляет сообщения для других доставщиков"""
+        try:
+            # Получаем ID доставщика, который взял заказ
+            assigned_delivery_id = task_data.get('assigned_delivery_id', '')
+            
+            # Формируем сообщение об обновлении
+            message = f"Заказ #{task_id} был принят другим доставщиком и больше не доступен."
+            
+            # Отправляем сообщение другим доставщикам
+            from config import DELIVERY_IDS
+            for delivery_id in DELIVERY_IDS:
+                if str(delivery_id) != str(assigned_delivery_id):
+                    try:
+                        await bot.send_message(
+                            chat_id=int(delivery_id), 
+                            text=message
+                        )
+                    except Exception as e:
+                        logger.error(f"Ошибка отправки уведомления доставщику {delivery_id}: {e}")
+                        
+        except Exception as e:
+            logger.error(f"Ошибка при обновлении сообщений доставщиков: {e}")
 
     async def show_available_tasks(self, update: Update, context: CallbackContext):
-        """
-        Показать доступные задания на сегодня
-        """
+        """Показать доступные задания доставки"""
         try:
             delivery_tasks = load_delivery_tasks()
-            requests_data = load_requests()
-            logger.info(f"Загружено задач: {len(delivery_tasks)}")
-            if not delivery_tasks:
-                await update.message.reply_text("На данный момент нет доступных задач доставки.")
-                return
-
+            available_tasks = {}
+            
             # Получаем текущую дату в формате DD.MM.YYYY
             today = datetime.now().strftime("%d.%m.%Y")
             
-            # Фильтруем только новые задачи на сегодня
-            available_tasks = {}
+            # Фильтруем задачи по статусу и дате
             for task_id, task in delivery_tasks.items():
-                request_id = task.get('request_id')
-                if (task.get('status') == "Новая" and 
-                    request_id in requests_data and
-                    requests_data[request_id].get('desired_date', '').endswith(today)):
+                if (task.get('status') == 'Новая' and 
+                    task.get('desired_date', '').split()[-1] == today):
                     available_tasks[task_id] = task
             
-            logger.info(f"Доступных задач на сегодня: {len(available_tasks)}")
             if not available_tasks:
                 await update.message.reply_text(
-                    "На сегодня нет доступных задач доставки.\n"
-                    "Пожалуйста, проверьте завтра или позже."
+                    f"На сегодня ({today}) нет доступных заданий доставки."
                 )
                 return
-
+            
+            # Отправляем заголовок с текущей датой
             await update.message.reply_text(
-                f"📦 Доступные задачи доставки на сегодня ({today}):"
+                f"📦 Доступные задания на сегодня ({today}):"
             )
-
+            
+            # Отправляем каждую задачу отдельным сообщением
             for task_id, task in available_tasks.items():
-                request_id = task.get('request_id')
-                # Извлекаем время из desired_date заявки
-                delivery_time = requests_data[request_id].get('desired_date', '').split()[0]  # Получаем время (HH:MM)
+                # Определяем тип доставки
+                is_sc_to_client = task.get('is_sc_to_client', False)
+                delivery_type = task.get('delivery_type', '')
                 
-                keyboard = [[
-                    InlineKeyboardButton(
-                        "Принять задачу", 
-                        callback_data=f"accept_delivery_{task['request_id']}"
+                if is_sc_to_client or delivery_type == 'sc_to_client':
+                    delivery_type_display = "📤 Доставка ИЗ СЦ КЛИЕНТУ"
+                    
+                    # Извлекаем время доставки
+                    delivery_time = task.get('desired_date', '').split()[0] if task.get('desired_date') else 'Не указано'
+                    
+                    keyboard = [[
+                        InlineKeyboardButton(
+                            "Принять заказ",
+                            callback_data=f"accept_delivery_{task.get('request_id', '')}"
+                        )
+                    ]]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    # Для доставки из СЦ клиенту
+                    message = (
+                        f"📦 Задача #{task_id}\n"
+                        f"Тип: {delivery_type_display}\n"
+                        f"Время: {delivery_time}\n\n"
+                        f"1️⃣ Забрать из СЦ:\n"
+                        f"🏢 {task.get('sc_name', 'Не указан')}\n"
+                        f"📍 {task.get('sc_address', 'Не указан')}\n"
+                        f"☎️ {task.get('sc_phone', 'Не указан')}\n\n"
+                        f"2️⃣ Доставить клиенту:\n"
+                        f"👤 {task.get('client_name', 'Не указан')}\n"
+                        f"📍 {task.get('client_address', 'Не указан')}\n"
+                        f"📱 {task.get('client_phone', 'Не указан')}\n\n"
+                        f"📝 Описание: {task.get('description', '')[:100]}..."
                     )
-                ]]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                message = (
-                    f"📦 Задача доставки #{task_id}\n"
-                    f"Заявка: #{task['request_id']}\n"
-                    f"Время доставки: {delivery_time}\n"
-                    f"Сервисный центр: {task['sc_name']}\n"
-                    f"Адрес клиента: {task['client_address']}\n"
-                    f"Клиент: {task['client_name']}\n"
-                    f"Телефон: {task['client_phone']}\n"
-                    f"Описание: {task['description'][:100]}..."
-                )
+                else:
+                    delivery_type_display = "📥 Доставка ОТ КЛИЕНТА В СЦ"
+                    
+                    # Извлекаем время доставки
+                    delivery_time = task.get('desired_date', '').split()[0] if task.get('desired_date') else 'Не указано'
+                    
+                    keyboard = [[
+                        InlineKeyboardButton(
+                            "Принять заказ",
+                            callback_data=f"accept_delivery_{task.get('request_id', '')}"
+                        )
+                    ]]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    # Для доставки от клиента в СЦ
+                    message = (
+                        f"📦 Задача #{task_id}\n"
+                        f"Тип: {delivery_type_display}\n"
+                        f"Время: {delivery_time}\n\n"
+                        f"1️⃣ Забрать у клиента:\n"
+                        f"👤 {task.get('client_name', 'Не указан')}\n"
+                        f"📍 {task.get('client_address', 'Не указан')}\n"
+                        f"📱 {task.get('client_phone', 'Не указан')}\n\n"
+                        f"2️⃣ Доставить в СЦ:\n"
+                        f"🏢 {task.get('sc_name', 'Не указан')}\n"
+                        f"📍 {task.get('sc_address', 'Не указан')}\n"
+                        f"☎️ {task.get('sc_phone', 'Не указан')}\n\n"
+                        f"📝 Описание: {task.get('description', '')[:100]}..."
+                    )
+                
                 await update.message.reply_text(message, reply_markup=reply_markup)
+                
         except Exception as e:
             logger.error(f"Ошибка при показе доступных заданий: {e}")
             await update.message.reply_text("Произошла ошибка при загрузке заданий.")

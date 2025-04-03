@@ -1,7 +1,7 @@
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
 from handlers.base_handler import BaseHandler
-from database import load_users, save_users, load_service_centers, load_requests, save_requests
+from database import load_users, save_users, load_service_centers, load_requests, save_requests, load_delivery_tasks, save_delivery_tasks
 from config import ADMIN_IDS, DELIVERY_IDS, REGISTER, ORDER_STATUS_DELIVERY_TO_SC
 import logging
 from datetime import datetime, timedelta
@@ -163,35 +163,93 @@ class UserHandler(BaseHandler):
                 f"Сумма: {repair_price} руб.\n\n"
                 f"Заявка переведена в статус: Ожидает доставку"
             )
-            # Отправляем уведомление администраторам
-            service_centers = load_service_centers()
-            sc_id = request.get('assigned_sc')
-            sc_data = service_centers.get(sc_id, {})
-            sc_name = sc_data.get('name', 'Неизвестный СЦ')
-            keyboard = [[
-                InlineKeyboardButton(
-                    "Создать задачу доставки",
-                    callback_data=f"create_delivery_{request_id}"
-                )
-            ]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            admin_message = (
-                f"✅ Клиент согласился с предложенной стоимостью\n\n"
-                f"Заявка: #{request_id}\n"
-                f"СЦ: {sc_name}\n"
-                f"Стоимость ремонта: {repair_price} руб.\n"
-                f"Описание: {request.get('description', 'Нет описания')}\n"
-                f"Статус: Ожидает доставку"
-            )
-            for admin_id in ADMIN_IDS:
+            
+            # Создаем задачу доставки автоматически
+            try:
+                # Загружаем данные
                 try:
-                    await context.bot.send_message(
-                        chat_id=admin_id,
-                        text=admin_message,
-                        reply_markup=reply_markup
-                    )
+                    delivery_tasks = load_delivery_tasks()
                 except Exception as e:
-                    logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+                    logger.error(f"Ошибка загрузки delivery_tasks: {e}")
+                    delivery_tasks = {}  # Инициализируем пустым словарем если файл поврежден
+                    
+                service_centers = load_service_centers()
+                
+                # Получаем данные СЦ
+                sc_id = request.get('assigned_sc')
+                sc_data = service_centers.get(sc_id, {})
+                
+                # Создаем задачу доставки ОТ КЛИЕНТА В СЦ
+                new_task_id = str(len(delivery_tasks) + 1)
+                new_task = {
+                    'task_id': new_task_id,
+                    'request_id': request_id,
+                    'status': 'Новая',
+                    'sc_name': sc_data.get('name', 'Не указан'),
+                    'sc_address': sc_data.get('address', 'Не указан'),
+                    'client_name': request.get('user_name', 'Не указан'),
+                    'client_address': request.get('location', 'Не указан'),
+                    'client_phone': request.get('user_phone', 'Не указан'),
+                    'description': request.get('description', ''),
+                    'delivery_type': 'client_to_sc',
+                    'is_sc_to_client': False,
+                    'desired_date': request.get('desired_date', '')
+                }
+                
+                delivery_tasks[new_task_id] = new_task
+                save_delivery_tasks(delivery_tasks)
+                
+                # Обновляем статус заявки
+                request['status'] = ORDER_STATUS_DELIVERY_TO_SC
+                save_requests(requests_data)
+                
+                # Отправляем уведомление администраторам
+                admin_message = (
+                    f"✅ Клиент подтвердил цену для заявки #{request_id}\n"
+                    f"Создана задача доставки #{new_task_id}\n"
+                    f"Тип: Доставка от клиента в СЦ\n"
+                    f"СЦ: {sc_data.get('name', 'Не указан')}\n"
+                    f"Адрес клиента: {request.get('location', 'Не указан')}"
+                )
+                
+                for admin_id in ADMIN_IDS:
+                    try:
+                        await context.bot.send_message(
+                            chat_id=admin_id,
+                            text=admin_message
+                        )
+                    except Exception as e:
+                        logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+                        
+            except Exception as e:
+                logger.error(f"Ошибка при создании задачи доставки: {e}")
+                # Отправляем уведомление администраторам о необходимости создать задачу вручную
+                keyboard = [[
+                    InlineKeyboardButton(
+                        "Создать задачу доставки",
+                        callback_data=f"create_delivery_{request_id}"
+                    )
+                ]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                admin_message = (
+                    f"✅ Клиент согласился с предложенной стоимостью\n\n"
+                    f"Заявка: #{request_id}\n"
+                    f"СЦ: {sc_data.get('name', 'Неизвестный СЦ')}\n"
+                    f"Стоимость ремонта: {repair_price} руб.\n"
+                    f"Описание: {request.get('description', 'Нет описания')}\n"
+                    f"Статус: Ожидает доставку\n\n"
+                    f"❗ Автоматическое создание задачи доставки не удалось. Создайте задачу вручную."
+                )
+                for admin_id in ADMIN_IDS:
+                    try:
+                        await context.bot.send_message(
+                            chat_id=admin_id,
+                            text=admin_message,
+                            reply_markup=reply_markup
+                        )
+                    except Exception as e:
+                        logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+                
         except Exception as e:
             logger.error(f"Ошибка при обработке согласия с ценой: {e}")
             await query.edit_message_text("❌ Произошла ошибка при обработке запроса")

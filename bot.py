@@ -274,14 +274,14 @@ def register_admin_handlers(application, admin_handler, user_handler, sc_managem
     application.add_handler(ConversationHandler(
         entry_points=[
             CallbackQueryHandler(
-                admin_handler.handle_create_delivery_from_sc,
+                admin_handler.handle_create_sc_delivery,
                 pattern="^create_delivery_"
             )
         ],
         states={
             CREATE_DELIVERY_TASK: [
                 CallbackQueryHandler(
-                    admin_handler.handle_create_delivery_from_sc,
+                    admin_handler.handle_create_sc_delivery,
                     pattern="^create_delivery_"
                 )
             ]
@@ -375,15 +375,65 @@ def register_delivery_handlers(application, delivery_handler, user_handler, deli
         delivery_handler.handle_transfer_to_sc
     ))
 
+    # Обработчик для нажатия кнопки "Забрал из СЦ"
     application.add_handler(CallbackQueryHandler(
         delivery_sc_handler.handle_pickup_from_sc,
         pattern="^picked_up_from_sc_"
     ))
 
-    application.add_handler(CallbackQueryHandler(
-        delivery_sc_handler.handle_delivered_to_client,
-        pattern="^delivered_to_client_"
-    ))
+    # Обработчик для запроса кода подтверждения от СЦ
+    sc_confirmation_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                delivery_sc_handler.handle_request_sc_confirmation_code,
+                pattern="^request_sc_confirmation_"
+            )
+        ],
+        states={
+            ENTER_SC_CONFIRMATION_CODE: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    delivery_sc_handler.check_sc_confirmation_code
+                )
+            ],
+            CREATE_REQUEST_PHOTOS: [
+                MessageHandler(
+                    filters.PHOTO,
+                    delivery_sc_handler.handle_sc_photos_after_pickup
+                ),
+                CommandHandler(
+                    "done",
+                    delivery_sc_handler.handle_sc_photos_done
+                )
+            ]
+        },
+        fallbacks=[
+            CommandHandler('cancel', delivery_handler.cancel_delivery)
+        ]
+    )
+    application.add_handler(sc_confirmation_handler)
+
+    # Обработчик для нажатия кнопки "Сдать товар клиенту"
+    client_delivery_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                delivery_sc_handler.handle_deliver_to_client,
+                pattern="^deliver_to_client_"
+            )
+        ],
+        states={
+            ENTER_CONFIRMATION_CODE: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    delivery_sc_handler.handle_client_confirmation_code
+                )
+            ]
+        },
+        fallbacks=[
+            CommandHandler('cancel', delivery_handler.cancel_delivery)
+        ]
+    )
+    application.add_handler(client_delivery_handler)
 
     # Обработчики для доставки из СЦ
     application.add_handler(MessageHandler(
@@ -427,7 +477,7 @@ def register_delivery_handlers(application, delivery_handler, user_handler, deli
 
     application.add_handler(sc_delivery_handler)
 
-    # ConversationHandler для фотографий при получении товара
+    # ConversationHandler для фотографий при получении товара от клиента
     pickup_photos_handler = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(
@@ -690,6 +740,12 @@ def register_sc_handlers(application, sc_handler, sc_item_handler):
     )
     application.add_handler(sc_delivery_date_handler)
 
+    # Регистрация обработчика для создания задачи доставки из СЦ к клиенту
+    application.add_handler(CallbackQueryHandler(
+        sc_handler.create_return_delivery,
+        pattern="^create_return_delivery_"
+    ))
+
 
 def register_callbacks(application, delivery_handler, admin_handler, user_handler, sc_management_handler, delivery_sc_handler):
     # Обработчики callback-запросов
@@ -754,10 +810,7 @@ def register_callbacks(application, delivery_handler, admin_handler, user_handle
         delivery_sc_handler.handle_pickup_from_sc,
         pattern="^picked_up_from_sc_"
     ))
-    application.add_handler(CallbackQueryHandler(
-        delivery_sc_handler.handle_delivered_to_client,
-        pattern="^delivered_to_client_"
-    ))
+    
     application.add_handler(CallbackQueryHandler(
         delivery_sc_handler.accept_delivery_from_sc,
         pattern="^accept_sc_delivery_"
