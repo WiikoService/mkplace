@@ -16,7 +16,7 @@ from config import (
     CREATE_REQUEST_COMMENT, RATING_SERVICE, FEEDBACK_TEXT
 )
 from database import load_requests, load_users, save_requests, DATA_DIR
-from utils import notify_admin
+from utils import notify_admin, get_address_from_coords, format_location_for_display, prepare_location_for_storage
 import logging
 
 logger = logging.getLogger(__name__)
@@ -92,62 +92,97 @@ class ClientHandler:
 
     async def handle_request_location(self, update: Update, context: CallbackContext):
         """Обработка местоположения заявки."""
-        if update.message.location:
-            context.user_data["location"] = {
-                "latitude": update.message.location.latitude,
-                "longitude": update.message.location.longitude,
-                "type": "coordinates"
-            }
+        try:
+            if update.message.location:
+                # Получаем координаты
+                latitude = update.message.location.latitude
+                longitude = update.message.location.longitude
+                
+                # Получаем адрес по координатам
+                address = get_address_from_coords(latitude, longitude)
+                
+                # Сохраняем все данные
+                context.user_data["location"] = {
+                    "latitude": latitude,
+                    "longitude": longitude,
+                    "address": address,
+                    "type": "coordinates"
+                }
+                
+                # Показываем кнопки с датами
+                return await self.show_date_buttons(update.message)
+                
+            elif update.message.text == "Ввести адрес вручную":
+                await update.message.reply_text(
+                    "Пожалуйста, введите адрес:",
+                    reply_markup=ReplyKeyboardRemove()
+                )
+                return CREATE_REQUEST_ADDRESS
+                
+        except Exception as e:
+            logger.error(f"Error handling location: {e}")
             await update.message.reply_text(
-                "Теперь введите желаемую дату и время в формате 00:00 01.03.2025:"
+                "Произошла ошибка при обработке местоположения. Пожалуйста, попробуйте еще раз."
             )
-            return CREATE_REQUEST_DATA
-        elif update.message.text == "Ввести адрес вручную":
-            await update.message.reply_text("Пожалуйста, введите адрес:")
-            return CREATE_REQUEST_ADDRESS
-        else:
-            context.user_data["location"] = {
-                "address": update.message.text,
-                "type": "manual"
-            }
-            await update.message.reply_text(
-                "Теперь введите желаемую дату и время в формате 00:00 01.03.2025:"
-            )
-            return CREATE_REQUEST_DATA
+            return CREATE_REQUEST_LOCATION
 
-    async def handle_request_address(self, update: Update, context: CallbackContext):
-        """Обработка ввода адреса вручную."""
-        context.user_data["location"] = update.message.text
-        # Создаем клавиатуру с датами на ближайшую неделю
+    async def show_date_buttons(self, message):
+        """Показывает инлайн-кнопки с датами"""
         keyboard = []
         current_date = datetime.now()
-        # Форматируем текущую дату и добавляем кнопки для следующих 7 дней
+        
+        # Добавляем кнопки для следующих 7 дней
         for i in range(7):
             date = current_date + timedelta(days=i)
-            # Форматируем дату для отображения
-            date_display = date.strftime("%d.%m.%Y")
-            # Форматируем дату для callback_data
-            date_value = date.strftime("%H:%M %d.%m.%Y")
+            date_display = date.strftime("%d.%m.%Y")  # Формат для отображения
+            date_value = date.strftime("%d.%m.%Y")    # Формат для callback_data
             keyboard.append([
                 InlineKeyboardButton(
                     f"📅 {date_display}",
                     callback_data=f"select_date_{date_value}"
                 )
             ])
+        
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(
+        await message.reply_text(
             "Выберите желаемую дату:",
             reply_markup=reply_markup
         )
         return CREATE_REQUEST_DATA
 
+    async def handle_request_address(self, update: Update, context: CallbackContext):
+        """Обработка ввода адреса вручную."""
+        try:
+            address = update.message.text.strip()
+            if not address:
+                await update.message.reply_text("Пожалуйста, введите корректный адрес.")
+                return CREATE_REQUEST_ADDRESS
+                
+            context.user_data["location"] = {
+                "address": address,
+                "type": "manual"
+            }
+            
+            # Показываем кнопки с датами
+            return await self.show_date_buttons(update.message)
+            
+        except Exception as e:
+            logger.error(f"Error handling address: {e}")
+            await update.message.reply_text(
+                "Произошла ошибка при обработке адреса. Пожалуйста, попробуйте еще раз."
+            )
+            return CREATE_REQUEST_ADDRESS
+
     async def handle_date_selection(self, update: Update, context: CallbackContext):
-        """Обработка выбора даты"""
+        """Обработка выбора даты из инлайн-кнопок"""
         query = update.callback_query
         await query.answer()
-        # Получаем выбранную дату из callback_data и сохраняем во временные данные
-        selected_date_str = query.data.split('_', 2)[2]
-        context.user_data["temp_date"] = selected_date_str
+        
+        # Получаем выбранную дату из callback_data (формат "дд.мм.гггг")
+        selected_date = query.data.split('_', 2)[2]
+        # Сохраняем дату в формате "дд.мм.гггг" для последующего использования
+        context.user_data["selected_date"] = selected_date
+        
         # Создаем клавиатуру с временными интервалами
         keyboard = []
         current_hour = 9  # Начинаем с 9 утра
@@ -160,6 +195,7 @@ class ClientHandler:
                 )
             ])
             current_hour += 1
+        
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
             "Выберите удобное время:",
@@ -171,96 +207,181 @@ class ClientHandler:
         """Обработка выбора времени"""
         query = update.callback_query
         await query.answer()
+        
+        # Получаем выбранное время (формат "ЧЧ:ММ")
         selected_time = query.data.split('_', 2)[2]
-        temp_date = context.user_data.get("temp_date")
+        
+        # Получаем сохраненную дату (формат "дд.мм.гггг")
+        selected_date = context.user_data.get("selected_date")
+        
+        if not selected_date:
+            await query.edit_message_text(
+                "Ошибка: не найдена выбранная дата. Пожалуйста, начните заново."
+            )
+            return ConversationHandler.END
+        
         try:
             # Комбинируем дату и время
-            date_obj = datetime.strptime(temp_date, "%H:%M %d.%m.%Y")
+            date_obj = datetime.strptime(selected_date, "%d.%m.%Y")
             time_obj = datetime.strptime(selected_time, "%H:%M")
+            
             # Создаем финальную дату с выбранным временем
             final_datetime = date_obj.replace(
                 hour=time_obj.hour,
                 minute=time_obj.minute
             )
             context.user_data["desired_date"] = final_datetime
+            
             # Очищаем временные данные
-            if "temp_date" in context.user_data:
-                del context.user_data["temp_date"]
+            if "selected_date" in context.user_data:
+                del context.user_data["selected_date"]
+            
             await query.message.delete()
+            # Передаем query вместо query.message
             return await self.show_confirmation(query, context)
         except ValueError as e:
+            logger.error(f"Ошибка обработки даты/времени: {e}")
             await query.edit_message_text(
-                "Произошла ошибка при обработке времени. Попробуйте еще раз."
+                "Произошла ошибка при обработке времени. Пожалуйста, попробуйте еще раз."
             )
             return CREATE_REQUEST_DATA
 
     async def show_confirmation(self, update: Update, context: CallbackContext):
         """Показ сводки данных и запрос комментария."""
-        category = context.user_data.get("category", "Не указана")
-        description = context.user_data.get("description", "Не указано")
-        location = context.user_data.get("location", "Не указано")
-        desired_date = context.user_data.get("desired_date", "Не указана")
-        if isinstance(location, dict):
-            if location.get("type") == "coordinates":
-                location_str = f"Широта: {location.get('latitude', 'N/A')}, Долгота: {location.get('longitude', 'N/A')}"
+        try:
+            message = update.message if hasattr(update, 'message') else update.callback_query.message
+            
+            # Получаем данные из контекста
+            category = context.user_data.get("category", "Не указана")
+            description = context.user_data.get("description", "Не указано")
+            desired_date = context.user_data.get("desired_date", "Не указана")
+            location = context.user_data.get("location", {})
+            
+            # Форматируем местоположение
+            location_str = format_location_for_display(location)
+            
+            summary = (
+                f"📝 Проверьте данные заявки:\n\n"
+                f"🔹 Категория: {category}\n"
+                f"🔹 Описание: {description}\n"
+                f"🔹 Адрес: {location_str}\n"
+                f"🔹 Дата и время: {desired_date.strftime('%H:%M %d.%m.%Y') if isinstance(desired_date, datetime) else 'Не указана'}\n\n"
+                "Добавьте комментарий к заявке или нажмите 'Пропустить':"
+            )
+            
+            keyboard = [[InlineKeyboardButton("⏩ Пропустить", callback_data="skip_comment")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            if isinstance(update, CallbackQuery):
+                try:
+                    await update.edit_message_text(summary, reply_markup=reply_markup)
+                except Exception as e:
+                    logger.error(f"Error editing message: {e}")
+                    await update.message.reply_text(summary, reply_markup=reply_markup)
             else:
-                location_str = location.get("address", "Адрес не указан")
-        else:
-            location_str = location
-        summary = (
-            f"Проверьте данные заявки:\n\n"
-            f"Категория: {category}\n"
-            f"Описание: {description}\n"
-            f"Адрес: {location_str}\n"
-            f"Желаемая дата и время: {desired_date.strftime('%H:%M %d.%m.%Y') if isinstance(desired_date, datetime) else 'Не указана'}\n\n"
-            "Пожалуйста, добавьте комментарий к заявке (Что необходимо знать доставщику?) или нажмите 'Пропустить':"
-        )
-        keyboard = [[InlineKeyboardButton("⏩ Пропустить", callback_data="skip_comment")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(summary, reply_markup=reply_markup)
-        return CREATE_REQUEST_COMMENT
+                await message.reply_text(summary, reply_markup=reply_markup)
+            
+            return CREATE_REQUEST_COMMENT
+            
+        except Exception as e:
+            logger.error(f"Error in show_confirmation: {e}")
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Произошла ошибка при отображении подтверждения. Пожалуйста, начните заново."
+            )
+            return ConversationHandler.END
 
     async def skip_comment(self, update: Update, context: CallbackContext):
         """Пропуск комментария"""
         query = update.callback_query
         await query.answer()
         context.user_data["comment"] = "Не указано"
+        
+        # Получаем и форматируем местоположение
+        location = context.user_data.get("location", {})
+        if isinstance(location, dict):
+            if location.get("type") == "coordinates":
+                address = location.get("address", "Адрес не определен")
+                location_str = f"{address} (координаты: {location.get('latitude')}, {location.get('longitude')})"
+            else:
+                location_str = location.get("address", "Адрес не указан")
+        else:
+            location_str = str(location)
+        
+        # Форматируем дату
+        desired_date = context.user_data.get("desired_date")
+        date_str = desired_date.strftime('%H:%M %d.%m.%Y') if isinstance(desired_date, datetime) else "Не указана"
+        
         summary = (
             "📝 Итоговые данные заявки:\n\n"
-            f"Категория: {context.user_data.get('category')}\n"
-            f"Описание: {context.user_data.get('description')}\n"
-            f"Адрес: {context.user_data.get('location')}\n"
-            f"Дата: {context.user_data.get('desired_date').strftime('%H:%M %d.%m.%Y')}\n"
-            f"Комментарий: {context.user_data.get('comment')}\n\n"
+            f"Категория: {context.user_data.get('category', 'Не указана')}\n"
+            f"Описание: {context.user_data.get('description', 'Не указано')}\n"
+            f"Адрес: {location_str}\n"
+            f"Дата: {date_str}\n"
+            f"Комментарий: {context.user_data.get('comment', 'Не указано')}\n\n"
             "Подтвердите создание заявки или начните заново."
         )
+        
         keyboard = [
             [InlineKeyboardButton("✅ Подтвердить", callback_data="confirm_request")],
             [InlineKeyboardButton("🔄 Изменить", callback_data="restart_request")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(summary, reply_markup=reply_markup)
+        
+        try:
+            await query.edit_message_text(summary, reply_markup=reply_markup)
+        except Exception as e:
+            logger.error(f"Error editing message in skip_comment: {e}")
+            # Fallback - отправляем новое сообщение
+            await query.message.reply_text(summary, reply_markup=reply_markup)
+        
         return CREATE_REQUEST_CONFIRMATION
 
     async def handle_request_comment(self, update: Update, context: CallbackContext):
         """Обработка комментария клиента"""
-        context.user_data["comment"] = update.message.text
-        summary = (
-            "📝 Итоговые данные заявки:\n\n"
-            f"Категория: {context.user_data.get('category')}\n"
-            f"Описание: {context.user_data.get('description')}\n"
-            f"Адрес: {context.user_data.get('location')}\n"
-            f"Дата: {context.user_data.get('desired_date').strftime('%H:%M %d.%m.%Y')}\n"
-            f"Комментарий: {context.user_data.get('comment')}\n\n"
-            "Подтвердите создание заявки или начните заново."
-        )
-        keyboard = [
-            [InlineKeyboardButton("✅ Подтвердить", callback_data="confirm_request")],
-            [InlineKeyboardButton("🔄 Изменить", callback_data="restart_request")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(summary, reply_markup=reply_markup)
-        return CREATE_REQUEST_CONFIRMATION
+        try:
+            context.user_data["comment"] = update.message.text
+            
+            # Получаем и форматируем местоположение
+            location = context.user_data.get("location", {})
+            if isinstance(location, dict):
+                if location.get("type") == "coordinates":
+                    address = location.get("address", "Адрес не определен")
+                    location_str = f"{address} (координаты: {location.get('latitude')}, {location.get('longitude')})"
+                else:
+                    location_str = location.get("address", "Адрес не указан")
+            else:
+                location_str = str(location)
+            
+            # Форматируем дату
+            desired_date = context.user_data.get("desired_date")
+            date_str = desired_date.strftime('%H:%M %d.%m.%Y') if isinstance(desired_date, datetime) else "Не указана"
+            
+            summary = (
+                "📝 Итоговые данные заявки:\n\n"
+                f"Категория: {context.user_data.get('category', 'Не указана')}\n"
+                f"Описание: {context.user_data.get('description', 'Не указано')}\n"
+                f"Адрес: {location_str}\n"
+                f"Дата: {date_str}\n"
+                f"Комментарий: {context.user_data.get('comment', 'Не указано')}\n\n"
+                "Подтвердите создание заявки или начните заново."
+            )
+            
+            keyboard = [
+                [InlineKeyboardButton("✅ Подтвердить", callback_data="confirm_request")],
+                [InlineKeyboardButton("🔄 Изменить", callback_data="restart_request")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(summary, reply_markup=reply_markup)
+            return CREATE_REQUEST_CONFIRMATION
+            
+        except Exception as e:
+            logger.error(f"Error in handle_request_comment: {e}")
+            await update.message.reply_text(
+                "Произошла ошибка при обработке комментария. Пожалуйста, попробуйте еще раз."
+            )
+            return CREATE_REQUEST_COMMENT
 
     async def handle_request_confirmation(self, update: Update, context: CallbackContext):
         """Обработка подтверждения или отмены заявки."""
@@ -274,50 +395,78 @@ class ClientHandler:
 
     async def create_request_final(self, query: CallbackQuery, context: CallbackContext):
         """Финальная обработка заявки."""
-        requests_data = load_requests()
-        request_id = str(len(requests_data) + 1)
-        user_id = str(query.from_user.id)
-        users_data = load_users()
-        user_name = users_data.get(user_id, {}).get('name', 'Неизвестный пользователь')
-        location = context.user_data["location"]
-        if isinstance(location, dict):
-            if location.get("type") == "coordinates":
-                latitude = location["latitude"]
-                longitude = location["longitude"]
-                location_display = f"Координаты: {latitude}, {longitude}"
-                location_link = f"https://yandex.ru/maps?whatshere%5Bpoint%5D={longitude}%2C{latitude}&"
-            else:
-                location_display = location.get("address", "Адрес не указан")
-                location_link = "Адрес введен вручную"
-        else:
-            location_display = location
-            location_link = "Адрес введен вручную"
-        desired_date = context.user_data.get("desired_date")
-        desired_date_str = desired_date.strftime("%H:%M %d.%m.%Y")
-        requests_data[request_id] = {
-            "id": request_id,
-            "user_id": user_id,
-            "user_name": user_name,
-            "description": context.user_data["description"],
-            "photos": context.user_data["photos"],
-            "location": location,
-            "location_display": location_display,
-            "location_link": location_link,
-            "status": "Новая",
-            "assigned_sc": None,
-            "desired_date": desired_date_str,
-            "comment": context.user_data.get("comment", "")
-        }
-        save_requests(requests_data)
-        await query.message.reply_text(
-            f"Заявка #{request_id} создана.\n"
-            "Администратор уведомлен.", reply_markup=ReplyKeyboardRemove())
-        await notify_admin(context.bot, request_id, requests_data, ADMIN_IDS)
-        for admin_id in ADMIN_IDS:
-            for photo_path in context.user_data["photos"]:
-                with open(photo_path, 'rb') as photo:
-                    await context.bot.send_photo(chat_id=admin_id, photo=photo)
-        return ConversationHandler.END
+        try:
+            requests_data = load_requests()
+            request_id = str(len(requests_data) + 1)
+            user_id = str(query.from_user.id)
+            users_data = load_users()
+            user_name = users_data.get(user_id, {}).get('name', 'Неизвестный пользователь')
+            
+            # Получаем и форматируем местоположение
+            location = context.user_data.get("location", {})
+            location_display = format_location_for_display(location)
+            
+            # Создаем ссылку на карту для координат
+            location_link = ""
+            if isinstance(location, dict) and location.get("type") == "coordinates":
+                lat = location.get("latitude")
+                lon = location.get("longitude")
+                if lat and lon:
+                    location_link = f"https://yandex.ru/maps/?pt={lon},{lat}&z=16&l=map"
+            
+            desired_date = context.user_data.get("desired_date")
+            desired_date_str = desired_date.strftime("%H:%M %d.%m.%Y") if desired_date else "Не указана"
+            
+            # Сохраняем заявку
+            requests_data[request_id] = {
+                "id": request_id,
+                "user_id": user_id,
+                "user_name": user_name,
+                "category": context.user_data.get("category"),
+                "description": context.user_data.get("description"),
+                "photos": context.user_data.get("photos", []),
+                "location": prepare_location_for_storage(location),
+                "location_display": location_display,
+                "location_link": location_link,
+                "status": "Новая",
+                "assigned_sc": None,
+                "desired_date": desired_date_str,
+                "comment": context.user_data.get("comment", "")
+            }
+            
+            save_requests(requests_data)
+            
+            # Уведомляем пользователя
+            await query.message.reply_text(
+                f"✅ Заявка #{request_id} создана\n"
+                "Администратор уведомлен.", 
+                reply_markup=ReplyKeyboardRemove()
+            )
+            
+            # Уведомляем администраторов
+            await notify_admin(context.bot, request_id, requests_data, ADMIN_IDS)
+            
+            # Отправляем фотографии администраторам
+            for admin_id in ADMIN_IDS:
+                for photo_path in context.user_data.get("photos", []):
+                    try:
+                        with open(photo_path, 'rb') as photo:
+                            await context.bot.send_photo(
+                                chat_id=admin_id, 
+                                photo=photo,
+                                caption=f"Фото к заявке #{request_id}"
+                            )
+                    except Exception as e:
+                        logger.error(f"Error sending photo to admin {admin_id}: {e}")
+            
+            return ConversationHandler.END
+            
+        except Exception as e:
+            logger.error(f"Error in create_request_final: {e}")
+            await query.message.reply_text(
+                "Произошла ошибка при создании заявки. Пожалуйста, попробуйте еще раз."
+            )
+            return ConversationHandler.END
 
     async def cancel_request(self, update: Update, context: CallbackContext):
         """Отмена создания заявки."""
@@ -374,7 +523,7 @@ class ClientHandler:
             "Политика конфиденциальности",
             "Инструкция по использованию сервиса"
         ]
-        message = "Доступные документы:\n\n"
+        message = "Доступные документы (ТЕСТОВАЯ ИНФОРМАЦИЯ):\n\n"
         for doc in documents:
             message += f"• {doc}\n"
         message += "\nДля получения конкретного документа, пожалуйста, обратитесь к администратору."
