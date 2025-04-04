@@ -1088,3 +1088,48 @@ class AdminHandler(BaseHandler):
             )
         else:
             await query.edit_message_text("❌ Заявка не найдена.")
+
+    async def handle_contact_client(self, update: Update, context: CallbackContext):
+        """Обработка запроса администратора на связь с клиентом"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            request_id = query.data.split('_')[-1]
+            requests_data = load_requests()
+            
+            if request_id not in requests_data:
+                await query.edit_message_text("❌ Заявка не найдена")
+                return
+            
+            request = requests_data[request_id]
+            client_id = request.get('user_id')
+            
+            if not client_id:
+                await query.edit_message_text("❌ Не удалось найти клиента")
+                return
+            
+            # Отправляем клиенту сообщение от администратора
+            await context.bot.send_message(
+                chat_id=client_id,
+                text=f"Администратор хочет уточнить детали по заявке #{request_id}. Пожалуйста, подтвердите, забрал ли доставщик товар?"
+            )
+            
+            # Создаем клавиатуру для клиента
+            keyboard = [
+                [InlineKeyboardButton("Да, забрал", callback_data=f"client_confirm_{request_id}")],
+                [InlineKeyboardButton("Нет, не забрал", callback_data=f"client_deny_{request_id}")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await context.bot.send_message(
+                chat_id=client_id,
+                text="Подтвердите получение товара доставщиком:",
+                reply_markup=reply_markup
+            )
+            
+            await query.edit_message_text(f"✅ Запрос на подтверждение отправлен клиенту по заявке #{request_id}")
+            
+        except Exception as e:
+            logger.error(f"Ошибка при связи с клиентом: {e}")
+            await query.edit_message_text("❌ Произошла ошибка при отправке запроса клиенту")

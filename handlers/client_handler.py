@@ -13,9 +13,9 @@ from config import (
     ADMIN_IDS, CREATE_REQUEST_DESC, CREATE_REQUEST_PHOTOS,
     CREATE_REQUEST_LOCATION, PHOTOS_DIR, CREATE_REQUEST_CATEGORY,
     CREATE_REQUEST_DATA, CREATE_REQUEST_ADDRESS, CREATE_REQUEST_CONFIRMATION,
-    CREATE_REQUEST_COMMENT, RATING_SERVICE, FEEDBACK_TEXT
+    CREATE_REQUEST_COMMENT, RATING_SERVICE, FEEDBACK_TEXT, ORDER_STATUS_DELIVERY_TO_SC
 )
-from database import load_requests, load_users, save_requests, DATA_DIR
+from database import load_requests, load_users, save_requests, DATA_DIR, load_delivery_tasks
 from utils import notify_admin, get_address_from_coords, format_location_for_display, prepare_location_for_storage
 import logging
 
@@ -697,3 +697,95 @@ class ClientHandler:
             )
             logger.info(f"Получена высокая оценка {rating} для заявки {request_id}")
             return ConversationHandler.END
+
+    async def handle_client_confirmation(self, update: Update, context: CallbackContext):
+        """Обработка подтверждения/отказа клиента о получении товара"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            action, request_id = query.data.split('_')[1:]
+            requests_data = load_requests()
+            delivery_tasks = load_delivery_tasks()
+            users_data = load_users()
+            
+            if request_id not in requests_data:
+                await query.edit_message_text("❌ Заявка не найдена")
+                return
+            
+            request = requests_data[request_id]
+            
+            if action == 'confirm':
+                # Клиент подтвердил получение
+                request['status'] = ORDER_STATUS_DELIVERY_TO_SC
+                request['client_confirmed'] = True
+                save_requests(requests_data)
+                
+                # Уведомляем доставщика
+                delivery_id = request.get('assigned_delivery')
+                if delivery_id:
+                    await context.bot.send_message(
+                        chat_id=delivery_id,
+                        text=f"✅ Клиент подтвердил получение товара по заявке #{request_id}"
+                    )
+                
+                await query.edit_message_text("✅ Вы подтвердили получение товара доставщиком.")
+                
+            elif action == 'deny':
+                # Клиент отказался от получения
+                if 'deny_count' not in request:
+                    request['deny_count'] = 1
+                else:
+                    request['deny_count'] += 1
+                    
+                if request['deny_count'] >= 2:
+                    # При втором отказе отклоняем заявку
+                    request['status'] = 'Отклонена'
+                    await query.edit_message_text("❌ Заявка отклонена по вашему запросу.")
+                    
+                    # Уведомляем администратора
+                    for admin_id in ADMIN_IDS:
+                        await context.bot.send_message(
+                            chat_id=admin_id,
+                            text=f"⚠️ Клиент отказался от товара по заявке #{request_id}. Заявка отклонена."
+                        )
+                else:
+                    # При первом отказе уведомляем администратора
+                    request['status'] = 'Требуется проверка'
+                    await query.edit_message_text("❌ Вы отказались от получения товара. Администратор уведомлен.")
+                    
+                    # Отправляем уведомление администратору с кнопкой "Связаться с клиентом"
+                    keyboard = [[
+                        InlineKeyboardButton(
+                            "📞 Связаться с клиентом",
+                            callback_data=f"contact_client_{request_id}"
+                        )]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    for admin_id in ADMIN_IDS:
+                        # Отправляем фотографии администратору
+                        pickup_photos = request.get('pickup_photos', [])
+                        if pickup_photos:
+                            for photo_path in pickup_photos[:1]:  # Отправляем только первое фото
+                                if os.path.exists(photo_path):
+                                    with open(photo_path, 'rb') as photo_file:
+                                        await context.bot.send_photo(
+                                            chat_id=admin_id,
+                                            photo=photo_file,
+                                            caption=f"⚠️ Клиент отказался от товара по заявке #{request_id}",
+                                            reply_markup=reply_markup
+                                        )
+                                break
+                        else:
+                            await context.bot.send_message(
+                                chat_id=admin_id,
+                                text=f"⚠️ Клиент отказался от товара по заявке #{request_id}",
+                                reply_markup=reply_markup
+                            )
+                
+                save_requests(requests_data)
+                
+        except Exception as e:
+            logger.error(f"Ошибка при обработке подтверждения клиента: {e}")
+            await query.edit_message_text("Произошла ошибка при обработке вашего запроса.")

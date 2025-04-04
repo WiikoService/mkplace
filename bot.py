@@ -54,7 +54,7 @@ def main():
     register_admin_handlers(application, admin_handler, user_handler, sc_handler, sc_management_handler)
     register_delivery_handlers(application, delivery_handler, user_handler, delivery_sc_handler)
     register_sc_handlers(application, sc_handler, sc_item_handler, sc_chat_handler)
-    register_callbacks(application, delivery_handler, admin_handler, user_handler, sc_management_handler, delivery_sc_handler)
+    register_callbacks(application, delivery_handler, admin_handler, delivery_sc_handler, client_handler)
     register_user_handlers(application, user_handler)
 
     # Обработчики команд (общие для всех)
@@ -760,8 +760,9 @@ def register_sc_handlers(application, sc_handler, sc_item_handler, sc_chat_handl
     ))
 
 
-def register_callbacks(application, delivery_handler, admin_handler, user_handler, sc_management_handler, delivery_sc_handler):
+def register_callbacks(application, delivery_handler, admin_handler, delivery_sc_handler, client_handler):
     # Обработчики callback-запросов
+
     application.add_handler(CallbackQueryHandler(
         delivery_handler.accept_delivery,
         pattern="^accept_delivery_"
@@ -856,6 +857,15 @@ def register_callbacks(application, delivery_handler, admin_handler, user_handle
     )
     application.add_handler(sc_photo_conv_handler)
 
+    application.add_handler(CallbackQueryHandler(
+        admin_handler.handle_contact_client,
+        pattern="^contact_client_"
+    ))
+    
+    application.add_handler(CallbackQueryHandler(
+        delivery_handler.handle_client_confirmation,
+        pattern="^client_(confirm|deny)_"
+    ))
 
 def register_user_handlers(application, user_handler):
     # Обработчики для выбора даты и времени доставки
