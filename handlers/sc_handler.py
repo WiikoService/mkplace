@@ -606,18 +606,53 @@ class SCHandler(BaseHandler):
             user_id = update.effective_user.id
             requests_data = load_requests()
             request = requests_data.get(request_id)
+            
+            # Проверяем, не была ли заявка уже принята
+            if request.get('assigned_sc'):
+                await query.edit_message_text(
+                    f"❌ Заявка #{request_id} уже принята другим сервисным центром."
+                )
+                return ConversationHandler.END
+            
+            # Получаем данные СЦ
+            users_data = load_users()
+            sc_user = users_data.get(str(user_id), {})
+            sc_id = sc_user.get('sc_id')
+            
+            # Обновляем статус заявки и назначаем СЦ
+            request['status'] = 'Принята СЦ'
+            request['assigned_sc'] = sc_id
+            requests_data[request_id] = request
+            save_requests(requests_data)
+            
             # Сохраняем ID заявки в контексте пользователя
             context.user_data['current_request'] = request_id
             # Добавляем флаг, что ожидаем ввод стоимости и время начала ожидания
             context.user_data['waiting_for_price'] = True
             context.user_data['price_entry_time'] = time.time()
+            
+            # Уведомляем других СЦ о том, что заявка принята
+            for other_user_id, other_user_data in users_data.items():
+                if (other_user_data.get('role') == 'sc' and 
+                    str(other_user_id) != str(user_id) and 
+                    other_user_data.get('sc_id') != sc_id):
+                    try:
+                        await context.bot.send_message(
+                            chat_id=int(other_user_id),
+                            text=f"ℹ️ Заявка #{request_id} была принята другим сервисным центром."
+                        )
+                    except Exception as e:
+                        logger.error(f"Ошибка уведомления СЦ {other_user_id}: {e}")
+            
             # Запрашиваем стоимость простым текстом без кнопок
             await query.edit_message_text(
                 f"Вы приняли заявку #{request_id}.\n\n"
                 f"Пожалуйста, укажите примерную стоимость ремонта (можно указать диапазон):"
             )            
         except Exception as e:
+            logger.error(f"Ошибка при обработке запроса: {e}")
             await query.edit_message_text("Произошла ошибка при обработке запроса")
+            return ConversationHandler.END
 
     async def handle_repair_price(self, update: Update, context: CallbackContext):
         """Обработка ввода стоимости ремонта"""       

@@ -134,6 +134,12 @@ class AdminHandler(BaseHandler):
                 return
             request = requests_data[rid]
             
+            # Проверяем, не была ли заявка уже принята
+            if request.get('assigned_sc'):
+                logger.info(f"Request {rid} already assigned to SC {request.get('assigned_sc')}")
+                await query.edit_message_text("❌ Заявка уже принята другим сервисным центром")
+                return
+            
             # Форматируем местоположение
             location = request.get('location', {})
             if isinstance(location, dict):
