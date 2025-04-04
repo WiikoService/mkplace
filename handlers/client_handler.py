@@ -490,28 +490,57 @@ class ClientHandler:
             await update.message.reply_text(reply)
 
     async def show_client_requests(self, update: Update, context: CallbackContext):
-        """Отображение заявок клиента."""
+        """Показать заявки клиента"""
         user_id = str(update.effective_user.id)
         requests_data = load_requests()
-        user_requests = [req for req in requests_data.values() if req["user_id"] == user_id]
+        
+        # Фильтруем заявки пользователя
+        user_requests = {
+            req_id: req_data for req_id, req_data in requests_data.items()
+            if req_data.get('user_id') == user_id
+        }
+        
         if not user_requests:
-            await update.message.reply_text("У вас пока нет заявок.")
-        else:
-            reply = "Ваши заявки:\n\n"
-            for req in user_requests:
-                reply += f"Заявка #{req['id']}\n"
-                reply += f"Статус: {req['status']}\n"
-                reply += f"Описание: {req['description'][:50]}...\n"
-                location = req.get('location', {})
-                if isinstance(location, dict):
-                    if location.get("type") == "coordinates":
-                        reply += f"Адрес: {location['latitude']}, {location['longitude']}\n"
-                    else:
-                        reply += f"Адрес: {location.get('address', 'Не указан')}\n"
-                else:
-                    reply += f"Адрес: {location}\n"
-                reply += f"Желаемая дата и время: {req.get('desired_date', 'Не указана')}\n\n"
-            await update.message.reply_text(reply)
+            await update.message.reply_text(
+                "У вас пока нет заявок.",
+                reply_markup=ReplyKeyboardRemove()
+            )
+            return
+        
+        # Формируем сообщение и клавиатуру
+        message = "📋 Ваши заявки:\n\n"
+        keyboard = []
+        
+        for req_id, req_data in user_requests.items():
+            status = req_data.get('status', 'Неизвестно')
+            location = req_data.get('location', {})
+            
+            # Обрабатываем location в зависимости от его типа
+            if isinstance(location, dict):
+                address = location.get('address', 'Адрес не указан')
+                if location.get("type") == "coordinates":
+                    address = "📍 Геолокация"
+            else:
+                address = str(location)
+            
+            message += f"🔹 Заявка #{req_id}\n"
+            message += f"📍 Адрес: {address}\n"
+            message += f"📊 Статус: {status}\n\n"
+            
+            # Добавляем кнопку "Открыть спор" для заявок со статусом "Доставлено клиенту"
+            if status == "Доставлено клиенту":
+                keyboard.append([
+                    InlineKeyboardButton(
+                        f"🗣 Открыть спор (Заявка #{req_id})",
+                        callback_data=f"open_dispute_{req_id}"
+                    )
+                ])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
+        await update.message.reply_text(
+            message,
+            reply_markup=reply_markup
+        )
 
     async def show_documents(self, update: Update, context: CallbackContext):
         """

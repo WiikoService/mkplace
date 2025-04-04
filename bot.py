@@ -647,6 +647,11 @@ def register_sc_handlers(application, sc_handler, sc_item_handler, sc_chat_handl
             CallbackQueryHandler(
                 sc_chat_handler.handle_client_reply,
                 pattern=r"^client_reply_"
+            ),
+            # Добавляем обработчик для кнопки "Открыть спор"
+            CallbackQueryHandler(
+                sc_chat_handler.handle_client_reply,
+                pattern=r"^open_dispute_"
             )
         ],
         states={
