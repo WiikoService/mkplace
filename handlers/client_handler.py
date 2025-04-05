@@ -29,6 +29,14 @@ class ClientHandler:
         'Ремонт техники', 'Прочее'
     ]
 
+    async def show_client_menu(self, update: Update, context: CallbackContext):
+        keyboard = [
+            ["Создать заявку", "Мои заявки"],
+            ["Мой профиль", "Документы"]
+        ]
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        await update.message.reply_text("Меню клиента:", reply_markup=reply_markup)
+
     async def create_request(self, update: Update, context: CallbackContext):
         """Создание заявки."""
         user_id = str(update.effective_user.id)
@@ -97,15 +105,30 @@ class ClientHandler:
                 # Получаем координаты
                 latitude = update.message.location.latitude
                 longitude = update.message.location.longitude
-                # Получаем адрес по координатам
-                address = get_address_from_coords(latitude, longitude)
-                # Сохраняем все данные
+                
+                # Уведомляем пользователя о процессе и скрываем клавиатуру
+                status_message = await update.message.reply_text(
+                    "⏳ Определяю адрес по локации...",
+                    reply_markup=ReplyKeyboardRemove()  # Удаляем клавиатуру после выбора
+                )
+                
+                # Асинхронно получаем адрес
+                address = await get_address_from_coords(latitude, longitude)
+                
+                # Убираем статусное сообщение
+                try:
+                    await status_message.delete()
+                except:
+                    pass
+                    
+                # Сохраняем данные
                 context.user_data["location"] = {
                     "latitude": latitude,
                     "longitude": longitude,
                     "address": address,
                     "type": "coordinates"
                 }
+                
                 # Показываем кнопки с датами
                 return await self.show_date_buttons(update.message)
             elif update.message.text == "Ввести адрес вручную":
@@ -241,10 +264,10 @@ class ClientHandler:
             location_str = format_location_for_display(location)
             summary = (
                 f"📝 Проверьте данные заявки:\n\n"
-                f"🔹 Категория: {category}\n"
-                f"🔹 Описание: {description}\n"
-                f"🔹 Адрес: {location_str}\n"
-                f"🔹 Дата и время: {desired_date.strftime('%H:%M %d.%m.%Y') if isinstance(desired_date, datetime) else 'Не указана'}\n\n"
+                f"Категория: {category}\n"
+                f"Описание: {description}\n"
+                f"Адрес: {location_str}\n"
+                f"Дата и время: {desired_date.strftime('%H:%M %d.%m.%Y') if isinstance(desired_date, datetime) else 'Не указана'}\n\n"
                 "Добавьте комментарий к заявке или нажмите 'Пропустить':"
             )
             keyboard = [[InlineKeyboardButton("⏩ Пропустить", callback_data="skip_comment")]]
@@ -396,9 +419,10 @@ class ClientHandler:
             # Уведомляем пользователя
             await query.message.reply_text(
                 f"✅ Заявка #{request_id} создана\n"
-                "Администратор уведомлен.", 
-                reply_markup=ReplyKeyboardRemove()
+                "Администратор уведомлен."
             )
+            # Возвращаем основное меню клиента
+            await self.show_client_menu(query, context)
             # Уведомляем администраторов
             await notify_admin(context.bot, request_id, requests_data, ADMIN_IDS)
             # Отправляем фотографии администраторам
@@ -695,8 +719,6 @@ class ClientHandler:
         try:
             action, request_id = query.data.split('_')[1:]
             requests_data = load_requests()
-            delivery_tasks = load_delivery_tasks()
-            users_data = load_users()
             if request_id not in requests_data:
                 await query.edit_message_text("❌ Заявка не найдена")
                 return
