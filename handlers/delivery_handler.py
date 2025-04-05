@@ -128,54 +128,43 @@ class DeliveryHandler(BaseHandler):
         """Принятие задачи доставщиком."""
         query = update.callback_query
         await query.answer()
-        
         try:
             # Получаем ID заявки из callback_data
             request_id = query.data.split('_')[-1]
-            
             # Загружаем данные
             requests_data = load_requests()
             delivery_tasks = load_delivery_tasks()
-            
             # Находим задачу с указанным request_id
             task_id = None
             task_data = None
-            
             for task_key, task in delivery_tasks.items():
                 if task.get('request_id') == request_id and task.get('status') == 'Новая':
                     task_id = task_key
                     task_data = task
                     break
-            
             if not task_id or not task_data:
                 await query.edit_message_text("❌ Задание не найдено или уже принято другим доставщиком.")
                 return
-            
             # Получаем информацию о доставщике
             user_id = update.effective_user.id
             user_name = update.effective_user.first_name
-            
             # Проверяем тип доставки
             is_sc_to_client = task_data.get('is_sc_to_client', False)
             delivery_type = task_data.get('delivery_type', '')
-            
             # Обновляем статус задачи
             task_data['status'] = 'В процессе'
             task_data['assigned_delivery_id'] = str(user_id)
             task_data['assigned_delivery_name'] = user_name
             delivery_tasks[task_id] = task_data
             save_delivery_tasks(delivery_tasks)
-            
             # Обновляем статус заявки
             if request_id in requests_data:
                 if is_sc_to_client or delivery_type == 'sc_to_client':
                     requests_data[request_id]['status'] = ORDER_STATUS_PICKUP_FROM_SC
                 else:
                     requests_data[request_id]['status'] = ORDER_STATUS_DELIVERY_TO_SC
-                
                 requests_data[request_id]['assigned_delivery'] = str(user_id)
                 save_requests(requests_data)
-            
             # Формируем сообщение и клавиатуру для доставщика
             if is_sc_to_client or delivery_type == 'sc_to_client':
                 # Доставка из СЦ клиенту
@@ -196,7 +185,6 @@ class DeliveryHandler(BaseHandler):
                     f"3. Доставьте устройство клиенту\n"
                     f"4. Получите код подтверждения от клиента"
                 )
-                
                 keyboard = [[
                     InlineKeyboardButton(
                         "✅ Забрал из СЦ", 
@@ -229,13 +217,10 @@ class DeliveryHandler(BaseHandler):
                         callback_data=f"confirm_pickup_{request_id}"
                     )
                 ]]
-            
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text(message, reply_markup=reply_markup)
-            
             # Уведомляем всех остальных доставщиков
             await self.update_delivery_messages(context.bot, task_id, task_data)
-            
             # Уведомляем клиента или СЦ в зависимости от типа доставки
             if is_sc_to_client or delivery_type == 'sc_to_client':
                 # Уведомляем клиента, что заказ принят в доставку из СЦ
@@ -261,25 +246,21 @@ class DeliveryHandler(BaseHandler):
                         chat_id=client_id,
                         text=client_message
                     )
-            
             # Уведомляем администраторов
             user = load_users().get(str(query.from_user.id), {})
             delivery_name = user.get('name', user_name)
             delivery_phone = user.get('phone', 'Номер не указан')
-            
             admin_message = (
                 f"✅ Заказ №{request_id} принят доставщиком.\n"
                 f"Доставщик: {delivery_name} - {delivery_phone}\n"
                 f"Тип: {'Доставка из СЦ клиенту' if is_sc_to_client or delivery_type == 'sc_to_client' else 'Доставка от клиента в СЦ'}\n"
                 f"Статус: {requests_data[request_id]['status']}"
             )
-            
             for admin_id in ADMIN_IDS:
                 await context.bot.send_message(
                     chat_id=admin_id,
                     text=admin_message
-                )
-                
+                )   
         except Exception as e:
             logger.error(f"Ошибка при принятии задания доставки: {e}")
             await query.edit_message_text("❌ Произошла ошибка при принятии задания. Пожалуйста, попробуйте еще раз.")
@@ -311,31 +292,25 @@ class DeliveryHandler(BaseHandler):
         """Обработка подтверждения/отказа клиента о получении товара"""
         query = update.callback_query
         await query.answer()
-        
         try:
             action, request_id = query.data.split('_')[1:]
             requests_data = load_requests()
             delivery_tasks = load_delivery_tasks()
-            
             if request_id not in requests_data:
                 await query.edit_message_text("❌ Заявка не найдена")
                 return
-            
             request = requests_data[request_id]
-            
             if action == 'confirm':
                 # Клиент подтвердил получение
                 request['status'] = ORDER_STATUS_DELIVERY_TO_SC
                 request['client_confirmed'] = True
                 save_requests(requests_data)
-                
                 # Обновляем статус в delivery_tasks
                 for task_id, task in delivery_tasks.items():
                     if isinstance(task, dict) and task.get('request_id') == request_id:
                         task['status'] = ORDER_STATUS_DELIVERY_TO_SC
                         save_delivery_tasks(delivery_tasks)
                         break
-                
                 # Уведомляем доставщика
                 delivery_id = request.get('assigned_delivery')
                 if delivery_id:
@@ -343,16 +318,13 @@ class DeliveryHandler(BaseHandler):
                         chat_id=delivery_id,
                         text=f"✅ Клиент подтвердил получение товара по заявке #{request_id}"
                     )
-                
                 await query.edit_message_text("✅ Вы подтвердили получение товара доставщиком.")
-                
             elif action == 'deny':
                 # Проверяем, было ли это уведомление от администратора
                 if request.get('status') == 'Требуется проверка':
                     # Если это повторный отказ после проверки администратором, отклоняем заявку
                     request['status'] = ORDER_STATUS_CLIENT_REJECTED
                     save_requests(requests_data)
-                    
                     # Уведомляем администратора об отклонении заявки
                     admin_message = (
                         f"❌ Клиент отказался от получения товара после проверки\n\n"
@@ -360,19 +332,16 @@ class DeliveryHandler(BaseHandler):
                         f"Статус: Отклонена\n"
                         f"Описание: {request.get('description', 'Нет описания')}"
                     )
-                    
                     for admin_id in ADMIN_IDS:
                         await context.bot.send_message(
                             chat_id=admin_id,
                             text=admin_message
                         )
-                    
                     await query.edit_message_text("❌ Вы отказались от получения товара. Заявка отклонена.")
                 else:
                     # Первичный отказ - отправляем на проверку администратору
                     request['status'] = 'Требуется проверка'
                     save_requests(requests_data)
-                    
                     # Уведомляем администратора
                     admin_message = (
                         f"⚠️ Клиент отказался от получения товара\n\n"
@@ -380,7 +349,6 @@ class DeliveryHandler(BaseHandler):
                         f"Статус: Требуется проверка\n"
                         f"Описание: {request.get('description', 'Нет описания')}"
                     )
-                    
                     # Создаем клавиатуру для администратора
                     keyboard = [[
                         InlineKeyboardButton(
@@ -389,7 +357,6 @@ class DeliveryHandler(BaseHandler):
                         )]
                     ]
                     reply_markup = InlineKeyboardMarkup(keyboard)
-                    
                     # Отправляем фотографии администратору
                     pickup_photos = request.get('pickup_photos', [])
                     if pickup_photos:
@@ -410,9 +377,7 @@ class DeliveryHandler(BaseHandler):
                                 text=admin_message,
                                 reply_markup=reply_markup
                             )
-                    
                     await query.edit_message_text("❌ Вы отказались от получения товара. Администратор уведомлен.")
-                
         except Exception as e:
             logger.error(f"Ошибка при обработке подтверждения клиента: {e}")
             await query.edit_message_text("Произошла ошибка при обработке вашего запроса.")
@@ -522,10 +487,8 @@ class DeliveryHandler(BaseHandler):
         try:
             # Получаем ID доставщика, который взял заказ
             assigned_delivery_id = task_data.get('assigned_delivery_id', '')
-            
             # Формируем сообщение об обновлении
             message = f"Заказ #{task_id} был принят другим доставщиком и больше не доступен."
-            
             # Отправляем сообщение другим доставщикам
             from config import DELIVERY_IDS
             for delivery_id in DELIVERY_IDS:
@@ -537,7 +500,6 @@ class DeliveryHandler(BaseHandler):
                         )
                     except Exception as e:
                         logger.error(f"Ошибка отправки уведомления доставщику {delivery_id}: {e}")
-                        
         except Exception as e:
             logger.error(f"Ошибка при обновлении сообщений доставщиков: {e}")
 
@@ -546,39 +508,31 @@ class DeliveryHandler(BaseHandler):
         try:
             delivery_tasks = load_delivery_tasks()
             available_tasks = {}
-            
             # Получаем текущую дату в формате DD.MM.YYYY
             today = datetime.now().strftime("%d.%m.%Y")
-            
             # Фильтруем задачи по статусу и дате
             for task_id, task in delivery_tasks.items():
                 if (task.get('status') == 'Новая' and 
                     task.get('desired_date', '').split()[-1] == today):
                     available_tasks[task_id] = task
-            
             if not available_tasks:
                 await update.message.reply_text(
                     f"На сегодня ({today}) нет доступных заданий доставки."
                 )
                 return
-            
             # Отправляем заголовок с текущей датой
             await update.message.reply_text(
                 f"📦 Доступные задания на сегодня ({today}):"
             )
-            
             # Отправляем каждую задачу отдельным сообщением
             for task_id, task in available_tasks.items():
                 # Определяем тип доставки
                 is_sc_to_client = task.get('is_sc_to_client', False)
-                delivery_type = task.get('delivery_type', '')
-                
+                delivery_type = task.get('delivery_type', '')   
                 if is_sc_to_client or delivery_type == 'sc_to_client':
                     delivery_type_display = "📤 Доставка ИЗ СЦ КЛИЕНТУ"
-                    
                     # Извлекаем время доставки
                     delivery_time = task.get('desired_date', '').split()[0] if task.get('desired_date') else 'Не указано'
-                    
                     keyboard = [[
                         InlineKeyboardButton(
                             "Принять заказ",
@@ -586,7 +540,6 @@ class DeliveryHandler(BaseHandler):
                         )
                     ]]
                     reply_markup = InlineKeyboardMarkup(keyboard)
-                    
                     # Для доставки из СЦ клиенту
                     message = (
                         f"📦 Задача #{task_id}\n"
@@ -604,10 +557,8 @@ class DeliveryHandler(BaseHandler):
                     )
                 else:
                     delivery_type_display = "📥 Доставка ОТ КЛИЕНТА В СЦ"
-                    
                     # Извлекаем время доставки
                     delivery_time = task.get('desired_date', '').split()[0] if task.get('desired_date') else 'Не указано'
-                    
                     keyboard = [[
                         InlineKeyboardButton(
                             "Принять заказ",
@@ -615,7 +566,6 @@ class DeliveryHandler(BaseHandler):
                         )
                     ]]
                     reply_markup = InlineKeyboardMarkup(keyboard)
-                    
                     # Для доставки от клиента в СЦ
                     message = (
                         f"📦 Задача #{task_id}\n"
@@ -631,9 +581,7 @@ class DeliveryHandler(BaseHandler):
                         f"☎️ {task.get('sc_phone', 'Не указан')}\n\n"
                         f"📝 Описание: {task.get('description', '')[:100]}..."
                     )
-                
                 await update.message.reply_text(message, reply_markup=reply_markup)
-                
         except Exception as e:
             logger.error(f"Ошибка при показе доступных заданий: {e}")
             await update.message.reply_text("Произошла ошибка при загрузке заданий.")
@@ -797,38 +745,37 @@ class DeliveryHandler(BaseHandler):
         Отмена текущей операции доставки
         TODO: Сделаать очистку в цикле
         """
+        keys_to_remove = {
+            'photos_to_sc',
+            'photos_from_sc',
+            'current_request',
+            'confirmation_code'
+        }
         try:
-            # Очищаем данные контекста
-            if 'photos_to_sc' in context.user_data:
-                del context.user_data['photos_to_sc']
-            if 'photos_from_sc' in context.user_data:
-                del context.user_data['photos_from_sc']
-            if 'current_request' in context.user_data:
-                del context.user_data['current_request']
-            if 'confirmation_code' in context.user_data:
-                del context.user_data['confirmation_code']
-            # Отправляем сообщение об отмене
-            if update.callback_query:
-                await update.callback_query.edit_message_text(
-                    "❌ Операция отменена. Вернитесь в меню доставщика."
-                )
-            else:
-                await update.message.reply_text(
-                    "❌ Операция отменена. Вернитесь в меню доставщика."
-                )
-            return ConversationHandler.END
-        except Exception as e:
-            logger.error(f"Ошибка при отмене доставки: {e}")
-            await update.message.reply_text(
-                "Произошла ошибка при отмене. Вернитесь в меню доставщика."
+            # Очищаем только нужные ключи, если они существуют
+            for key in keys_to_remove:
+                context.user_data.pop(key, None)
+            # Выбираем способ ответа в зависимости от типа update
+            reply_method = (
+                update.callback_query.edit_message_text 
+                if update.callback_query 
+                else update.message.reply_text
             )
-            return ConversationHandler.END
+            await reply_method("❌ Операция отменена. Вернитесь в меню доставщика.")
+        except Exception as e:
+            logger.error(f"Ошибка при отмене доставки: {e}", exc_info=True)
+            try:
+                await update.message.reply_text(
+                    "Произошла ошибка при отмене. Вернитесь в меню доставщика."
+                )
+            except Exception as fallback_error:
+                logger.error(f"Не удалось отправить сообщение об ошибке: {fallback_error}")
+        return ConversationHandler.END
 
     async def handle_pickup_photo(self, update: Update, context: CallbackContext):
         """Обработка фотографий при получении товара"""
         if 'pickup_photos' not in context.user_data:
             context.user_data['pickup_photos'] = []
-            
         photo = update.message.photo[-1]
         photo_file = await context.bot.get_file(photo.file_id)
         photo_path = f"photos/pickup_{len(context.user_data['pickup_photos'])}_{context.user_data['current_request']}.jpg"
@@ -845,13 +792,11 @@ class DeliveryHandler(BaseHandler):
             if not photos:
                 await update.message.reply_text("Необходимо добавить хотя бы одно фото!")
                 return CREATE_REQUEST_PHOTOS
-                
             requests_data = load_requests()
             if request_id in requests_data:
                 # Сохраняем фотографии в данных заявки
                 requests_data[request_id]['pickup_photos'] = photos
                 save_requests(requests_data)
-                
                 # Отправляем уведомление администратору
                 for admin_id in ADMIN_IDS:
                     # Отправляем первое фото с текстом
@@ -862,7 +807,6 @@ class DeliveryHandler(BaseHandler):
                                 photo=photo_file,
                                 caption=f"Доставщик сделал фотографии товара по заявке #{request_id}"
                             )
-                
                 # Отправляем фотографии клиенту для подтверждения
                 client_id = requests_data[request_id].get('user_id')
                 if client_id:
@@ -870,19 +814,16 @@ class DeliveryHandler(BaseHandler):
                     sc_id = requests_data[request_id].get('assigned_sc')
                     service_centers = load_service_centers()
                     sc_data = service_centers.get(sc_id, {})
-                    
                     # Формируем сообщение с информацией о СЦ
                     sc_info = (
                         f"🏢 Сервисный центр: {sc_data.get('name', 'Название не указано')}\n"
                         f"📍 Адрес: {sc_data.get('address', 'Адрес не указан')}\n"
                         f"📱 Телефон: {sc_data.get('phone', 'Телефон не указан')}\n\n"
                     )
-                    
                     await context.bot.send_message(
                         chat_id=client_id,
                         text=f"Доставщик сделал фотографии товара по заявке #{request_id}.\n\n{sc_info}Пожалуйста, подтвердите получение:"
                     )
-                    
                     for photo_path in photos:
                         if os.path.exists(photo_path):
                             with open(photo_path, 'rb') as photo_file:
@@ -891,26 +832,21 @@ class DeliveryHandler(BaseHandler):
                                     photo=photo_file,
                                     caption=f"Фото товара по заявке #{request_id}"
                                 )
-                    
                     keyboard = [
                         [InlineKeyboardButton("Да, забрал. С фото согласен.", callback_data=f"client_confirm_{request_id}")],
                         [InlineKeyboardButton("Нет, не забрал.", callback_data=f"client_deny_{request_id}")]
                     ]
                     reply_markup = InlineKeyboardMarkup(keyboard)
-                    
                     await context.bot.send_message(
                         chat_id=client_id,
                         text="Подтверждаете получение товара?",
                         reply_markup=reply_markup
                     )
-                
                 # Очищаем данные контекста
                 context.user_data.pop('pickup_photos', None)
                 context.user_data.pop('current_request', None)
-                
                 await update.message.reply_text("✅ Фотографии загружены и отправлены клиенту для подтверждения")
                 return ConversationHandler.END
-                
         except Exception as e:
             logger.error(f"Ошибка в handle_pickup_photos_done: {str(e)}")
             await update.message.reply_text("Произошла ошибка при обработке фотографий")

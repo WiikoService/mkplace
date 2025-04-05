@@ -97,10 +97,8 @@ class ClientHandler:
                 # Получаем координаты
                 latitude = update.message.location.latitude
                 longitude = update.message.location.longitude
-                
                 # Получаем адрес по координатам
                 address = get_address_from_coords(latitude, longitude)
-                
                 # Сохраняем все данные
                 context.user_data["location"] = {
                     "latitude": latitude,
@@ -108,17 +106,14 @@ class ClientHandler:
                     "address": address,
                     "type": "coordinates"
                 }
-                
                 # Показываем кнопки с датами
                 return await self.show_date_buttons(update.message)
-                
             elif update.message.text == "Ввести адрес вручную":
                 await update.message.reply_text(
                     "Пожалуйста, введите адрес:",
                     reply_markup=ReplyKeyboardRemove()
                 )
                 return CREATE_REQUEST_ADDRESS
-                
         except Exception as e:
             logger.error(f"Error handling location: {e}")
             await update.message.reply_text(
@@ -130,7 +125,6 @@ class ClientHandler:
         """Показывает инлайн-кнопки с датами"""
         keyboard = []
         current_date = datetime.now()
-        
         # Добавляем кнопки для следующих 7 дней
         for i in range(7):
             date = current_date + timedelta(days=i)
@@ -142,7 +136,6 @@ class ClientHandler:
                     callback_data=f"select_date_{date_value}"
                 )
             ])
-        
         reply_markup = InlineKeyboardMarkup(keyboard)
         await message.reply_text(
             "Выберите желаемую дату:",
@@ -165,7 +158,6 @@ class ClientHandler:
             
             # Показываем кнопки с датами
             return await self.show_date_buttons(update.message)
-            
         except Exception as e:
             logger.error(f"Error handling address: {e}")
             await update.message.reply_text(
@@ -177,12 +169,10 @@ class ClientHandler:
         """Обработка выбора даты из инлайн-кнопок"""
         query = update.callback_query
         await query.answer()
-        
         # Получаем выбранную дату из callback_data (формат "дд.мм.гггг")
         selected_date = query.data.split('_', 2)[2]
         # Сохраняем дату в формате "дд.мм.гггг" для последующего использования
         context.user_data["selected_date"] = selected_date
-        
         # Создаем клавиатуру с временными интервалами
         keyboard = []
         current_hour = 9  # Начинаем с 9 утра
@@ -195,7 +185,6 @@ class ClientHandler:
                 )
             ])
             current_hour += 1
-        
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
             "Выберите удобное время:",
@@ -207,35 +196,28 @@ class ClientHandler:
         """Обработка выбора времени"""
         query = update.callback_query
         await query.answer()
-        
         # Получаем выбранное время (формат "ЧЧ:ММ")
         selected_time = query.data.split('_', 2)[2]
-        
         # Получаем сохраненную дату (формат "дд.мм.гггг")
         selected_date = context.user_data.get("selected_date")
-        
         if not selected_date:
             await query.edit_message_text(
                 "Ошибка: не найдена выбранная дата. Пожалуйста, начните заново."
             )
             return ConversationHandler.END
-        
         try:
             # Комбинируем дату и время
             date_obj = datetime.strptime(selected_date, "%d.%m.%Y")
             time_obj = datetime.strptime(selected_time, "%H:%M")
-            
             # Создаем финальную дату с выбранным временем
             final_datetime = date_obj.replace(
                 hour=time_obj.hour,
                 minute=time_obj.minute
             )
             context.user_data["desired_date"] = final_datetime
-            
             # Очищаем временные данные
             if "selected_date" in context.user_data:
                 del context.user_data["selected_date"]
-            
             await query.message.delete()
             # Передаем query вместо query.message
             return await self.show_confirmation(query, context)
@@ -250,16 +232,13 @@ class ClientHandler:
         """Показ сводки данных и запрос комментария."""
         try:
             message = update.message if hasattr(update, 'message') else update.callback_query.message
-            
             # Получаем данные из контекста
             category = context.user_data.get("category", "Не указана")
             description = context.user_data.get("description", "Не указано")
             desired_date = context.user_data.get("desired_date", "Не указана")
             location = context.user_data.get("location", {})
-            
             # Форматируем местоположение
             location_str = format_location_for_display(location)
-            
             summary = (
                 f"📝 Проверьте данные заявки:\n\n"
                 f"🔹 Категория: {category}\n"
@@ -268,10 +247,8 @@ class ClientHandler:
                 f"🔹 Дата и время: {desired_date.strftime('%H:%M %d.%m.%Y') if isinstance(desired_date, datetime) else 'Не указана'}\n\n"
                 "Добавьте комментарий к заявке или нажмите 'Пропустить':"
             )
-            
             keyboard = [[InlineKeyboardButton("⏩ Пропустить", callback_data="skip_comment")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
             if isinstance(update, CallbackQuery):
                 try:
                     await update.edit_message_text(summary, reply_markup=reply_markup)
@@ -280,9 +257,7 @@ class ClientHandler:
                     await update.message.reply_text(summary, reply_markup=reply_markup)
             else:
                 await message.reply_text(summary, reply_markup=reply_markup)
-            
             return CREATE_REQUEST_COMMENT
-            
         except Exception as e:
             logger.error(f"Error in show_confirmation: {e}")
             await context.bot.send_message(
@@ -296,7 +271,6 @@ class ClientHandler:
         query = update.callback_query
         await query.answer()
         context.user_data["comment"] = "Не указано"
-        
         # Получаем и форматируем местоположение
         location = context.user_data.get("location", {})
         if isinstance(location, dict):
@@ -307,11 +281,9 @@ class ClientHandler:
                 location_str = location.get("address", "Адрес не указан")
         else:
             location_str = str(location)
-        
         # Форматируем дату
         desired_date = context.user_data.get("desired_date")
         date_str = desired_date.strftime('%H:%M %d.%m.%Y') if isinstance(desired_date, datetime) else "Не указана"
-        
         summary = (
             "📝 Итоговые данные заявки:\n\n"
             f"Категория: {context.user_data.get('category', 'Не указана')}\n"
@@ -321,27 +293,23 @@ class ClientHandler:
             f"Комментарий: {context.user_data.get('comment', 'Не указано')}\n\n"
             "Подтвердите создание заявки или начните заново."
         )
-        
         keyboard = [
             [InlineKeyboardButton("✅ Подтвердить", callback_data="confirm_request")],
             [InlineKeyboardButton("🔄 Изменить", callback_data="restart_request")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
         try:
             await query.edit_message_text(summary, reply_markup=reply_markup)
         except Exception as e:
             logger.error(f"Error editing message in skip_comment: {e}")
             # Fallback - отправляем новое сообщение
             await query.message.reply_text(summary, reply_markup=reply_markup)
-        
         return CREATE_REQUEST_CONFIRMATION
 
     async def handle_request_comment(self, update: Update, context: CallbackContext):
         """Обработка комментария клиента"""
         try:
             context.user_data["comment"] = update.message.text
-            
             # Получаем и форматируем местоположение
             location = context.user_data.get("location", {})
             if isinstance(location, dict):
@@ -352,11 +320,9 @@ class ClientHandler:
                     location_str = location.get("address", "Адрес не указан")
             else:
                 location_str = str(location)
-            
             # Форматируем дату
             desired_date = context.user_data.get("desired_date")
             date_str = desired_date.strftime('%H:%M %d.%m.%Y') if isinstance(desired_date, datetime) else "Не указана"
-            
             summary = (
                 "📝 Итоговые данные заявки:\n\n"
                 f"Категория: {context.user_data.get('category', 'Не указана')}\n"
@@ -366,16 +332,13 @@ class ClientHandler:
                 f"Комментарий: {context.user_data.get('comment', 'Не указано')}\n\n"
                 "Подтвердите создание заявки или начните заново."
             )
-            
             keyboard = [
                 [InlineKeyboardButton("✅ Подтвердить", callback_data="confirm_request")],
                 [InlineKeyboardButton("🔄 Изменить", callback_data="restart_request")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
             await update.message.reply_text(summary, reply_markup=reply_markup)
             return CREATE_REQUEST_CONFIRMATION
-            
         except Exception as e:
             logger.error(f"Error in handle_request_comment: {e}")
             await update.message.reply_text(
@@ -401,11 +364,9 @@ class ClientHandler:
             user_id = str(query.from_user.id)
             users_data = load_users()
             user_name = users_data.get(user_id, {}).get('name', 'Неизвестный пользователь')
-            
             # Получаем и форматируем местоположение
             location = context.user_data.get("location", {})
             location_display = format_location_for_display(location)
-            
             # Создаем ссылку на карту для координат
             location_link = ""
             if isinstance(location, dict) and location.get("type") == "coordinates":
@@ -413,10 +374,8 @@ class ClientHandler:
                 lon = location.get("longitude")
                 if lat and lon:
                     location_link = f"https://yandex.ru/maps/?pt={lon},{lat}&z=16&l=map"
-            
             desired_date = context.user_data.get("desired_date")
             desired_date_str = desired_date.strftime("%H:%M %d.%m.%Y") if desired_date else "Не указана"
-            
             # Сохраняем заявку
             requests_data[request_id] = {
                 "id": request_id,
@@ -433,19 +392,15 @@ class ClientHandler:
                 "desired_date": desired_date_str,
                 "comment": context.user_data.get("comment", "")
             }
-            
             save_requests(requests_data)
-            
             # Уведомляем пользователя
             await query.message.reply_text(
                 f"✅ Заявка #{request_id} создана\n"
                 "Администратор уведомлен.", 
                 reply_markup=ReplyKeyboardRemove()
             )
-            
             # Уведомляем администраторов
             await notify_admin(context.bot, request_id, requests_data, ADMIN_IDS)
-            
             # Отправляем фотографии администраторам
             for admin_id in ADMIN_IDS:
                 for photo_path in context.user_data.get("photos", []):
@@ -458,9 +413,7 @@ class ClientHandler:
                             )
                     except Exception as e:
                         logger.error(f"Error sending photo to admin {admin_id}: {e}")
-            
             return ConversationHandler.END
-            
         except Exception as e:
             logger.error(f"Error in create_request_final: {e}")
             await query.message.reply_text(
@@ -493,34 +446,29 @@ class ClientHandler:
         """Показать заявки клиента с кнопками под каждой заявкой"""
         user_id = str(update.effective_user.id)
         requests_data = load_requests()
-        
         # Фильтруем заявки пользователя
         user_requests = {
             req_id: req_data for req_id, req_data in requests_data.items()
             if req_data.get('user_id') == user_id
         }
-        
         if not user_requests:
             await update.message.reply_text(
                 "У вас пока нет заявок.",
                 reply_markup=ReplyKeyboardRemove()
             )
             return
-        
         # Сортируем заявки по дате создания (новые сверху)
         sorted_requests = sorted(
             user_requests.items(),
             key=lambda x: x[1].get('timestamp', ''),
             reverse=True
         )
-        
         # Отправляем каждую заявку отдельным сообщением с кнопками
         for req_id, req_data in sorted_requests:
             status = req_data.get('status', 'Неизвестно')
             description = req_data.get('description', 'Без описания')
             category = req_data.get('category', 'Не указана')
-            location = req_data.get('location', {})
-            
+            location = req_data.get('location', {})   
             # Обрабатываем location
             if isinstance(location, dict):
                 address = location.get('address', 'Адрес не указан')
@@ -528,7 +476,6 @@ class ClientHandler:
                     address = "📍 Геолокация"
             else:
                 address = str(location)
-            
             # Формируем сообщение
             message = (
                 f"🔹 <b>Заявка #{req_id}</b>\n"
@@ -537,13 +484,10 @@ class ClientHandler:
                 f"📍 <b>Адрес:</b> {address}\n"
                 f"📊 <b>Статус:</b> {status}\n"
             )
-            
             # Добавляем дату создания, если есть
             if 'timestamp' in req_data:
                 message += f"📅 <b>Дата создания:</b> {req_data['timestamp']}\n"
-            
             keyboard = []
-            
             # Добавляем кнопку "Открыть спор" для заявок со статусом "Доставлено клиенту"
             if status == "Доставлено клиенту":
                 keyboard.append([
@@ -552,7 +496,6 @@ class ClientHandler:
                         callback_data=f"start_dispute_{req_id}"
                     )
                 ])
-            
             reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
             await update.message.reply_text(
                 message,
@@ -749,25 +692,20 @@ class ClientHandler:
         """Обработка подтверждения/отказа клиента о получении товара"""
         query = update.callback_query
         await query.answer()
-        
         try:
             action, request_id = query.data.split('_')[1:]
             requests_data = load_requests()
             delivery_tasks = load_delivery_tasks()
             users_data = load_users()
-            
             if request_id not in requests_data:
                 await query.edit_message_text("❌ Заявка не найдена")
                 return
-            
             request = requests_data[request_id]
-            
             if action == 'confirm':
                 # Клиент подтвердил получение
                 request['status'] = ORDER_STATUS_DELIVERY_TO_SC
                 request['client_confirmed'] = True
                 save_requests(requests_data)
-                
                 # Уведомляем доставщика
                 delivery_id = request.get('assigned_delivery')
                 if delivery_id:
@@ -775,21 +713,17 @@ class ClientHandler:
                         chat_id=delivery_id,
                         text=f"✅ Клиент подтвердил получение товара по заявке #{request_id}"
                     )
-                
                 await query.edit_message_text("✅ Вы подтвердили получение товара доставщиком.")
-                
             elif action == 'deny':
                 # Клиент отказался от получения
                 if 'deny_count' not in request:
                     request['deny_count'] = 1
                 else:
                     request['deny_count'] += 1
-                    
                 if request['deny_count'] >= 2:
                     # При втором отказе отклоняем заявку
                     request['status'] = 'Отклонена'
                     await query.edit_message_text("❌ Заявка отклонена по вашему запросу.")
-                    
                     # Уведомляем администратора
                     for admin_id in ADMIN_IDS:
                         await context.bot.send_message(
@@ -800,7 +734,6 @@ class ClientHandler:
                     # При первом отказе уведомляем администратора
                     request['status'] = 'Требуется проверка'
                     await query.edit_message_text("❌ Вы отказались от получения товара. Администратор уведомлен.")
-                    
                     # Отправляем уведомление администратору с кнопкой "Связаться с клиентом"
                     keyboard = [[
                         InlineKeyboardButton(
@@ -809,7 +742,6 @@ class ClientHandler:
                         )]
                     ]
                     reply_markup = InlineKeyboardMarkup(keyboard)
-                    
                     for admin_id in ADMIN_IDS:
                         # Отправляем фотографии администратору
                         pickup_photos = request.get('pickup_photos', [])
@@ -830,9 +762,7 @@ class ClientHandler:
                                 text=f"⚠️ Клиент отказался от товара по заявке #{request_id}",
                                 reply_markup=reply_markup
                             )
-                
                 save_requests(requests_data)
-                
         except Exception as e:
             logger.error(f"Ошибка при обработке подтверждения клиента: {e}")
             await query.edit_message_text("Произошла ошибка при обработке вашего запроса.")

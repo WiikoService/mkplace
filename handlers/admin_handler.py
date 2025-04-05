@@ -43,7 +43,6 @@ class AdminHandler(BaseHandler):
                 logger.error(f"❌ Request {request_id} not found")
                 await query.edit_message_text("Заявка не найдена")
                 return
-            
             # Форматируем местоположение
             location = request.get('location', {})
             if isinstance(location, dict):
@@ -54,7 +53,6 @@ class AdminHandler(BaseHandler):
                     location_str = location.get('address', 'Адрес не указан')
             else:
                 location_str = str(location)
-            
             # Формируем сообщение для СЦ
             logger.debug("📝 Forming message text")
             try:
@@ -75,7 +73,6 @@ class AdminHandler(BaseHandler):
             except Exception as e:
                 logger.error(f"❌ Error forming message text: {str(e)}")
                 message_text = f"📦 Заявка #{request_id}"
-            
             # Создаем клавиатуру
             keyboard = [[
                 InlineKeyboardButton(
@@ -85,7 +82,6 @@ class AdminHandler(BaseHandler):
             ]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             logger.debug("⌨️ Keyboard created")
-            
             # Безопасно отправляем фото
             photos = request.get('photos', [])
             if photos:
@@ -104,7 +100,6 @@ class AdminHandler(BaseHandler):
                         logger.debug("🖼️ Photos sent successfully")
                 except Exception as e:
                     logger.error(f"❌ Error sending photos: {str(e)}")
-            
             # Редактируем сообщение
             await query.edit_message_text(
                 text=message_text,
@@ -133,13 +128,11 @@ class AdminHandler(BaseHandler):
                 await query.edit_message_text("❌ Заявка не найдена")
                 return
             request = requests_data[rid]
-            
             # Проверяем, не была ли заявка уже принята
             if request.get('assigned_sc'):
                 logger.info(f"Request {rid} already assigned to SC {request.get('assigned_sc')}")
                 await query.edit_message_text("❌ Заявка уже принята другим сервисным центром")
                 return
-            
             # Форматируем местоположение
             location = request.get('location', {})
             if isinstance(location, dict):
@@ -150,7 +143,6 @@ class AdminHandler(BaseHandler):
                     location_str = location.get('address', 'Адрес не указан')
             else:
                 location_str = str(location)
-            
             logger.debug(f"📄 Request data: {json.dumps(request, indent=2, ensure_ascii=False)}")
             # Поиск СЦ
             users_data = load_users()
@@ -164,7 +156,6 @@ class AdminHandler(BaseHandler):
                 logger.warning("⚠️ No SC users available")
                 await query.edit_message_text("❌ Нет доступных сервисных центров")
                 return
-            
             # Отправка уведомлений
             success_count = 0
             for uid, sc_id in sc_users:
@@ -190,7 +181,6 @@ class AdminHandler(BaseHandler):
                                 chat_id=uid,
                                 media=media
                             )
-                    
                     # Отправка сообщения с форматированным адресом
                     await context.bot.send_message(
                         chat_id=uid,
@@ -214,7 +204,6 @@ class AdminHandler(BaseHandler):
                 except Exception as e:
                     logger.error(f"🚨 Error sending to SC {sc_id}: {str(e)}")
                     continue
-            
             if success_count > 0:
                 # Обновляем заявку
                 requests_data[rid]['status'] = 'Отправлена в СЦ'
@@ -509,25 +498,20 @@ class AdminHandler(BaseHandler):
         """Обработка создания задачи доставки из СЦ"""
         query = update.callback_query
         await query.answer()
-        
         try:
             request_id = query.data.split('_')[-1]
             requests_data = load_requests()
             delivery_tasks = load_delivery_tasks()
             service_centers = load_service_centers()
-            
             if request_id not in requests_data:
                 await query.edit_message_text("❌ Ошибка: заявка не найдена.")
                 return
-            
             request = requests_data[request_id]
-            
             # Получаем данные СЦ из service_centers по идентификатору assigned_sc
             sc_id = request.get('assigned_sc')
             sc_data = service_centers.get(sc_id, {})
             sc_name = sc_data.get('name', 'Не указан')
             sc_address = sc_data.get('address', 'Не указан')
-            
             # Создаем новую задачу доставки
             new_task_id = str(len(delivery_tasks) + 1)
             new_task = {
@@ -544,14 +528,11 @@ class AdminHandler(BaseHandler):
                 "is_sc_to_client": True,  # Флаг для доставки из СЦ
                 "desired_date": request.get('desired_date', '')  # Копируем дату из заявки
             }
-            
             delivery_tasks[new_task_id] = new_task
             save_delivery_tasks(delivery_tasks)
-            
             # Обновляем статус заявки
             requests_data[request_id]['status'] = ORDER_STATUS_PICKUP_FROM_SC
             save_requests(requests_data)
-            
             await query.edit_message_text(
                 f"✅ Задача доставки #{new_task_id} создана.\n"
                 f"Заявка: #{request_id}\n"
@@ -562,7 +543,6 @@ class AdminHandler(BaseHandler):
                 f"Время доставки: {request.get('desired_date', '').split()[0]}\n"
                 f"Доставщики могут принять задачу в разделе 'Доступные задания'"
             )
-            
         except Exception as e:
             logger.error(f"Ошибка при создании задачи доставки: {e}")
             await query.edit_message_text("❌ Произошла ошибка при создании задачи доставки.")
@@ -777,39 +757,30 @@ class AdminHandler(BaseHandler):
             await update.message.reply_text("Пожалуйста, введите номер заявки:")
             context.user_data['waiting_for_request_id'] = True
             return 'WAITING_REQUEST_ID'
-        
         request_id = update.message.text.strip()
         chat_file = os.path.join(DATA_DIR, 'chat_sc_client.json')
-        
         try:
             if not os.path.exists(chat_file):
                 await update.message.reply_text("❌ Файл чата не найден")
-                return ConversationHandler.END
-                
+                return ConversationHandler.EN
             with open(chat_file, 'r', encoding='utf-8') as f:
                 chat_data = json.load(f)
-                
             if request_id not in chat_data:
                 await update.message.reply_text(f"❌ Чат для заявки #{request_id} не найден")
                 return ConversationHandler.END
-                
             messages = chat_data[request_id]
             if not messages:
                 await update.message.reply_text(f"❌ В чате заявки #{request_id} пока нет сообщений")
                 return ConversationHandler.END
-
             # Отправляем заголовок
             await update.message.reply_text(f"💬 История чата заявки #{request_id}:")
-
             # Обрабатываем каждое сообщение
             for msg in messages:
                 sender = "👤 Клиент" if msg['sender'] == 'client' else "🏢 СЦ"
                 timestamp = msg.get('timestamp', 'без даты')
-                
                 # Если есть фото
                 if 'photo_path' in msg and os.path.exists(msg['photo_path']):
                     caption = f"{sender} ({timestamp}):\n{msg.get('message', '')}"
-                    
                     try:
                         with open(msg['photo_path'], 'rb') as photo_file:
                             await context.bot.send_photo(
@@ -826,7 +797,6 @@ class AdminHandler(BaseHandler):
                 else:
                     # Текстовое сообщение
                     message_text = f"{sender} ({timestamp}):\n{msg.get('message', '')}"
-                    
                     # Разбиваем длинные сообщения
                     if len(message_text) > 4000:
                         parts = [message_text[i:i+4000] for i in range(0, len(message_text), 4000)]
@@ -834,7 +804,6 @@ class AdminHandler(BaseHandler):
                             await update.message.reply_text(part)
                     else:
                         await update.message.reply_text(message_text)
-                        
         except json.JSONDecodeError:
             await update.message.reply_text("❌ Ошибка чтения файла чата")
         except Exception as e:
@@ -895,25 +864,17 @@ class AdminHandler(BaseHandler):
         query = update.callback_query
         await query.answer()
         request_id = query.data.split('_')[-1]
-
         # Загружаем данные с обработкой ошибок
         requests_data = load_requests()
-
         delivery_tasks = load_delivery_tasks()
-                
         service_centers = load_service_centers()
-            
         request = requests_data.get(request_id)
-
-            
         # Обновляем статус подтверждения цены
         request['price_approved'] = True
         save_requests(requests_data)
-        
         # Получаем данные СЦ
         sc_id = request.get('assigned_sc')
         sc_data = service_centers.get(sc_id, {})
-        
         # Создаем задачу доставки ОТ КЛИЕНТА В СЦ
         new_task_id = str(len(delivery_tasks) + 1)
         new_task = {
@@ -930,14 +891,11 @@ class AdminHandler(BaseHandler):
             'is_sc_to_client': False,
             'desired_date': request.get('desired_date', '')
         }
-        
         delivery_tasks[new_task_id] = new_task
         save_delivery_tasks(delivery_tasks)
-        
         # Обновляем статус заявки
         request['status'] = ORDER_STATUS_DELIVERY_TO_SC
         save_requests(requests_data)
-        
         await query.edit_message_text(
             f"✅ Клиент подтвердил цену для заявки #{request_id}\n"
             f"Создана задача доставки #{new_task_id}\n"
@@ -956,7 +914,6 @@ class AdminHandler(BaseHandler):
         comment = parts[3]  # Комментарий теперь в callback_data
         try:
             requests_data = load_requests()
-
             request = requests_data[request_id]
             # Получаем данные СЦ
             sc_id = request.get('assigned_sc')
@@ -1036,17 +993,14 @@ class AdminHandler(BaseHandler):
         delivery_tasks = load_delivery_tasks()
         users_data = load_users()
         service_centers = load_service_centers()
-
         if request_id in requests_data:
             request = requests_data[request_id]
             sc_id = request.get('assigned_sc')
             sc_data = service_centers.get(sc_id, {})
             client_id = request.get('user_id')
             client_data = users_data.get(client_id, {})
-            
             # Получаем текущую дату в формате DD.MM.YYYY
             today = datetime.now().strftime("%d.%m.%Y")
-            
             # Проверяем, что дата доставки на сегодня
             if not request.get('desired_date', '').endswith(today):
                 await query.edit_message_text(
@@ -1054,7 +1008,6 @@ class AdminHandler(BaseHandler):
                     "Пожалуйста, проверьте дату доставки."
                 )
                 return
-
             # Создаем задачу доставки
             task_id = str(len(delivery_tasks) + 1)
             delivery_task = {
@@ -1075,11 +1028,9 @@ class AdminHandler(BaseHandler):
             }
             delivery_tasks[task_id] = delivery_task
             save_delivery_tasks(delivery_tasks)
-
             # Обновляем статус заявки
             request['status'] = ORDER_STATUS_NEW
             save_requests(requests_data)
-
             await query.edit_message_text(
                 f"✅ Задача доставки #{task_id} создана.\n"
                 f"Заявка: #{request_id}\n"
@@ -1093,43 +1044,34 @@ class AdminHandler(BaseHandler):
         """Обработка запроса администратора на связь с клиентом"""
         query = update.callback_query
         await query.answer()
-        
         try:
             request_id = query.data.split('_')[-1]
             requests_data = load_requests()
-            
             if request_id not in requests_data:
                 await query.edit_message_text("❌ Заявка не найдена")
                 return
-            
             request = requests_data[request_id]
             client_id = request.get('user_id')
-            
             if not client_id:
                 await query.edit_message_text("❌ Не удалось найти клиента")
                 return
-            
             # Отправляем клиенту сообщение от администратора
             await context.bot.send_message(
                 chat_id=client_id,
                 text=f"Администратор хочет уточнить детали по заявке #{request_id}. Пожалуйста, подтвердите, забрал ли доставщик товар?"
             )
-            
             # Создаем клавиатуру для клиента
             keyboard = [
                 [InlineKeyboardButton("Да, забрал", callback_data=f"client_confirm_{request_id}")],
                 [InlineKeyboardButton("Нет, не забрал", callback_data=f"client_deny_{request_id}")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
             await context.bot.send_message(
                 chat_id=client_id,
                 text="Подтвердите получение товара доставщиком:",
                 reply_markup=reply_markup
             )
-            
             await query.edit_message_text(f"✅ Запрос на подтверждение отправлен клиенту по заявке #{request_id}")
-            
         except Exception as e:
             logger.error(f"Ошибка при связи с клиентом: {e}")
             await query.edit_message_text("❌ Произошла ошибка при отправке запроса клиенту")

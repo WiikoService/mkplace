@@ -151,10 +151,8 @@ class UserHandler(BaseHandler):
             if request_id not in requests_data:
                 await query.edit_message_text("❌ Заявка не найдена")
                 return
-            
             request = requests_data[request_id]
             repair_price = request.get('repair_price', 'Не указана')
-            
             # Форматируем местоположение
             location = request.get('location', {})
             if isinstance(location, dict):
@@ -165,28 +163,23 @@ class UserHandler(BaseHandler):
                     location_str = location.get('address', 'Адрес не указан')
             else:
                 location_str = str(location)
-            
             # Обновляем статус заявки
             request['status'] = 'Ожидает доставку'
             request['price_approved'] = True
             save_requests(requests_data)
-            
             # Отправляем подтверждение клиенту
             await query.edit_message_text(
                 f"✅ Вы согласились с предложенной стоимостью ремонта:\n"
                 f"Сумма: {repair_price} руб.\n\n"
                 f"Заявка переведена в статус: Ожидает доставку"
             )
-            
             # Создаем задачу доставки автоматически
             try:
                 delivery_tasks = load_delivery_tasks()
-                service_centers = load_service_centers()
-                
+                service_centers = load_service_centers()   
                 # Получаем данные СЦ
                 sc_id = request.get('assigned_sc')
                 sc_data = service_centers.get(sc_id, {})
-                
                 # Создаем задачу доставки ОТ КЛИЕНТА В СЦ
                 new_task_id = str(len(delivery_tasks) + 1)
                 new_task = {
@@ -203,14 +196,11 @@ class UserHandler(BaseHandler):
                     'is_sc_to_client': False,
                     'desired_date': request.get('desired_date', '')
                 }
-                
                 delivery_tasks[new_task_id] = new_task
                 save_delivery_tasks(delivery_tasks)
-                
                 # Обновляем статус заявки
                 request['status'] = ORDER_STATUS_DELIVERY_TO_SC
                 save_requests(requests_data)
-                
                 # Отправляем уведомление администраторам
                 admin_message = (
                     f"✅ Клиент подтвердил цену для заявки #{request_id}\n"
@@ -228,7 +218,6 @@ class UserHandler(BaseHandler):
                         )
                     except Exception as e:
                         logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
-                        
             except Exception as e:
                 logger.error(f"Ошибка при создании задачи доставки: {e}")
                 # Отправляем уведомление администраторам о необходимости создать задачу вручную
@@ -258,7 +247,6 @@ class UserHandler(BaseHandler):
                         )
                     except Exception as e:
                         logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
-                    
         except Exception as e:
             logger.error(f"Ошибка при обработке согласия с ценой: {e}")
             await query.edit_message_text("❌ Произошла ошибка при обработке запроса")
@@ -273,10 +261,8 @@ class UserHandler(BaseHandler):
             if request_id not in requests_data:
                 await query.edit_message_text("❌ Заявка не найдена")
                 return
-            
             request = requests_data[request_id]
             repair_price = request.get('repair_price', 'Не указана')
-            
             # Форматируем местоположение
             location = request.get('location', {})
             if isinstance(location, dict):
@@ -287,12 +273,10 @@ class UserHandler(BaseHandler):
                     location_str = location.get('address', 'Адрес не указан')
             else:
                 location_str = str(location)
-            
             # Обновляем статус заявки
             request['status'] = 'Цена не согласована'
             request['price_approved'] = False
             save_requests(requests_data)
-            
             # Отправляем сообщение клиенту
             await query.edit_message_text(
                 f"❌ Вы отказались от предложенной стоимости ремонта:\n"
@@ -300,7 +284,6 @@ class UserHandler(BaseHandler):
                 f"Заявка переведена в статус: Цена не согласована\n"
                 f"Пожалуйста, свяжитесь с сервисным центром для обсуждения стоимости."
             )
-            
             # Отправляем уведомление администраторам
             service_centers = load_service_centers()
             sc_id = request.get('assigned_sc')
@@ -315,7 +298,6 @@ class UserHandler(BaseHandler):
                 f"Описание: {request.get('description', 'Нет описания')}\n"
                 f"Статус: Цена не согласована"
             )
-            
             for admin_id in ADMIN_IDS:
                 try:
                     await context.bot.send_message(
@@ -323,8 +305,7 @@ class UserHandler(BaseHandler):
                         text=admin_message
                     )
                 except Exception as e:
-                    logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
-                    
+                    logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")       
         except Exception as e:
             logger.error(f"Ошибка при обработке отказа от цены: {e}")
             await query.edit_message_text("❌ Произошла ошибка при обработке запроса")
@@ -448,7 +429,6 @@ class UserHandler(BaseHandler):
         selected_time = query.data.split('_', 3)[3]
         temp_date = context.user_data.get("temp_delivery_date")
         request_id = context.user_data.get('delivery_request_id')
-        
         try:
             # Комбинируем дату и время
             date_obj = datetime.strptime(temp_date, "%H:%M %d.%m.%Y")
