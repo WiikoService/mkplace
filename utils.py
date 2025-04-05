@@ -5,6 +5,9 @@ from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 import logging
 from typing import Union
 from geopy.geocoders import Nominatim
+import httpx
+import json
+from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
@@ -113,11 +116,39 @@ async def notify_client(bot, client_id, message, reply_markup=None):
         print(f"Error notifying client {client_id}: {e}")
 
 
-def get_address_from_coords(latitude, longitude):
+async def get_address_from_coords(latitude, longitude):
+    """
+    Асинхронно получает адрес по координатам с использованием Nominatim API.
+    """
     try:
-        geolocator = Nominatim(user_agent="mkplace_bot")
-        location = geolocator.reverse(f"{latitude}, {longitude}")
-        return location.address if location else "Адрес не определен"
+        # Формируем URL для прямого запроса к API
+        url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={latitude}&lon={longitude}&zoom=18&addressdetails=1&accept-language=ru"
+        
+        # Заголовки для запроса (важно указать User-Agent)
+        headers = {
+            "User-Agent": "mkplace_bot/1.0"
+        }
+        
+        # Асинхронный запрос с таймаутом
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            response = await client.get(url, headers=headers)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if "display_name" in data:
+                    return data["display_name"]
+                elif "address" in data:
+                    # Собираем адрес из компонентов
+                    components = []
+                    for key in ["road", "house_number", "city", "town", "village"]:
+                        if key in data["address"]:
+                            components.append(data["address"][key])
+                    return ", ".join(components) if components else "Адрес не определен"
+            
+            return "Адрес не определен"
+    except httpx.TimeoutException:
+        logger.error("Таймаут при получении адреса")
+        return "Адрес не определен"
     except Exception as e:
         logger.error(f"Ошибка получения адреса: {e}")
         return "Адрес не определен"
@@ -130,7 +161,7 @@ def format_location_for_display(location):
     if isinstance(location, dict):
         if location.get('type') == 'coordinates':
             address = location.get('address', 'Адрес не определен')
-            return f"{address} (Координаты: {location.get('latitude')}, {location.get('longitude')})"
+            return f"{address}"  # Убираем координаты для компактности
         return location.get('address', 'Адрес не указан')
     return str(location)
 
