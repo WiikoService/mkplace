@@ -59,11 +59,23 @@ class ClientHandler:
         """Обработка выбора категории"""
         query = update.callback_query
         await query.answer()
-        category_index = int(query.data.split('_')[1])
-        context.user_data["category"] = self.category[category_index]
-        await query.edit_message_text(text=f"Вы выбрали категорию: {context.user_data['category']}")
-        await query.message.reply_text("Подробно опишите проблему:")
-        return CREATE_REQUEST_DESC
+        
+        # Проверяем тип callback_data
+        if query.data == 'approve':
+            # Обработка подтверждения
+            await query.edit_message_text(text="Заявка подтверждена")
+            return ConversationHandler.END
+            
+        try:
+            category_index = int(query.data.split('_')[1])
+            context.user_data["category"] = self.category[category_index]
+            await query.edit_message_text(text=f"Вы выбрали категорию: {context.user_data['category']}")
+            await query.message.reply_text("Подробно опишите проблему:")
+            return CREATE_REQUEST_DESC
+        except (ValueError, IndexError):
+            logger.error(f"Неверный формат callback_data: {query.data}")
+            await query.edit_message_text(text="Произошла ошибка. Пожалуйста, попробуйте снова.")
+            return ConversationHandler.END
 
     async def handle_request_desc(self, update: Update, context: CallbackContext):
         """Обработка описания проблемы."""

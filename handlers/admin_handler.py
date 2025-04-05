@@ -1075,3 +1075,139 @@ class AdminHandler(BaseHandler):
         except Exception as e:
             logger.error(f"Ошибка при связи с клиентом: {e}")
             await query.edit_message_text("❌ Произошла ошибка при отправке запроса клиенту")
+
+    async def show_delivery_calendar(self, update: Update, context: CallbackContext):
+        """Показывает календарь задач доставки"""
+        logger.info("📅 Показ календаря задач доставки")
+        try:
+            # Загружаем задачи доставки
+            delivery_tasks = load_delivery_tasks()
+            if not delivery_tasks:
+                await update.message.reply_text("📭 Нет активных задач доставки.")
+                return
+                
+            # Группируем задачи по дате
+            tasks_by_date = {}
+            for task_id, task in delivery_tasks.items():
+                desired_date = task.get('desired_date', '')
+                if not desired_date:
+                    continue
+                    
+                # Пытаемся извлечь дату из строки формата "ЧЧ:ММ ДД.ММ.ГГГГ"
+                try:
+                    # Разделяем время и дату
+                    time_part, date_part = desired_date.split(' ')
+                    # Преобразуем в объект datetime
+                    date_obj = datetime.strptime(date_part, "%d.%m.%Y")
+                    date_key = date_obj.strftime("%d.%m.%Y")
+                    
+                    if date_key not in tasks_by_date:
+                        tasks_by_date[date_key] = []
+                    
+                    tasks_by_date[date_key].append(task)
+                except (ValueError, IndexError) as e:
+                    logger.error(f"Ошибка при обработке даты {desired_date}: {e}")
+                    continue
+            
+            if not tasks_by_date:
+                await update.message.reply_text("📭 Нет задач доставки с указанной датой.")
+                return
+                
+            # Сортируем даты
+            sorted_dates = sorted(tasks_by_date.keys(), 
+                                key=lambda x: datetime.strptime(x, "%d.%m.%Y"))
+            
+            # Создаем клавиатуру с датами
+            keyboard = []
+            for date in sorted_dates:
+                task_count = len(tasks_by_date[date])
+                keyboard.append([
+                    InlineKeyboardButton(
+                        f"📅 {date} ({task_count})", 
+                        callback_data=f"calendar_date_{date}"
+                    )
+                ]
+                )
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                "📅 Выберите дату для просмотра задач доставки:",
+                reply_markup=reply_markup
+            )
+            
+        except Exception as e:
+            logger.error(f"🔥 Ошибка при показе календаря: {e}")
+            await update.message.reply_text("❌ Произошла ошибка при загрузке календаря.")
+            
+    async def show_tasks_by_date(self, update: Update, context: CallbackContext):
+        """Показывает задачи доставки на выбранную дату"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Извлекаем дату из callback_data
+            date_str = query.data.split('_')[-1]
+            
+            # Загружаем задачи доставки
+            delivery_tasks = load_delivery_tasks()
+            
+            # Фильтруем задачи по дате
+            tasks_on_date = []
+            for task_id, task in delivery_tasks.items():
+                desired_date = task.get('desired_date', '')
+                if desired_date and date_str in desired_date:
+                    tasks_on_date.append(task)
+            
+            if not tasks_on_date:
+                await query.edit_message_text(
+                    f"📭 На дату {date_str} нет задач доставки."
+                )
+                return
+                
+            # Сортируем задачи по времени
+            tasks_on_date.sort(key=lambda x: x.get('desired_date', ''))
+            
+            # Формируем сообщение с задачами
+            message = f"📅 Задачи доставки на {date_str}:\n\n"
+            
+            for task in tasks_on_date:
+                task_id = task.get('task_id', 'Не указан')
+                request_id = task.get('request_id', 'Не указан')
+                status = task.get('status', 'Не указан')
+                sc_name = task.get('sc_name', 'Не указан')
+                client_name = task.get('client_name', 'Не указан')
+                client_address = task.get('client_address', 'Не указан')
+                delivery_type = "От клиента в СЦ" if task.get('delivery_type') == 'client_to_sc' else "От СЦ клиенту"
+                
+                message += (
+                    f"🔹 Задача #{task_id} (Заявка #{request_id})\n"
+                    f"📋 Статус: {status}\n"
+                    f"🏢 СЦ: {sc_name}\n"
+                    f"👤 Клиент: {client_name}\n"
+                    f"📍 Адрес: {client_address}\n"
+                    f"🚚 Тип: {delivery_type}\n"
+                    f"⏰ Время: {task.get('desired_date', 'Не указано')}\n\n"
+                )
+            
+            # Создаем клавиатуру для возврата к календарю
+            keyboard = [[
+                InlineKeyboardButton("🔙 Назад к календарю", callback_data="back_to_calendar")
+            ]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                message,
+                reply_markup=reply_markup
+            )
+            
+        except Exception as e:
+            logger.error(f"🔥 Ошибка при показе задач на дату: {e}")
+            await query.edit_message_text("❌ Произошла ошибка при загрузке задач.")
+            
+    async def back_to_calendar(self, update: Update, context: CallbackContext):
+        """Возврат к календарю"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Вызываем метод показа календаря
+        await self.show_delivery_calendar(query, context)

@@ -202,6 +202,12 @@ def register_admin_handlers(application, admin_handler, user_handler, sc_handler
         pattern="^send_to_sc_"
     ))
 
+    # Обработчик календаря задач доставки
+    application.add_handler(MessageHandler(
+        filters.Regex("^Календарь$") & filters.User(user_id=ADMIN_IDS),
+        admin_handler.show_delivery_calendar
+    ))
+
     application.add_handler(MessageHandler(
         filters.Regex("^Управление СЦ$") & filters.User(user_id=ADMIN_IDS),
         sc_management_handler.show_sc_management
@@ -801,6 +807,17 @@ def register_sc_handlers(application, sc_handler, sc_item_handler, sc_chat_handl
 
 def register_callbacks(application, delivery_handler, admin_handler, delivery_sc_handler, client_handler):
     # Обработчики callback-запросов
+
+    # Обработчики для календаря задач доставки
+    application.add_handler(CallbackQueryHandler(
+        admin_handler.show_tasks_by_date,
+        pattern="^calendar_date_"
+    ))
+    
+    application.add_handler(CallbackQueryHandler(
+        admin_handler.back_to_calendar,
+        pattern="^back_to_calendar$"
+    ))
 
     application.add_handler(CallbackQueryHandler(
         delivery_handler.accept_delivery,
