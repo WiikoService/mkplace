@@ -401,3 +401,96 @@ class SCChatHandler(SCHandler):
             text="Меню клиента:",
             reply_markup=reply_markup
         )
+
+    async def handle_start_dispute(self, update: Update, context: CallbackContext):
+        """Обработка начала спора клиентом"""
+        query = update.callback_query
+        await query.answer()
+        request_id = query.data.split('_')[-1]
+        
+        # Загружаем данные о заявке
+        requests_data = load_requests()
+        request_data = requests_data.get(request_id)
+        if not request_data:
+            await query.edit_message_text("Ошибка: заявка не найдена")
+            return
+        
+        # Получаем ID сервисного центра и соответствующего пользователя
+        sc_id = request_data.get('assigned_sc')
+        users_data = load_users()
+        sc_user_id = next(
+            (uid for uid, u_data in users_data.items() 
+            if str(u_data.get('sc_id')) == str(sc_id) and u_data.get('role') == 'sc'),
+            None
+        )
+        
+        if not sc_user_id:
+            await query.edit_message_text("❌ Сервисный центр недоступен")
+            return
+        
+        # Сохраняем данные о споре
+        context.user_data['active_dispute'] = {
+            'request_id': request_id,
+            'sc_user_id': sc_user_id,
+            'last_active': time.time()
+        }
+        
+        # Отправляем уведомление сервисному центру
+        try:
+            await context.bot.send_message(
+                chat_id=int(sc_user_id),
+                text=f"⚠️ *Клиент открыл спор по заявке #{request_id}*",
+                parse_mode='Markdown'
+            )
+            
+            # Сохраняем в историю
+            self.save_chat_history(
+                request_id,
+                'system',
+                f"Клиент открыл спор по заявке #{request_id}",
+                datetime.now().strftime("%H:%M %d.%m.%Y")
+            )
+            
+            await query.edit_message_text(
+                "⚠️ Вы открыли спор по заявке. Ожидайте ответа сервисного центра.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✉️ Написать сообщение", callback_data=f"client_reply_{request_id}")],
+                    [InlineKeyboardButton("❌ Закрыть спор", callback_data=f"close_dispute_{request_id}")]
+                ])
+            )
+        except Exception as e:
+            logger.error(f"Ошибка при отправке уведомления о споре: {str(e)}")
+            await query.edit_message_text("❌ Не удалось открыть спор. Попробуйте позже.")
+
+    async def handle_close_dispute(self, update: Update, context: CallbackContext):
+        """Обработка закрытия спора"""
+        query = update.callback_query
+        await query.answer()
+        request_id = query.data.split('_')[-1]
+        
+        # Удаляем данные о споре
+        context.user_data.pop('active_dispute', None)
+        
+        # Отправляем уведомление сервисному центру
+        chat_data = context.user_data.get('active_dispute', {})
+        sc_user_id = chat_data.get('sc_user_id')
+        
+        if sc_user_id:
+            try:
+                await context.bot.send_message(
+                    chat_id=int(sc_user_id),
+                    text=f"ℹ️ *Клиент закрыл спор по заявке #{request_id}*",
+                    parse_mode='Markdown'
+                )
+                
+                # Сохраняем в историю
+                self.save_chat_history(
+                    request_id,
+                    'system',
+                    f"Клиент закрыл спор по заявке #{request_id}",
+                    datetime.now().strftime("%H:%M %d.%m.%Y")
+                )
+            except Exception as e:
+                logger.error(f"Ошибка при отправке уведомления о закрытии спора: {str(e)}")
+        
+        await query.edit_message_text("✅ Спор закрыт")

@@ -490,7 +490,7 @@ class ClientHandler:
             await update.message.reply_text(reply)
 
     async def show_client_requests(self, update: Update, context: CallbackContext):
-        """Показать заявки клиента"""
+        """Показать заявки клиента с кнопками под каждой заявкой"""
         user_id = str(update.effective_user.id)
         requests_data = load_requests()
         
@@ -507,15 +507,21 @@ class ClientHandler:
             )
             return
         
-        # Формируем сообщение и клавиатуру
-        message = "📋 Ваши заявки:\n\n"
-        keyboard = []
+        # Сортируем заявки по дате создания (новые сверху)
+        sorted_requests = sorted(
+            user_requests.items(),
+            key=lambda x: x[1].get('timestamp', ''),
+            reverse=True
+        )
         
-        for req_id, req_data in user_requests.items():
+        # Отправляем каждую заявку отдельным сообщением с кнопками
+        for req_id, req_data in sorted_requests:
             status = req_data.get('status', 'Неизвестно')
+            description = req_data.get('description', 'Без описания')
+            category = req_data.get('category', 'Не указана')
             location = req_data.get('location', {})
             
-            # Обрабатываем location в зависимости от его типа
+            # Обрабатываем location
             if isinstance(location, dict):
                 address = location.get('address', 'Адрес не указан')
                 if location.get("type") == "coordinates":
@@ -523,24 +529,36 @@ class ClientHandler:
             else:
                 address = str(location)
             
-            message += f"🔹 Заявка #{req_id}\n"
-            message += f"📍 Адрес: {address}\n"
-            message += f"📊 Статус: {status}\n\n"
+            # Формируем сообщение
+            message = (
+                f"🔹 <b>Заявка #{req_id}</b>\n"
+                f"📋 <b>Категория:</b> {category}\n"
+                f"📝 <b>Описание:</b> {description}\n"
+                f"📍 <b>Адрес:</b> {address}\n"
+                f"📊 <b>Статус:</b> {status}\n"
+            )
+            
+            # Добавляем дату создания, если есть
+            if 'timestamp' in req_data:
+                message += f"📅 <b>Дата создания:</b> {req_data['timestamp']}\n"
+            
+            keyboard = []
             
             # Добавляем кнопку "Открыть спор" для заявок со статусом "Доставлено клиенту"
             if status == "Доставлено клиенту":
                 keyboard.append([
                     InlineKeyboardButton(
-                        f"🗣 Открыть спор (Заявка #{req_id})",
-                        callback_data=f"open_dispute_{req_id}"
+                        "🗣 Открыть спор",
+                        callback_data=f"start_dispute_{req_id}"
                     )
                 ])
-        
-        reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
-        await update.message.reply_text(
-            message,
-            reply_markup=reply_markup
-        )
+            
+            reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
+            await update.message.reply_text(
+                message,
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
 
     async def show_documents(self, update: Update, context: CallbackContext):
         """
