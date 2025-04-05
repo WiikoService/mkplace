@@ -408,11 +408,14 @@ class DeliveryHandler(BaseHandler):
         return CREATE_REQUEST_PHOTOS
 
     async def handle_delivery_photos_done(self, update: Update, context: CallbackContext):
+        query = update.callback_query
+        await query.answer()
+        
         try:
             request_id = context.user_data.get('current_request')
             photos = context.user_data.get('photos_to_sc', [])
             if not photos:
-                await update.message.reply_text("Необходимо добавить хотя бы одно фото!")
+                await query.message.reply_text("Необходимо добавить хотя бы одно фото!")
                 return CREATE_REQUEST_PHOTOS
             requests_data = load_requests()
             delivery_tasks = load_delivery_tasks()
@@ -475,11 +478,11 @@ class DeliveryHandler(BaseHandler):
                 logger.error(f"Ошибка отправки уведомления в СЦ: {str(e)}")
             context.user_data.pop('photos_to_sc', None)
             context.user_data.pop('current_request', None)
-            await update.message.reply_text("✅ Фотографии загружены и отправлены в СЦ")
+            await query.message.reply_text("✅ Фотографии загружены и отправлены в СЦ")
             return ConversationHandler.END
         except Exception as e:
             logger.error(f"Ошибка в handle_delivery_photos_done: {str(e)}")
-            await update.message.reply_text("Произошла ошибка при обработке фотографий")
+            await query.message.reply_text("Произошла ошибка при обработке фотографий")
             return ConversationHandler.END
 
     async def update_delivery_messages(self, bot, task_id, task_data):
@@ -785,12 +788,15 @@ class DeliveryHandler(BaseHandler):
         return CREATE_REQUEST_PHOTOS
 
     async def handle_pickup_photos_done(self, update: Update, context: CallbackContext):
-        """Завершение процесса фотографирования при получении товара"""
+        """Завершение процесса фотографирования при получении товара через кнопку"""
+        query = update.callback_query
+        await query.answer()
+        
         try:
             request_id = context.user_data.get('current_request')
             photos = context.user_data.get('pickup_photos', [])
             if not photos:
-                await update.message.reply_text("Необходимо добавить хотя бы одно фото!")
+                await query.message.reply_text("Необходимо добавить хотя бы одно фото!")
                 return CREATE_REQUEST_PHOTOS
             requests_data = load_requests()
             if request_id in requests_data:
@@ -845,9 +851,9 @@ class DeliveryHandler(BaseHandler):
                 # Очищаем данные контекста
                 context.user_data.pop('pickup_photos', None)
                 context.user_data.pop('current_request', None)
-                await update.message.reply_text("✅ Фотографии загружены и отправлены клиенту для подтверждения")
-                return ConversationHandler.END
+            await query.message.reply_text("✅ Фотографии загружены и отправлены клиенту для подтверждения")
+            return ConversationHandler.END
         except Exception as e:
             logger.error(f"Ошибка в handle_pickup_photos_done: {str(e)}")
-            await update.message.reply_text("Произошла ошибка при обработке фотографий")
+            await query.message.reply_text("Произошла ошибка при обработке фотографий")
             return ConversationHandler.END

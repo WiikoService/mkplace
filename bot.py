@@ -102,7 +102,7 @@ def register_client_handlers(application, client_handler, user_handler):
             ],
             CREATE_REQUEST_PHOTOS: [
                 MessageHandler(filters.PHOTO, client_handler.handle_request_photos),
-                CommandHandler("done", client_handler.done_photos)
+                CallbackQueryHandler(client_handler.done_photos, pattern="^done_photos$")
             ],
             CREATE_REQUEST_LOCATION: [
                 MessageHandler(
@@ -418,9 +418,9 @@ def register_delivery_handlers(application, delivery_handler, user_handler, deli
                     filters.PHOTO,
                     delivery_sc_handler.handle_sc_photos_after_pickup
                 ),
-                CommandHandler(
-                    "done",
-                    delivery_sc_handler.handle_sc_photos_done
+                CallbackQueryHandler(
+                    delivery_sc_handler.handle_sc_photos_done,
+                    pattern="^done_photos$"
                 )
             ]
         },
@@ -450,9 +450,9 @@ def register_delivery_handlers(application, delivery_handler, user_handler, deli
                     filters.PHOTO,
                     delivery_sc_handler.handle_delivery_photos
                 ),
-                CommandHandler(
-                    "done",
-                    delivery_sc_handler.handle_delivery_photos_done
+                CallbackQueryHandler(
+                    delivery_sc_handler.handle_delivery_photos_done,
+                    pattern="^done_photos$"
                 )
             ]
         },
@@ -487,14 +487,8 @@ def register_delivery_handlers(application, delivery_handler, user_handler, deli
                 )
             ],
             CREATE_REQUEST_PHOTOS: [
-                MessageHandler(
-                    filters.PHOTO,
-                    delivery_sc_handler.handle_sc_pickup_photo
-                ),
-                CommandHandler(
-                    "done",
-                    delivery_sc_handler.handle_sc_pickup_photos_done
-                )
+                MessageHandler(filters.PHOTO, delivery_sc_handler.handle_sc_pickup_photo),
+                CallbackQueryHandler(delivery_sc_handler.handle_sc_pickup_photos_done, pattern="^done_photos$")
             ]
         },
         fallbacks=[
@@ -515,7 +509,7 @@ def register_delivery_handlers(application, delivery_handler, user_handler, deli
         states={
             CREATE_REQUEST_PHOTOS: [
                 MessageHandler(filters.PHOTO, delivery_handler.handle_pickup_photo),
-                CommandHandler("done", delivery_handler.handle_pickup_photos_done)
+                CallbackQueryHandler(delivery_handler.handle_pickup_photos_done, pattern="^done_photos$")
             ]
         },
         fallbacks=[CommandHandler("cancel", delivery_handler.cancel_delivery)]
@@ -533,7 +527,7 @@ def register_delivery_handlers(application, delivery_handler, user_handler, deli
         states={
             CREATE_REQUEST_PHOTOS: [
                 MessageHandler(filters.PHOTO, delivery_handler.handle_delivery_photo),
-                CommandHandler("done", delivery_handler.handle_delivery_photos_done)
+                CallbackQueryHandler(delivery_handler.handle_delivery_photos_done, pattern="^done_photos$")
             ]
         },
         fallbacks=[CommandHandler("cancel", delivery_handler.cancel_delivery)]
@@ -584,7 +578,7 @@ def register_sc_handlers(application, sc_handler, sc_item_handler, sc_chat_handl
         states={
             CREATE_REQUEST_PHOTOS: [
                 MessageHandler(filters.PHOTO, sc_item_handler.handle_photo_upload),
-                CommandHandler("done", sc_item_handler.handle_photos_done)
+                CallbackQueryHandler(sc_item_handler.handle_photos_done, pattern="^done_photos$")
             ]
         },
         fallbacks=[]
@@ -852,7 +846,7 @@ def register_callbacks(application, delivery_handler, admin_handler, delivery_sc
         states={
             CREATE_REQUEST_PHOTOS: [
                 MessageHandler(filters.PHOTO, delivery_handler.handle_delivery_photo),
-                CommandHandler("done", delivery_handler.handle_delivery_photos_done)
+                CallbackQueryHandler(delivery_handler.handle_delivery_photos_done, pattern="^done_photos$")
             ]
         },
         fallbacks=[]
@@ -900,7 +894,10 @@ def register_callbacks(application, delivery_handler, admin_handler, delivery_sc
                     filters.PHOTO,
                     delivery_sc_handler.handle_sc_pickup_photo
                 ),
-                CommandHandler("done", delivery_sc_handler.handle_sc_pickup_photos_done)
+                CallbackQueryHandler(
+                    delivery_sc_handler.handle_sc_pickup_photos_done, 
+                    pattern="^done_photos$"
+                )
             ],
             ENTER_SC_CONFIRMATION_CODE: [
                 MessageHandler(

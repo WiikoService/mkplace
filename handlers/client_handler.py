@@ -98,13 +98,16 @@ class ClientHandler:
         return CREATE_REQUEST_PHOTOS
 
     async def done_photos(self, update: Update, context: CallbackContext):
-        """Обработка завершения фотографий заявки"""
+        """Обработка завершения фотографий заявки через кнопку"""
+        query = update.callback_query
+        await query.answer()
+        
         keyboard = [
             [KeyboardButton(text="Отправить местоположение", request_location=True)],
             [KeyboardButton(text="Ввести адрес вручную")]
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-        await update.message.reply_text(
+        await query.message.reply_text(
             "Отлично! Теперь отправьте свое местоположение или выберите 'Ввести адрес вручную':",
             reply_markup=reply_markup
         )

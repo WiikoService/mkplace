@@ -85,18 +85,20 @@ class SCItemHandler(SCHandler):
 
     async def handle_photos_done(self, update: Update, context: CallbackContext):
         """Завершение загрузки фотографий СЦ"""
+        query = update.callback_query
+        await query.answer()
+        
         try:
-            # Проверка наличия request_id в контексте
             request_id = context.user_data.get('awaiting_photo_sc')
             if not request_id:
                 logger.error("Отсутствует request_id в контексте")
-                await update.message.reply_text("Ошибка: сессия устарела. Начните заново.")
+                await query.message.reply_text("Ошибка: сессия устарела. Начните заново.")
                 return ConversationHandler.END
-            # Проверка наличия фотографий
+            
             photos = context.user_data.get('sc_photos', [])
             if not photos:
                 logger.warning(f"Нет фото для заявки {request_id}")
-                await update.message.reply_text("Необходимо добавить хотя бы одно фото!")
+                await query.message.reply_text("Необходимо добавить хотя бы одно фото!")
                 return CREATE_REQUEST_PHOTOS
             # Загрузка данных
             requests_data = load_requests()
@@ -165,11 +167,11 @@ class SCItemHandler(SCHandler):
             # Очистка контекста
             context.user_data.pop('awaiting_photo_sc', None)
             context.user_data.pop('sc_photos', None)
-            await update.message.reply_text("✅ Товар принят в работу.")
+            await query.message.reply_text("✅ Товар принят в работу.")
             return ConversationHandler.END
         except Exception as e:
             logger.error(f"Критическая ошибка в handle_photos_done: {str(e)}", exc_info=True)
-            await update.message.reply_text("⚠️ Произошла критическая ошибка. Обратитесь к администратору.")
+            await query.message.reply_text("⚠️ Произошла критическая ошибка. Обратитесь к администратору.")
             return ConversationHandler.END
 
     async def handle_reject_reason(self, update: Update, context: CallbackContext):

@@ -74,7 +74,7 @@ class DeliverySCHandler(DeliveryHandler):
             sc_id = requests_data[request_id].get('assigned_sc')
             if not sc_id:
                 await query.edit_message_text("❌ Не удалось найти данные СЦ.")
-                return ConversationHandler.END
+                return
             # Находим пользователя СЦ
             sc_user_id = None
             for user_id, user_data in users_data.items():
@@ -83,7 +83,7 @@ class DeliverySCHandler(DeliveryHandler):
                     break
             if not sc_user_id:
                 await query.edit_message_text("❌ Не удалось найти пользователя СЦ.")
-                return ConversationHandler.END
+                return
             # Генерируем код подтверждения
             confirmation_code = ''.join(random.choices('0123456789', k=4))
             # Сохраняем код в контексте доставщика
@@ -114,85 +114,235 @@ class DeliverySCHandler(DeliveryHandler):
             return ConversationHandler.END
 
     async def handle_sc_photos_after_pickup(self, update: Update, context: CallbackContext):
-        """Обработка фотографий после забора товара из СЦ"""
-        if 'photos_from_sc' not in context.user_data:
-            return
-        photo = update.message.photo[-1]
-        photo_file = await context.bot.get_file(photo.file_id)
-        photo_path = f"photos/from_sc_{len(context.user_data['photos_from_sc'])}_{context.user_data['current_request']}.jpg"
-        await photo_file.download_to_drive(photo_path)
-        context.user_data['photos_from_sc'].append(photo_path)
-        await update.message.reply_text("Фото добавлено. Отправьте /done когда закончите.")
-        return CREATE_REQUEST_PHOTOS
-
-    async def handle_sc_photos_done(self, update: Update, context: CallbackContext):
-        """Завершение добавления фотографий после забора из СЦ"""
+        """Обработка фотографий после получения из СЦ"""
         try:
+            # Получаем ID заявки
             request_id = context.user_data.get('current_request')
-            photos = context.user_data.get('photos_from_sc', [])
-            if not photos:
-                await update.message.reply_text("Необходимо добавить хотя бы одно фото!")
-                return CREATE_REQUEST_PHOTOS
-            # Загружаем данные
-            requests_data = load_requests()
-            if request_id not in requests_data:
-                await update.message.reply_text("Ошибка: заявка не найдена.")
+            if not request_id:
+                await update.message.reply_text("❌ Ошибка: заявка не найдена.")
                 return ConversationHandler.END
-            # Сохраняем фотографии в заявке
-            requests_data[request_id]['sc_pickup_photos'] = photos
-            save_requests(requests_data)
-            # Отправляем фотографии администратору
-            try:
-                admin_message = (
-                    f"📸 Доставщик {update.effective_user.first_name} сделал фотографии товара при получении из СЦ\n"
-                    f"Заявка: #{request_id}\n"
-                    f"Статус: Доставщик забрал из СЦ"
-                )
-                # Отправляем сообщение и фотографии администраторам
-                for admin_id in ADMIN_IDS:
-                    try:
-                        await context.bot.send_message(
-                            chat_id=int(admin_id),
-                            text=admin_message
-                        )       
-                        # Отправляем фото
-                        for photo_path in photos:
-                            if os.path.exists(photo_path):
-                                with open(photo_path, 'rb') as photo_file:
-                                    await context.bot.send_photo(
-                                        chat_id=int(admin_id),
-                                        photo=photo_file,
-                                        caption=f"Фото товара по заявке #{request_id}"
-                                    )
-                    except Exception as e:
-                        logger.error(f"Ошибка отправки уведомления администратору {admin_id}: {e}")
-            except Exception as e:
-                logger.error(f"Ошибка при отправке уведомления администраторам: {e}")
-            # Создаем кнопку "Сдать товар клиенту"
-            keyboard = [[
-                InlineKeyboardButton(
-                    "📦 Сдать товар клиенту", 
-                    callback_data=f"deliver_to_client_{request_id}"
-                )
-            ]]
+            # Сохраняем фото
+            photo = update.message.photo[-1]
+            photo_file = await context.bot.get_file(photo.file_id)
+            photo_path = f"photos/sc_pickup_{request_id}_{len(context.user_data.get('sc_pickup_photos', []))}.jpg"
+            await photo_file.download_to_drive(photo_path)
+            
+            # Сохраняем путь к фото в контексте
+            if 'sc_pickup_photos' not in context.user_data:
+                context.user_data['sc_pickup_photos'] = []
+            context.user_data['sc_pickup_photos'].append(photo_path)
+            
+            # Добавляем кнопку "Отправить фото"
+            keyboard = [[InlineKeyboardButton("📤 Отправить фото", callback_data="send_sc_pickup_photos")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            # Отправляем доставщику сообщение с адресом клиента и кнопкой
-            client_address = requests_data[request_id].get('location_display', 'Адрес не указан')
-            client_name = requests_data[request_id].get('user_name', 'Не указано')
             await update.message.reply_text(
-                f"✅ Фотографии добавлены.\n\n"
-                f"Теперь вы можете доставить товар клиенту по адресу:\n"
-                f"👤 {client_name}\n"
-                f"📍 {client_address}\n\n"
-                f"Когда прибудете к клиенту, нажмите кнопку 'Сдать товар клиенту'",
+                "Фото добавлено. Нажмите кнопку 'Отправить фото' когда закончите.",
                 reply_markup=reply_markup
             )
-            # Очищаем данные контекста
-            context.user_data.pop('photos_from_sc', None)
+            return CREATE_REQUEST_PHOTOS
+        except Exception as e:
+            logger.error(f"Ошибка при обработке фотографий после получения из СЦ: {e}")
+            await update.message.reply_text("❌ Произошла ошибка при обработке фотографий.")
+            return ConversationHandler.END
+
+    async def handle_send_sc_pickup_photos_button(self, update: Update, context: CallbackContext):
+        """Обработка нажатия кнопки отправки фотографий после получения из СЦ"""
+        query = update.callback_query
+        await query.answer()
+        try:
+            # Получаем ID заявки
+            request_id = context.user_data.get('current_request')
+            if not request_id:
+                await query.edit_message_text("❌ Ошибка: заявка не найдена.")
+                return ConversationHandler.END
+            # Проверяем наличие фотографий
+            photos = context.user_data.get('sc_pickup_photos', [])
+            if not photos:
+                await query.edit_message_text("❌ Ошибка: фотографии не найдены.")
+                return ConversationHandler.END
+            # Загружаем данные
+            requests_data = load_requests()
+            delivery_tasks = load_delivery_tasks()
+            if request_id not in requests_data:
+                await query.edit_message_text("❌ Ошибка: заявка не найдена.")
+                return ConversationHandler.END
+            # Обновляем статусы
+            request = requests_data[request_id]
+            request['status'] = ORDER_STATUS_SC_TO_CLIENT
+            save_requests(requests_data)
+            # Находим и обновляем задачу доставки
+            task_updated = False
+            for task_id, task in delivery_tasks.items():
+                if task.get('request_id') == request_id:
+                    task['status'] = ORDER_STATUS_SC_TO_CLIENT
+                    task_updated = True
+                    break
+            if not task_updated:
+                logger.error(f"Не найдена задача доставки для заявки {request_id}")
+            save_delivery_tasks(delivery_tasks)
+            # Отправляем уведомления
+            client_id = request.get('user_id')
+            if client_id:
+                # Получаем данные СЦ
+                sc_id = request.get('assigned_sc')
+                service_centers = load_service_centers()
+                sc_data = service_centers.get(sc_id, {})
+                # Формируем сообщение с информацией о СЦ
+                sc_info = (
+                    f"🏢 Сервисный центр: {sc_data.get('name', 'Название не указано')}\n"
+                    f"📍 Адрес: {sc_data.get('address', 'Адрес не указан')}\n"
+                    f"📱 Телефон: {sc_data.get('phone', 'Телефон не указан')}\n\n"
+                )
+                await context.bot.send_message(
+                    chat_id=client_id,
+                    text=f"Доставщик сделал фотографии товара по заявке #{request_id}.\n\n{sc_info}Пожалуйста, подтвердите получение:"
+                )
+                for photo_path in photos:
+                    if os.path.exists(photo_path):
+                        with open(photo_path, 'rb') as photo_file:
+                            await context.bot.send_photo(
+                                chat_id=client_id,
+                                photo=photo_file,
+                                caption=f"Фото товара по заявке #{request_id}"
+                            )
+                keyboard = [
+                    [InlineKeyboardButton("Да, забрал. С фото согласен.", callback_data=f"client_confirm_{request_id}")],
+                    [InlineKeyboardButton("Нет, не забрал.", callback_data=f"client_deny_{request_id}")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await context.bot.send_message(
+                    chat_id=client_id,
+                    text="Подтвердите получение товара:",
+                    reply_markup=reply_markup
+                )
+            # Очищаем данные фотографий
+            if 'sc_pickup_photos' in context.user_data:
+                del context.user_data['sc_pickup_photos']
+            # Отправляем сообщение доставщику
+            await query.edit_message_text(
+                "✅ Фотографии успешно отправлены.\n\n"
+                "Ожидайте подтверждения от клиента."
+            )
             return ConversationHandler.END
         except Exception as e:
-            logger.error(f"Ошибка при обработке фотографий после забора из СЦ: {e}")
-            await update.message.reply_text("Произошла ошибка при обработке фотографий")
+            logger.error(f"Ошибка при отправке фотографий после получения из СЦ: {e}")
+            await query.edit_message_text("❌ Произошла ошибка при отправке фотографий.")
+            return ConversationHandler.END
+
+    async def handle_delivery_photos(self, update: Update, context: CallbackContext):
+        """Обработка фотографий доставки клиенту"""
+        try:
+            # Получаем ID заявки
+            request_id = context.user_data.get('current_request')
+            if not request_id:
+                await update.message.reply_text("❌ Ошибка: заявка не найдена.")
+                return ConversationHandler.END
+            # Сохраняем фото
+            photo = update.message.photo[-1]
+            photo_file = await context.bot.get_file(photo.file_id)
+            photo_path = f"photos/sc_delivery_{request_id}_{len(context.user_data.get('sc_delivery_photos', []))}.jpg"
+            await photo_file.download_to_drive(photo_path)
+            
+            # Сохраняем путь к фото в контексте
+            if 'sc_delivery_photos' not in context.user_data:
+                context.user_data['sc_delivery_photos'] = []
+            context.user_data['sc_delivery_photos'].append(photo_path)
+            
+            # Добавляем кнопку "Отправить фото"
+            keyboard = [[InlineKeyboardButton("📤 Отправить фото", callback_data="send_sc_delivery_photos")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                "Фото добавлено. Нажмите кнопку 'Отправить фото' когда закончите.",
+                reply_markup=reply_markup
+            )
+            return CREATE_REQUEST_PHOTOS
+        except Exception as e:
+            logger.error(f"Ошибка при обработке фотографий доставки: {e}")
+            await update.message.reply_text("❌ Произошла ошибка при обработке фотографий.")
+            return ConversationHandler.END
+
+    async def handle_send_sc_delivery_photos_button(self, update: Update, context: CallbackContext):
+        """Обработка нажатия кнопки отправки фотографий доставки"""
+        query = update.callback_query
+        await query.answer()
+        try:
+            # Получаем ID заявки
+            request_id = context.user_data.get('current_request')
+            if not request_id:
+                await query.edit_message_text("❌ Ошибка: заявка не найдена.")
+                return ConversationHandler.END
+            # Проверяем наличие фотографий
+            photos = context.user_data.get('sc_delivery_photos', [])
+            if not photos:
+                await query.edit_message_text("❌ Ошибка: фотографии не найдены.")
+                return ConversationHandler.END
+            # Загружаем данные
+            requests_data = load_requests()
+            delivery_tasks = load_delivery_tasks()
+            if request_id not in requests_data:
+                await query.edit_message_text("❌ Ошибка: заявка не найдена.")
+                return ConversationHandler.END
+            # Обновляем статусы
+            request = requests_data[request_id]
+            request['status'] = ORDER_STATUS_DELIVERY_TO_SC
+            save_requests(requests_data)
+            # Находим и обновляем задачу доставки
+            task_updated = False
+            for task_id, task in delivery_tasks.items():
+                if task.get('request_id') == request_id:
+                    task['status'] = ORDER_STATUS_DELIVERY_TO_SC
+                    task_updated = True
+                    break
+            if not task_updated:
+                logger.error(f"Не найдена задача доставки для заявки {request_id}")
+            save_delivery_tasks(delivery_tasks)
+            # Отправляем уведомления
+            client_id = request.get('user_id')
+            if client_id:
+                # Получаем данные СЦ
+                sc_id = request.get('assigned_sc')
+                service_centers = load_service_centers()
+                sc_data = service_centers.get(sc_id, {})
+                # Формируем сообщение с информацией о СЦ
+                sc_info = (
+                    f"🏢 Сервисный центр: {sc_data.get('name', 'Название не указано')}\n"
+                    f"📍 Адрес: {sc_data.get('address', 'Адрес не указан')}\n"
+                    f"📱 Телефон: {sc_data.get('phone', 'Телефон не указан')}\n\n"
+                )
+                await context.bot.send_message(
+                    chat_id=client_id,
+                    text=f"Доставщик сделал фотографии товара по заявке #{request_id}.\n\n{sc_info}Пожалуйста, подтвердите получение:"
+                )
+                for photo_path in photos:
+                    if os.path.exists(photo_path):
+                        with open(photo_path, 'rb') as photo_file:
+                            await context.bot.send_photo(
+                                chat_id=client_id,
+                                photo=photo_file,
+                                caption=f"Фото товара по заявке #{request_id}"
+                            )
+                keyboard = [
+                    [InlineKeyboardButton("Да, забрал. С фото согласен.", callback_data=f"client_confirm_{request_id}")],
+                    [InlineKeyboardButton("Нет, не забрал.", callback_data=f"client_deny_{request_id}")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await context.bot.send_message(
+                    chat_id=client_id,
+                    text="Подтвердите получение товара:",
+                    reply_markup=reply_markup
+                )
+            # Очищаем данные фотографий
+            if 'sc_delivery_photos' in context.user_data:
+                del context.user_data['sc_delivery_photos']
+            # Отправляем сообщение доставщику
+            await query.edit_message_text(
+                "✅ Фотографии успешно отправлены.\n\n"
+                "Ожидайте подтверждения от клиента."
+            )
+            return ConversationHandler.END
+        except Exception as e:
+            logger.error(f"Ошибка при отправке фотографий доставки: {e}")
+            await query.edit_message_text("❌ Произошла ошибка при отправке фотографий.")
             return ConversationHandler.END
 
     async def handle_client_confirmation_request(self, update: Update, context: CallbackContext):
@@ -210,7 +360,7 @@ class DeliverySCHandler(DeliveryHandler):
             client_id = requests_data[request_id].get('user_id')
             if not client_id:
                 await query.edit_message_text("❌ Не удалось найти данные клиента.")
-                return ConversationHandler.END
+                return
             # Генерируем код подтверждения
             confirmation_code = ''.join(random.choices('0123456789', k=4))
             # Сохраняем код в контексте доставщика
@@ -260,8 +410,8 @@ class DeliverySCHandler(DeliveryHandler):
             # Коды совпадают, запрашиваем фотографии
             context.user_data['delivery_photos'] = []
             await update.message.reply_text(
-                "✅ Код подтверждения верный!\n\n"
-                "Пожалуйста, сделайте фотографии товара при передаче клиенту.\n"
+                "✅ Код подтвержден! Товар успешно получен из СЦ.\n\n"
+                "Пожалуйста, сделайте фотографии товара для подтверждения его состояния.\n"
                 "Когда закончите, отправьте /done"
             )
             return CREATE_REQUEST_PHOTOS
@@ -269,22 +419,6 @@ class DeliverySCHandler(DeliveryHandler):
             logger.error(f"Ошибка при проверке кода подтверждения от клиента: {e}")
             await update.message.reply_text("❌ Произошла ошибка при проверке кода.")
             return ConversationHandler.END
-
-    async def handle_delivery_photos(self, update: Update, context: CallbackContext):
-        """Обработка фотографий при передаче товара клиенту"""
-        if 'delivery_photos' not in context.user_data:
-            context.user_data['delivery_photos'] = []
-        photo = update.message.photo[-1]
-        photo_file = await context.bot.get_file(photo.file_id)
-        # Создаем уникальное имя файла
-        timestamp = int(time.time())
-        photo_path = f"photos/delivery_{timestamp}_{len(context.user_data['delivery_photos'])}.jpg"
-        await photo_file.download_to_drive(photo_path)
-        context.user_data['delivery_photos'].append(photo_path)
-        await update.message.reply_text(
-            "Фото добавлено. Отправьте еще фотографии или /done для завершения."
-        )
-        return CREATE_REQUEST_PHOTOS
 
     async def handle_delivery_photos_done(self, update: Update, context: CallbackContext):
         """Завершение добавления фотографий при передаче товара клиенту"""
@@ -510,11 +644,14 @@ class DeliverySCHandler(DeliveryHandler):
 
     async def handle_sc_pickup_photos_done(self, update: Update, context: CallbackContext):
         """Завершение добавления фото при заборе из СЦ"""
+        query = update.callback_query
+        await query.answer()
+        
         try:
             request_id = context.user_data.get('current_request')
             photos = context.user_data.get('photos_from_sc', [])
             if not photos:
-                await update.message.reply_text("Необходимо добавить хотя бы одно фото!")
+                await query.message.reply_text("Необходимо добавить хотя бы одно фото!")
                 return CREATE_REQUEST_PHOTOS
             requests_data = load_requests()
             delivery_tasks = load_delivery_tasks()
@@ -552,7 +689,7 @@ class DeliverySCHandler(DeliveryHandler):
             return ConversationHandler.END
         except Exception as e:
             logger.error(f"Ошибка при завершении фотографирования из СЦ: {e}")
-            await update.message.reply_text("Произошла ошибка при обработке фотографий")
+            await query.message.reply_text("Произошла ошибка при обработке фотографий")
             return ConversationHandler.END
 
     async def handle_sc_confirmation(self, update: Update, context: CallbackContext):
@@ -788,48 +925,40 @@ class DeliverySCHandler(DeliveryHandler):
 
     async def check_sc_confirmation_code(self, update: Update, context: CallbackContext):
         """Проверка кода подтверждения от СЦ"""
-        entered_code = update.message.text.strip()
-        request_id = context.user_data.get('current_request')
-        correct_code = context.user_data.get('sc_confirmation_code')        
-        if entered_code != correct_code:
-            await update.message.reply_text("❌ Неверный код. Попробуйте еще раз:")
-            return ENTER_SC_CONFIRMATION_CODE
         try:
-            requests_data = load_requests()
-            delivery_tasks = load_delivery_tasks()
-            # Обновляем статусы
-            if request_id in requests_data:
-                request = requests_data[request_id]
-                request['status'] = 'Доставщик забрал из СЦ'
-                save_requests(requests_data)
-                # Находим и обновляем задачу доставки
-                task_updated = False
-                for task_id, task in delivery_tasks.items():
-                    if task.get('request_id') == request_id:
-                        task['status'] = 'Доставщик забрал из СЦ'
-                        task_updated = True
-                        break
-                if not task_updated:
-                    logger.error(f"Не найдена задача доставки для заявки {request_id}")
-                save_delivery_tasks(delivery_tasks)
-                # Инициализируем массив для фотографий
-                context.user_data['photos_from_sc'] = []
-                # Запрашиваем фотографии товара
-                await update.message.reply_text(
-                    "✅ Код подтвержден! Товар успешно получен из СЦ.\n\n"
-                    "Пожалуйста, сделайте фотографии товара для подтверждения его состояния.\n"
-                    "Когда закончите, отправьте /done"
-                )
-                # Очищаем код подтверждения
-                if 'sc_confirmation_code' in context.user_data:
-                    del context.user_data['sc_confirmation_code']
-                return CREATE_REQUEST_PHOTOS
-            else:
-                await update.message.reply_text("❌ Заявка не найдена.")
+            # Получаем введенный код
+            entered_code = update.message.text.strip()
+            # Получаем сохраненный код и ID заявки
+            stored_code = context.user_data.get('sc_confirmation_code')
+            request_id = context.user_data.get('current_request')
+            if not stored_code or not request_id:
+                await update.message.reply_text("❌ Не удалось найти данные для проверки кода.")
                 return ConversationHandler.END
+            # Проверяем совпадение кодов
+            if entered_code != stored_code:
+                await update.message.reply_text(
+                    "❌ Неверный код подтверждения.\n\n"
+                    "Попросите представителя СЦ проверить код и попробуйте еще раз:"
+                )
+                return ENTER_SC_CONFIRMATION_CODE
+            # Коды совпадают, запрашиваем фотографии
+            context.user_data['sc_pickup_photos'] = []
+            # Добавляем кнопку "Отправить фото"
+            keyboard = [[InlineKeyboardButton("📤 Отправить фото", callback_data="send_sc_pickup_photos")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                "✅ Код подтвержден! Товар успешно получен из СЦ.\n\n"
+                "Пожалуйста, сделайте фотографии товара для подтверждения его состояния.\n"
+                "Когда закончите, нажмите кнопку 'Отправить фото'",
+                reply_markup=reply_markup
+            )
+            # Очищаем код подтверждения
+            if 'sc_confirmation_code' in context.user_data:
+                del context.user_data['sc_confirmation_code']
+            return CREATE_REQUEST_PHOTOS
         except Exception as e:
             logger.error(f"Ошибка при проверке кода подтверждения СЦ: {e}")
-            await update.message.reply_text("❌ Произошла ошибка при проверке кода")
+            await update.message.reply_text("❌ Произошла ошибка при проверке кода.")
             return ConversationHandler.END
 
     async def handle_deliver_to_client(self, update: Update, context: CallbackContext):
