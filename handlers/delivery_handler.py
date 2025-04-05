@@ -308,97 +308,114 @@ class DeliveryHandler(BaseHandler):
             await query.edit_message_text("Произошла ошибка. Заказ не найден.")
 
     async def handle_client_confirmation(self, update: Update, context: CallbackContext):
-        """Обработка подтверждения(отказа) передачи предмета клиентом."""
+        """Обработка подтверждения/отказа клиента о получении товара"""
         query = update.callback_query
         await query.answer()
+        
         try:
             action, request_id = query.data.split('_')[1:]
             requests_data = load_requests()
             delivery_tasks = load_delivery_tasks()
-            if request_id in requests_data:
-                if action == 'confirm':
-                    new_status = ORDER_STATUS_DELIVERY_TO_SC
-                    # Получаем delivery_id из requests
-                    delivery_id = requests_data[request_id].get('assigned_delivery')
-                    # Обновляем статус в requests
-                    requests_data[request_id].update({
-                        'status': new_status,
-                        'assigned_delivery': delivery_id
-                    })
+            
+            if request_id not in requests_data:
+                await query.edit_message_text("❌ Заявка не найдена")
+                return
+            
+            request = requests_data[request_id]
+            
+            if action == 'confirm':
+                # Клиент подтвердил получение
+                request['status'] = ORDER_STATUS_DELIVERY_TO_SC
+                request['client_confirmed'] = True
+                save_requests(requests_data)
+                
+                # Обновляем статус в delivery_tasks
+                for task_id, task in delivery_tasks.items():
+                    if isinstance(task, dict) and task.get('request_id') == request_id:
+                        task['status'] = ORDER_STATUS_DELIVERY_TO_SC
+                        save_delivery_tasks(delivery_tasks)
+                        break
+                
+                # Уведомляем доставщика
+                delivery_id = request.get('assigned_delivery')
+                if delivery_id:
+                    await context.bot.send_message(
+                        chat_id=delivery_id,
+                        text=f"✅ Клиент подтвердил получение товара по заявке #{request_id}"
+                    )
+                
+                await query.edit_message_text("✅ Вы подтвердили получение товара доставщиком.")
+                
+            elif action == 'deny':
+                # Проверяем, было ли это уведомление от администратора
+                if request.get('status') == 'Требуется проверка':
+                    # Если это повторный отказ после проверки администратором, отклоняем заявку
+                    request['status'] = ORDER_STATUS_CLIENT_REJECTED
                     save_requests(requests_data)
-                    # Обновляем статус в delivery_tasks
-                    task_updated = False
-                    for task_id, task in delivery_tasks.items():
-                        if isinstance(task, dict) and task.get('request_id') == request_id:
-                            task.update({
-                                'status': new_status,
-                                'assigned_delivery_id': delivery_id
-                            })
-                            task_updated = True
-                            logger.info(f"Обновлена задача {task_id}: {task}")
-                            break
-                    if not task_updated:
-                        logger.error(f"Задача для заявки {request_id} не найдена в delivery_tasks")
-                    save_delivery_tasks(delivery_tasks)
-                    # Получаем данные СЦ
-                    sc_id = requests_data[request_id].get('assigned_sc')
-                    service_centers = load_service_centers()
-                    sc_data = service_centers.get(sc_id, {})
-                    if delivery_id:
-                        delivery_message = (
-                            f"✅ Клиент подтвердил получение по заявке #{request_id}\n"
-                            f"Адрес СЦ для доставки:\n"
-                            f"🏢 {sc_data.get('name', 'Название не указано')}\n"
-                            f"📍 {sc_data.get('address', 'Адрес не указан')}"
-                        )
+                    
+                    # Уведомляем администратора об отклонении заявки
+                    admin_message = (
+                        f"❌ Клиент отказался от получения товара после проверки\n\n"
+                        f"Заявка: #{request_id}\n"
+                        f"Статус: Отклонена\n"
+                        f"Описание: {request.get('description', 'Нет описания')}"
+                    )
+                    
+                    for admin_id in ADMIN_IDS:
                         await context.bot.send_message(
-                            chat_id=delivery_id,
-                            text=delivery_message
+                            chat_id=admin_id,
+                            text=admin_message
                         )
-                        logger.info(f"Отправлено сообщение доставщику {delivery_id}")
-                        # Отправляем уведомление администратору
-                        admin_message = (
-                            f"✅ Клиент подтвердил получение товара доставщиком\n"
-                            f"Заявка: #{request_id}\n"
-                            f"Статус: {new_status}\n"
-                            f"СЦ: {sc_data.get('name', 'Название не указано')}\n"
-                            f"Адрес СЦ: {sc_data.get('address', 'Адрес не указан')}"
-                        )
-                        # Отправляем фотографии администратору
-                        pickup_photos = requests_data[request_id].get('pickup_photos', [])
-                        if pickup_photos:
-                            # Отправляем первое фото с текстом
-                            if os.path.exists(pickup_photos[0]):
-                                with open(pickup_photos[0], 'rb') as photo_file:
+                    
+                    await query.edit_message_text("❌ Вы отказались от получения товара. Заявка отклонена.")
+                else:
+                    # Первичный отказ - отправляем на проверку администратору
+                    request['status'] = 'Требуется проверка'
+                    save_requests(requests_data)
+                    
+                    # Уведомляем администратора
+                    admin_message = (
+                        f"⚠️ Клиент отказался от получения товара\n\n"
+                        f"Заявка: #{request_id}\n"
+                        f"Статус: Требуется проверка\n"
+                        f"Описание: {request.get('description', 'Нет описания')}"
+                    )
+                    
+                    # Создаем клавиатуру для администратора
+                    keyboard = [[
+                        InlineKeyboardButton(
+                            "📞 Связаться с клиентом",
+                            callback_data=f"contact_client_{request_id}"
+                        )]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    # Отправляем фотографии администратору
+                    pickup_photos = request.get('pickup_photos', [])
+                    if pickup_photos:
+                        for photo_path in pickup_photos[:1]:  # Отправляем только первое фото
+                            if os.path.exists(photo_path):
+                                with open(photo_path, 'rb') as photo_file:
                                     await context.bot.send_photo(
                                         chat_id=ADMIN_IDS[0],
                                         photo=photo_file,
-                                        caption=admin_message
+                                        caption=admin_message,
+                                        reply_markup=reply_markup
                                     )
-                            # Отправляем остальные фото
-                            for photo_path in pickup_photos[1:]:
-                                if os.path.exists(photo_path):
-                                    with open(photo_path, 'rb') as photo_file:
-                                        await context.bot.send_photo(
-                                            chat_id=ADMIN_IDS[0],
-                                            photo=photo_file,
-                                            caption=f"Фото товара по заявке #{request_id}"
-                                        )
-                        else:
-                            # Если фото нет, отправляем только текст
-                            for admin_id in ADMIN_IDS:
-                                await context.bot.send_message(
-                                    chat_id=admin_id,
-                                    text=admin_message
-                                )
-                else:
-                    new_status = ORDER_STATUS_CLIENT_REJECTED
-                await query.edit_message_text(
-                    f"Спасибо за подтверждение. Статус заявки №{request_id}: {new_status}"
-                )
+                                break
+                    else:
+                        for admin_id in ADMIN_IDS:
+                            await context.bot.send_message(
+                                chat_id=admin_id,
+                                text=admin_message,
+                                reply_markup=reply_markup
+                            )
+                    
+                    await query.edit_message_text("❌ Вы отказались от получения товара. Администратор уведомлен.")
+                
         except Exception as e:
             logger.error(f"Ошибка при обработке подтверждения клиента: {e}")
-            await query.edit_message_text("Произошла ошибка при обработке подтверждения.")
+            await query.edit_message_text("Произошла ошибка при обработке вашего запроса.")
 
     async def handle_delivered_to_sc(self, update: Update, context: CallbackContext):
         """Обработка передачи предмета в Сервисный Центр."""
@@ -828,11 +845,24 @@ class DeliveryHandler(BaseHandler):
             if not photos:
                 await update.message.reply_text("Необходимо добавить хотя бы одно фото!")
                 return CREATE_REQUEST_PHOTOS
+                
             requests_data = load_requests()
             if request_id in requests_data:
                 # Сохраняем фотографии в данных заявки
                 requests_data[request_id]['pickup_photos'] = photos
                 save_requests(requests_data)
+                
+                # Отправляем уведомление администратору
+                for admin_id in ADMIN_IDS:
+                    # Отправляем первое фото с текстом
+                    if photos and os.path.exists(photos[0]):
+                        with open(photos[0], 'rb') as photo_file:
+                            await context.bot.send_photo(
+                                chat_id=admin_id,
+                                photo=photo_file,
+                                caption=f"Доставщик сделал фотографии товара по заявке #{request_id}"
+                            )
+                
                 # Отправляем фотографии клиенту для подтверждения
                 client_id = requests_data[request_id].get('user_id')
                 if client_id:
@@ -840,16 +870,19 @@ class DeliveryHandler(BaseHandler):
                     sc_id = requests_data[request_id].get('assigned_sc')
                     service_centers = load_service_centers()
                     sc_data = service_centers.get(sc_id, {})
+                    
                     # Формируем сообщение с информацией о СЦ
                     sc_info = (
                         f"🏢 Сервисный центр: {sc_data.get('name', 'Название не указано')}\n"
                         f"📍 Адрес: {sc_data.get('address', 'Адрес не указан')}\n"
                         f"📱 Телефон: {sc_data.get('phone', 'Телефон не указан')}\n\n"
                     )
+                    
                     await context.bot.send_message(
                         chat_id=client_id,
                         text=f"Доставщик сделал фотографии товара по заявке #{request_id}.\n\n{sc_info}Пожалуйста, подтвердите получение:"
                     )
+                    
                     for photo_path in photos:
                         if os.path.exists(photo_path):
                             with open(photo_path, 'rb') as photo_file:
@@ -858,24 +891,26 @@ class DeliveryHandler(BaseHandler):
                                     photo=photo_file,
                                     caption=f"Фото товара по заявке #{request_id}"
                                 )
+                    
                     keyboard = [
                         [InlineKeyboardButton("Да, забрал. С фото согласен.", callback_data=f"client_confirm_{request_id}")],
                         [InlineKeyboardButton("Нет, не забрал.", callback_data=f"client_deny_{request_id}")]
                     ]
                     reply_markup = InlineKeyboardMarkup(keyboard)
+                    
                     await context.bot.send_message(
                         chat_id=client_id,
                         text="Подтверждаете получение товара?",
                         reply_markup=reply_markup
                     )
+                
                 # Очищаем данные контекста
                 context.user_data.pop('pickup_photos', None)
                 context.user_data.pop('current_request', None)
+                
                 await update.message.reply_text("✅ Фотографии загружены и отправлены клиенту для подтверждения")
                 return ConversationHandler.END
-            else:
-                await update.message.reply_text("Ошибка: заявка не найдена")
-                return ConversationHandler.END
+                
         except Exception as e:
             logger.error(f"Ошибка в handle_pickup_photos_done: {str(e)}")
             await update.message.reply_text("Произошла ошибка при обработке фотографий")

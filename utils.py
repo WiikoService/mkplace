@@ -4,6 +4,7 @@ from config import PHOTOS_DIR
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 import logging
 from typing import Union
+from geopy.geocoders import Nominatim
 
 logger = logging.getLogger(__name__)
 
@@ -110,3 +111,31 @@ async def notify_client(bot, client_id, message, reply_markup=None):
         await bot.send_message(chat_id=client_id, text=message, reply_markup=reply_markup)
     except Exception as e:
         print(f"Error notifying client {client_id}: {e}")
+
+
+def get_address_from_coords(latitude, longitude):
+    try:
+        geolocator = Nominatim(user_agent="mkplace_bot")
+        location = geolocator.reverse(f"{latitude}, {longitude}")
+        return location.address if location else "Адрес не определен"
+    except Exception as e:
+        logger.error(f"Ошибка получения адреса: {e}")
+        return "Адрес не определен"
+
+def format_location_for_display(location):
+    """Форматирует местоположение для отображения пользователю"""
+    if not location:
+        return "Местоположение не указано"
+    
+    if isinstance(location, dict):
+        if location.get('type') == 'coordinates':
+            address = location.get('address', 'Адрес не определен')
+            return f"{address} (Координаты: {location.get('latitude')}, {location.get('longitude')})"
+        return location.get('address', 'Адрес не указан')
+    return str(location)
+
+def prepare_location_for_storage(location):
+    """Подготавливает местоположение для сохранения в БД"""
+    if isinstance(location, dict):
+        return location
+    return {"address": str(location), "type": "manual"}

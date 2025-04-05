@@ -151,12 +151,26 @@ class UserHandler(BaseHandler):
             if request_id not in requests_data:
                 await query.edit_message_text("❌ Заявка не найдена")
                 return
+            
             request = requests_data[request_id]
             repair_price = request.get('repair_price', 'Не указана')
+            
+            # Форматируем местоположение
+            location = request.get('location', {})
+            if isinstance(location, dict):
+                if location.get('type') == 'coordinates':
+                    address = location.get('address', 'Адрес не определен')
+                    location_str = f"{address} (координаты: {location.get('latitude')}, {location.get('longitude')})"
+                else:
+                    location_str = location.get('address', 'Адрес не указан')
+            else:
+                location_str = str(location)
+            
             # Обновляем статус заявки
             request['status'] = 'Ожидает доставку'
             request['price_approved'] = True
             save_requests(requests_data)
+            
             # Отправляем подтверждение клиенту
             await query.edit_message_text(
                 f"✅ Вы согласились с предложенной стоимостью ремонта:\n"
@@ -166,13 +180,7 @@ class UserHandler(BaseHandler):
             
             # Создаем задачу доставки автоматически
             try:
-                # Загружаем данные
-                try:
-                    delivery_tasks = load_delivery_tasks()
-                except Exception as e:
-                    logger.error(f"Ошибка загрузки delivery_tasks: {e}")
-                    delivery_tasks = {}  # Инициализируем пустым словарем если файл поврежден
-                    
+                delivery_tasks = load_delivery_tasks()
                 service_centers = load_service_centers()
                 
                 # Получаем данные СЦ
@@ -188,7 +196,7 @@ class UserHandler(BaseHandler):
                     'sc_name': sc_data.get('name', 'Не указан'),
                     'sc_address': sc_data.get('address', 'Не указан'),
                     'client_name': request.get('user_name', 'Не указан'),
-                    'client_address': request.get('location', 'Не указан'),
+                    'client_address': location_str,  # Используем отформатированный адрес
                     'client_phone': request.get('user_phone', 'Не указан'),
                     'description': request.get('description', ''),
                     'delivery_type': 'client_to_sc',
@@ -209,7 +217,7 @@ class UserHandler(BaseHandler):
                     f"Создана задача доставки #{new_task_id}\n"
                     f"Тип: Доставка от клиента в СЦ\n"
                     f"СЦ: {sc_data.get('name', 'Не указан')}\n"
-                    f"Адрес клиента: {request.get('location', 'Не указан')}"
+                    f"Адрес клиента: {location_str}"
                 )
                 
                 for admin_id in ADMIN_IDS:
@@ -237,6 +245,7 @@ class UserHandler(BaseHandler):
                     f"СЦ: {sc_data.get('name', 'Неизвестный СЦ')}\n"
                     f"Стоимость ремонта: {repair_price} руб.\n"
                     f"Описание: {request.get('description', 'Нет описания')}\n"
+                    f"Адрес клиента: {location_str}\n"
                     f"Статус: Ожидает доставку\n\n"
                     f"❗ Автоматическое создание задачи доставки не удалось. Создайте задачу вручную."
                 )
@@ -249,9 +258,75 @@ class UserHandler(BaseHandler):
                         )
                     except Exception as e:
                         logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
-                
+                    
         except Exception as e:
             logger.error(f"Ошибка при обработке согласия с ценой: {e}")
+            await query.edit_message_text("❌ Произошла ошибка при обработке запроса")
+
+    async def handle_client_price_rejection(self, update: Update, context: CallbackContext):
+        """Обработка отказа клиента от предложенной цены"""
+        query = update.callback_query
+        await query.answer()
+        request_id = query.data.split('_')[-1]
+        try:
+            requests_data = load_requests()
+            if request_id not in requests_data:
+                await query.edit_message_text("❌ Заявка не найдена")
+                return
+            
+            request = requests_data[request_id]
+            repair_price = request.get('repair_price', 'Не указана')
+            
+            # Форматируем местоположение
+            location = request.get('location', {})
+            if isinstance(location, dict):
+                if location.get('type') == 'coordinates':
+                    address = location.get('address', 'Адрес не определен')
+                    location_str = f"{address} (координаты: {location.get('latitude')}, {location.get('longitude')})"
+                else:
+                    location_str = location.get('address', 'Адрес не указан')
+            else:
+                location_str = str(location)
+            
+            # Обновляем статус заявки
+            request['status'] = 'Цена не согласована'
+            request['price_approved'] = False
+            save_requests(requests_data)
+            
+            # Отправляем сообщение клиенту
+            await query.edit_message_text(
+                f"❌ Вы отказались от предложенной стоимости ремонта:\n"
+                f"Сумма: {repair_price} руб.\n\n"
+                f"Заявка переведена в статус: Цена не согласована\n"
+                f"Пожалуйста, свяжитесь с сервисным центром для обсуждения стоимости."
+            )
+            
+            # Отправляем уведомление администраторам
+            service_centers = load_service_centers()
+            sc_id = request.get('assigned_sc')
+            sc_data = service_centers.get(sc_id, {})
+            sc_name = sc_data.get('name', 'Неизвестный СЦ')
+            admin_message = (
+                f"❌ Клиент отказался от предложенной стоимости\n\n"
+                f"Заявка: #{request_id}\n"
+                f"СЦ: {sc_name}\n"
+                f"Стоимость ремонта: {repair_price} руб.\n"
+                f"Адрес клиента: {location_str}\n"
+                f"Описание: {request.get('description', 'Нет описания')}\n"
+                f"Статус: Цена не согласована"
+            )
+            
+            for admin_id in ADMIN_IDS:
+                try:
+                    await context.bot.send_message(
+                        chat_id=admin_id,
+                        text=admin_message
+                    )
+                except Exception as e:
+                    logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+                    
+        except Exception as e:
+            logger.error(f"Ошибка при обработке отказа от цены: {e}")
             await query.edit_message_text("❌ Произошла ошибка при обработке запроса")
 
     async def handle_client_price_rejection(self, update: Update, context: CallbackContext):

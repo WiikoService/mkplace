@@ -1,4 +1,4 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove, InputMediaPhoto
 from telegram.ext import CallbackContext, ConversationHandler
 from config import (
     ORDER_STATUS_PICKUP_FROM_SC,
@@ -302,7 +302,51 @@ class DeliverySCHandler(DeliveryHandler):
                 )
                 return ENTER_CONFIRMATION_CODE
                 
-            # Коды совпадают, обновляем статус
+            # Коды совпадают, запрашиваем фотографии
+            context.user_data['delivery_photos'] = []
+            await update.message.reply_text(
+                "✅ Код подтверждения верный!\n\n"
+                "Пожалуйста, сделайте фотографии товара при передаче клиенту.\n"
+                "Когда закончите, отправьте /done"
+            )
+            return CREATE_REQUEST_PHOTOS
+                
+        except Exception as e:
+            logger.error(f"Ошибка при проверке кода подтверждения от клиента: {e}")
+            await update.message.reply_text("❌ Произошла ошибка при проверке кода.")
+            return ConversationHandler.END
+
+    async def handle_delivery_photos(self, update: Update, context: CallbackContext):
+        """Обработка фотографий при передаче товара клиенту"""
+        if 'delivery_photos' not in context.user_data:
+            context.user_data['delivery_photos'] = []
+        
+        photo = update.message.photo[-1]
+        photo_file = await context.bot.get_file(photo.file_id)
+        
+        # Создаем уникальное имя файла
+        timestamp = int(time.time())
+        photo_path = f"photos/delivery_{timestamp}_{len(context.user_data['delivery_photos'])}.jpg"
+        
+        await photo_file.download_to_drive(photo_path)
+        context.user_data['delivery_photos'].append(photo_path)
+        
+        await update.message.reply_text(
+            "Фото добавлено. Отправьте еще фотографии или /done для завершения."
+        )
+        return CREATE_REQUEST_PHOTOS
+
+    async def handle_delivery_photos_done(self, update: Update, context: CallbackContext):
+        """Завершение добавления фотографий при передаче товара клиенту"""
+        try:
+            request_id = context.user_data.get('current_request')
+            photos = context.user_data.get('delivery_photos', [])
+            
+            if not photos:
+                await update.message.reply_text("Необходимо добавить хотя бы одно фото!")
+                return CREATE_REQUEST_PHOTOS
+                
+            # Загружаем данные
             requests_data = load_requests()
             delivery_tasks = load_delivery_tasks()
             
@@ -312,6 +356,7 @@ class DeliverySCHandler(DeliveryHandler):
                 
             # Обновляем статус заявки
             requests_data[request_id]['status'] = "Доставлено клиенту"
+            requests_data[request_id]['delivery_photos'] = photos
             save_requests(requests_data)
             
             # Обновляем статус задачи доставки
@@ -321,20 +366,48 @@ class DeliverySCHandler(DeliveryHandler):
                     save_delivery_tasks(delivery_tasks)
                     break
                     
-            # Отправляем сообщение доставщику
-            await update.message.reply_text(
-                "✅ Код подтверждения верный!\n\n"
-                "Доставка успешно завершена. Спасибо за вашу работу!"
+            # Отправляем фотографии администраторам
+            admin_message = (
+                f"📦 Доставка завершена!\n\n"
+                f"Заявка: #{request_id}\n"
+                f"Доставщик: {update.effective_user.first_name}\n"
+                f"Фотографии передачи товара клиенту:"
             )
             
-            # Уведомляем клиента о завершении доставки
+            for admin_id in ADMIN_IDS:
+                try:
+                    # Сначала отправляем текстовое сообщение
+                    await context.bot.send_message(
+                        chat_id=int(admin_id),
+                        text=admin_message
+                    )
+                    
+                    # Затем отправляем все фотографии
+                    media_group = []
+                    for photo_path in photos:
+                        if os.path.exists(photo_path):
+                            media_group.append(InputMediaPhoto(
+                                media=open(photo_path, 'rb'),
+                                caption=f"Заявка #{request_id}"
+                            ))
+                    
+                    if media_group:
+                        await context.bot.send_media_group(
+                            chat_id=int(admin_id),
+                            media=media_group
+                        )
+                        
+                except Exception as e:
+                    logger.error(f"Ошибка отправки уведомления администратору {admin_id}: {e}")
+            
+            # Уведомляем клиента
             client_id = requests_data[request_id].get('user_id')
             if client_id:
                 try:
                     await context.bot.send_message(
                         chat_id=int(client_id),
-                        text=f"✅ Доставка успешно завершена!\n\n"
-                             f"Ваша заявка #{request_id} выполнена. Спасибо, что воспользовались нашими услугами!"
+                        text=f"✅ Ваша заявка #{request_id} успешно завершена!\n\n"
+                            f"Спасибо, что воспользовались нашими услугами!"
                     )
                     
                     # Отправляем кнопку для оценки сервиса
@@ -353,33 +426,24 @@ class DeliverySCHandler(DeliveryHandler):
                 except Exception as e:
                     logger.error(f"Ошибка при отправке уведомления клиенту {client_id}: {e}")
             
-            # Уведомляем администраторов о завершении доставки
-            admin_message = (
-                f"✅ Заказ №{request_id} успешно доставлен клиенту.\n"
-                f"Доставщик: {update.effective_user.first_name}\n"
-                f"Статус: Доставлено клиенту"
+            # Отправляем сообщение доставщику
+            await update.message.reply_text(
+                "✅ Доставка успешно завершена! Фотографии отправлены администраторам.\n\n"
+                "Спасибо за вашу работу!",
+                reply_markup=ReplyKeyboardRemove()
             )
-            
-            for admin_id in ADMIN_IDS:
-                try:
-                    await context.bot.send_message(
-                        chat_id=int(admin_id),
-                        text=admin_message
-                    )
-                except Exception as e:
-                    logger.error(f"Ошибка при отправке уведомления администратору {admin_id}: {e}")
             
             # Очищаем данные контекста
             context.user_data.pop('client_confirmation_code', None)
             context.user_data.pop('current_request', None)
+            context.user_data.pop('delivery_photos', None)
             
             return ConversationHandler.END
             
         except Exception as e:
-            logger.error(f"Ошибка при проверке кода подтверждения от клиента: {e}")
-            await update.message.reply_text("❌ Произошла ошибка при проверке кода.")
+            logger.error(f"Ошибка при обработке фотографий доставки: {e}")
+            await update.message.reply_text("❌ Произошла ошибка при обработке фотографий.")
             return ConversationHandler.END
-
     async def handle_delivered_to_client(self, update: Update, context: CallbackContext):
         """Обработка доставки товара клиенту из СЦ"""
         query = update.callback_query

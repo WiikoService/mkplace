@@ -26,6 +26,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class AdminHandler(BaseHandler):
+
     async def handle_assign_sc(self, update: Update, context: CallbackContext):
         """Обработка нажатия кнопки 'Привязать к СЦ'"""
         logger.info("🛠️ START handle_assign_sc")
@@ -42,6 +43,18 @@ class AdminHandler(BaseHandler):
                 logger.error(f"❌ Request {request_id} not found")
                 await query.edit_message_text("Заявка не найдена")
                 return
+            
+            # Форматируем местоположение
+            location = request.get('location', {})
+            if isinstance(location, dict):
+                if location.get('type') == 'coordinates':
+                    address = location.get('address', 'Адрес не определен')
+                    location_str = f"{address} (координаты: {location.get('latitude')}, {location.get('longitude')})"
+                else:
+                    location_str = location.get('address', 'Адрес не указан')
+            else:
+                location_str = str(location)
+            
             # Формируем сообщение для СЦ
             logger.debug("📝 Forming message text")
             try:
@@ -49,7 +62,7 @@ class AdminHandler(BaseHandler):
                     f"📦 Заявка #{request_id}\n"
                     f"👤 Клиент: {request.get('user_name', 'Не указан')}\n"
                     f"📱 Телефон: {request.get('user_phone', 'Не указан')}\n"
-                    f"📍 Адрес: {request.get('location', 'Не указан')}\n"
+                    f"📍 Адрес: {location_str}\n"
                     f"📝 Описание: {request.get('description', 'Нет описания')}\n"
                 )
                 # Безопасно добавляем дату
@@ -62,6 +75,7 @@ class AdminHandler(BaseHandler):
             except Exception as e:
                 logger.error(f"❌ Error forming message text: {str(e)}")
                 message_text = f"📦 Заявка #{request_id}"
+            
             # Создаем клавиатуру
             keyboard = [[
                 InlineKeyboardButton(
@@ -71,6 +85,7 @@ class AdminHandler(BaseHandler):
             ]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             logger.debug("⌨️ Keyboard created")
+            
             # Безопасно отправляем фото
             photos = request.get('photos', [])
             if photos:
@@ -89,6 +104,7 @@ class AdminHandler(BaseHandler):
                         logger.debug("🖼️ Photos sent successfully")
                 except Exception as e:
                     logger.error(f"❌ Error sending photos: {str(e)}")
+            
             # Редактируем сообщение
             await query.edit_message_text(
                 text=message_text,
@@ -117,6 +133,24 @@ class AdminHandler(BaseHandler):
                 await query.edit_message_text("❌ Заявка не найдена")
                 return
             request = requests_data[rid]
+            
+            # Проверяем, не была ли заявка уже принята
+            if request.get('assigned_sc'):
+                logger.info(f"Request {rid} already assigned to SC {request.get('assigned_sc')}")
+                await query.edit_message_text("❌ Заявка уже принята другим сервисным центром")
+                return
+            
+            # Форматируем местоположение
+            location = request.get('location', {})
+            if isinstance(location, dict):
+                if location.get('type') == 'coordinates':
+                    address = location.get('address', 'Адрес не определен')
+                    location_str = f"{address} (координаты: {location.get('latitude')}, {location.get('longitude')})"
+                else:
+                    location_str = location.get('address', 'Адрес не указан')
+            else:
+                location_str = str(location)
+            
             logger.debug(f"📄 Request data: {json.dumps(request, indent=2, ensure_ascii=False)}")
             # Поиск СЦ
             users_data = load_users()
@@ -130,6 +164,7 @@ class AdminHandler(BaseHandler):
                 logger.warning("⚠️ No SC users available")
                 await query.edit_message_text("❌ Нет доступных сервисных центров")
                 return
+            
             # Отправка уведомлений
             success_count = 0
             for uid, sc_id in sc_users:
@@ -155,12 +190,17 @@ class AdminHandler(BaseHandler):
                                 chat_id=uid,
                                 media=media
                             )
-                    # Отправка упрощенного сообщения
+                    
+                    # Отправка сообщения с форматированным адресом
                     await context.bot.send_message(
                         chat_id=uid,
                         text=(
                             f"📦 Новая заявка #{rid}\n\n"
-                            f"📝 Описание: {request.get('description', 'Не указано')}"
+                            f"👤 Клиент: {request.get('user_name', 'Не указан')}\n"
+                            f"📱 Телефон: {request.get('user_phone', 'Не указан')}\n"
+                            f"📍 Адрес: {location_str}\n"
+                            f"📝 Описание: {request.get('description', 'Не указано')}\n"
+                            f"🕒 Желаемая дата: {request.get('desired_date', 'Не указана')}"
                         ),
                         reply_markup=InlineKeyboardMarkup([[
                             InlineKeyboardButton(
@@ -174,6 +214,7 @@ class AdminHandler(BaseHandler):
                 except Exception as e:
                     logger.error(f"🚨 Error sending to SC {sc_id}: {str(e)}")
                     continue
+            
             if success_count > 0:
                 # Обновляем заявку
                 requests_data[rid]['status'] = 'Отправлена в СЦ'
@@ -731,45 +772,71 @@ class AdminHandler(BaseHandler):
             await update.message.reply_text("❌ Произошла ошибка при загрузке заявок")
 
     async def view_request_chat(self, update: Update, context: CallbackContext):
-        """Показывает чат заявки по её номеру"""
+        """Показывает чат заявки по её номеру с фото"""
         if not context.user_data.get('waiting_for_request_id'):
             await update.message.reply_text("Пожалуйста, введите номер заявки:")
             context.user_data['waiting_for_request_id'] = True
             return 'WAITING_REQUEST_ID'
+        
         request_id = update.message.text.strip()
         chat_file = os.path.join(DATA_DIR, 'chat_sc_client.json')
+        
         try:
-            if os.path.exists(chat_file):
-                with open(chat_file, 'r', encoding='utf-8') as f:
-                    chat_data = json.load(f)
-            else:
+            if not os.path.exists(chat_file):
                 await update.message.reply_text("❌ Файл чата не найден")
                 return ConversationHandler.END
-            if request_id in chat_data:
-                messages = chat_data[request_id]
-                if not messages:
-                    await update.message.reply_text(f"❌ В чате заявки #{request_id} пока нет сообщений")
-                    return ConversationHandler.END
-                # Формируем сообщение с историей чата
-                chat_history = f"💬 История чата заявки #{request_id}:\n\n"
-                for msg in messages:
-                    sender = "👤 Клиент" if msg['sender'] == 'client' else "🏢 СЦ"
-                    chat_history += f"{sender} ({msg['timestamp']}):\n{msg['message']}\n\n"
-                # Добавляем кнопку возврата в админское меню
-                keyboard = [[InlineKeyboardButton("🔙 Назад в меню", callback_data="back_to_admin")]]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                # Разбиваем длинное сообщение на части, если оно превышает лимит Telegram
-                if len(chat_history) > 4000:
-                    parts = [chat_history[i:i+4000] for i in range(0, len(chat_history), 4000)]
-                    for i, part in enumerate(parts):
-                        if i == len(parts) - 1:
-                            await update.message.reply_text(part, reply_markup=reply_markup)
-                        else:
-                            await update.message.reply_text(part)
-                else:
-                    await update.message.reply_text(chat_history, reply_markup=reply_markup)
-            else:
+                
+            with open(chat_file, 'r', encoding='utf-8') as f:
+                chat_data = json.load(f)
+                
+            if request_id not in chat_data:
                 await update.message.reply_text(f"❌ Чат для заявки #{request_id} не найден")
+                return ConversationHandler.END
+                
+            messages = chat_data[request_id]
+            if not messages:
+                await update.message.reply_text(f"❌ В чате заявки #{request_id} пока нет сообщений")
+                return ConversationHandler.END
+
+            # Отправляем заголовок
+            await update.message.reply_text(f"💬 История чата заявки #{request_id}:")
+
+            # Обрабатываем каждое сообщение
+            for msg in messages:
+                sender = "👤 Клиент" if msg['sender'] == 'client' else "🏢 СЦ"
+                timestamp = msg.get('timestamp', 'без даты')
+                
+                # Если есть фото
+                if 'photo_path' in msg and os.path.exists(msg['photo_path']):
+                    caption = f"{sender} ({timestamp}):\n{msg.get('message', '')}"
+                    
+                    try:
+                        with open(msg['photo_path'], 'rb') as photo_file:
+                            await context.bot.send_photo(
+                                chat_id=update.effective_chat.id,
+                                photo=photo_file,
+                                caption=caption[:1024]  # Ограничение длины подписи в Telegram
+                            )
+                    except Exception as photo_error:
+                        logger.error(f"Ошибка отправки фото: {photo_error}")
+                        await update.message.reply_text(
+                            f"{sender} ({timestamp}): [Не удалось загрузить фото]\n"
+                            f"{msg.get('message', '')}"
+                        )
+                else:
+                    # Текстовое сообщение
+                    message_text = f"{sender} ({timestamp}):\n{msg.get('message', '')}"
+                    
+                    # Разбиваем длинные сообщения
+                    if len(message_text) > 4000:
+                        parts = [message_text[i:i+4000] for i in range(0, len(message_text), 4000)]
+                        for part in parts:
+                            await update.message.reply_text(part)
+                    else:
+                        await update.message.reply_text(message_text)
+                        
+        except json.JSONDecodeError:
+            await update.message.reply_text("❌ Ошибка чтения файла чата")
         except Exception as e:
             logger.error(f"Ошибка при просмотре чата: {e}")
             await update.message.reply_text("❌ Произошла ошибка при загрузке чата")
@@ -1021,3 +1088,48 @@ class AdminHandler(BaseHandler):
             )
         else:
             await query.edit_message_text("❌ Заявка не найдена.")
+
+    async def handle_contact_client(self, update: Update, context: CallbackContext):
+        """Обработка запроса администратора на связь с клиентом"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            request_id = query.data.split('_')[-1]
+            requests_data = load_requests()
+            
+            if request_id not in requests_data:
+                await query.edit_message_text("❌ Заявка не найдена")
+                return
+            
+            request = requests_data[request_id]
+            client_id = request.get('user_id')
+            
+            if not client_id:
+                await query.edit_message_text("❌ Не удалось найти клиента")
+                return
+            
+            # Отправляем клиенту сообщение от администратора
+            await context.bot.send_message(
+                chat_id=client_id,
+                text=f"Администратор хочет уточнить детали по заявке #{request_id}. Пожалуйста, подтвердите, забрал ли доставщик товар?"
+            )
+            
+            # Создаем клавиатуру для клиента
+            keyboard = [
+                [InlineKeyboardButton("Да, забрал", callback_data=f"client_confirm_{request_id}")],
+                [InlineKeyboardButton("Нет, не забрал", callback_data=f"client_deny_{request_id}")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await context.bot.send_message(
+                chat_id=client_id,
+                text="Подтвердите получение товара доставщиком:",
+                reply_markup=reply_markup
+            )
+            
+            await query.edit_message_text(f"✅ Запрос на подтверждение отправлен клиенту по заявке #{request_id}")
+            
+        except Exception as e:
+            logger.error(f"Ошибка при связи с клиентом: {e}")
+            await query.edit_message_text("❌ Произошла ошибка при отправке запроса клиенту")

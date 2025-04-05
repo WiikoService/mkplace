@@ -8,7 +8,7 @@ from telegram.ext import CallbackContext, ConversationHandler
 from config import (
     ORDER_STATUS_IN_SC, SC_ASSIGN_REQUESTS, ADMIN_IDS,
     ORDER_STATUS_DELIVERY_TO_CLIENT, ORDER_STATUS_DELIVERY_TO_SC,
-    ENTER_REPAIR_PRICE, CONFIRMATION
+    ENTER_REPAIR_PRICE, CONFIRMATION, ORDER_STATUS_SC_TO_CLIENT
 )
 from handlers.base_handler import BaseHandler
 from database import (
@@ -152,15 +152,34 @@ class SCHandler(BaseHandler):
         chat_data = context.user_data.get('active_chat', {})
         request_id = chat_data.get('request_id')
         client_id = chat_data['participants']['client_id']
+        
+        # Получаем данные заявки для форматирования адреса
+        requests_data = load_requests()
+        request = requests_data.get(request_id, {})
+        
+        # Форматируем адрес
+        location = request.get('location', {})
+        if isinstance(location, dict):
+            if location.get('type') == 'coordinates':
+                address = location.get('address', 'Адрес не определен')
+                location_str = f"{address} (координаты: {location.get('latitude')}, {location.get('longitude')})"
+            else:
+                location_str = location.get('address', 'Адрес не указан')
+        else:
+            location_str = str(location)
+        
         # Формируем сообщение с кнопкой ответа
         reply_markup = InlineKeyboardMarkup([[
             InlineKeyboardButton("✉️ Ответить", callback_data=f"client_reply_{request_id}")
         ]])
+        
         try:
             # Отправляем сообщение клиенту с кнопкой
             await context.bot.send_message(
                 chat_id=int(client_id),
-                text=f"📩 *Сообщение от СЦ по заявке #{request_id}:*\n{message.text}",
+                text=f"📩 *Сообщение от СЦ по заявке #{request_id}:*\n"
+                    f"📍 Адрес: {location_str}\n\n"
+                    f"{message.text}",
                 parse_mode='Markdown',
                 reply_markup=reply_markup
             )
@@ -587,18 +606,53 @@ class SCHandler(BaseHandler):
             user_id = update.effective_user.id
             requests_data = load_requests()
             request = requests_data.get(request_id)
+            
+            # Проверяем, не была ли заявка уже принята
+            if request.get('assigned_sc'):
+                await query.edit_message_text(
+                    f"❌ Заявка #{request_id} уже принята другим сервисным центром."
+                )
+                return ConversationHandler.END
+            
+            # Получаем данные СЦ
+            users_data = load_users()
+            sc_user = users_data.get(str(user_id), {})
+            sc_id = sc_user.get('sc_id')
+            
+            # Обновляем статус заявки и назначаем СЦ
+            request['status'] = 'Принята СЦ'
+            request['assigned_sc'] = sc_id
+            requests_data[request_id] = request
+            save_requests(requests_data)
+            
             # Сохраняем ID заявки в контексте пользователя
             context.user_data['current_request'] = request_id
             # Добавляем флаг, что ожидаем ввод стоимости и время начала ожидания
             context.user_data['waiting_for_price'] = True
             context.user_data['price_entry_time'] = time.time()
+            
+            # Уведомляем других СЦ о том, что заявка принята
+            for other_user_id, other_user_data in users_data.items():
+                if (other_user_data.get('role') == 'sc' and 
+                    str(other_user_id) != str(user_id) and 
+                    other_user_data.get('sc_id') != sc_id):
+                    try:
+                        await context.bot.send_message(
+                            chat_id=int(other_user_id),
+                            text=f"ℹ️ Заявка #{request_id} была принята другим сервисным центром."
+                        )
+                    except Exception as e:
+                        logger.error(f"Ошибка уведомления СЦ {other_user_id}: {e}")
+            
             # Запрашиваем стоимость простым текстом без кнопок
             await query.edit_message_text(
                 f"Вы приняли заявку #{request_id}.\n\n"
                 f"Пожалуйста, укажите примерную стоимость ремонта (можно указать диапазон):"
             )            
         except Exception as e:
+            logger.error(f"Ошибка при обработке запроса: {e}")
             await query.edit_message_text("Произошла ошибка при обработке запроса")
+            return ConversationHandler.END
 
     async def handle_repair_price(self, update: Update, context: CallbackContext):
         """Обработка ввода стоимости ремонта"""       
@@ -743,6 +797,17 @@ class SCHandler(BaseHandler):
             sc_id = request.get('assigned_sc')
             sc_data = service_centers.get(sc_id, {})
             
+            # Форматируем адрес клиента
+            location = request.get('location', {})
+            if isinstance(location, dict):
+                if location.get('type') == 'coordinates':
+                    address = location.get('address', 'Адрес не определен')
+                    location_str = f"{address} (координаты: {location.get('latitude')}, {location.get('longitude')})"
+                else:
+                    location_str = location.get('address', 'Адрес не указан')
+            else:
+                location_str = str(location)
+            
             # Создаем задачу доставки ИЗ СЦ КЛИЕНТУ
             new_task_id = str(len(delivery_tasks) + 1)
             new_task = {
@@ -752,7 +817,7 @@ class SCHandler(BaseHandler):
                 'sc_name': sc_data.get('name', 'Не указан'),
                 'sc_address': sc_data.get('address', 'Не указан'),
                 'client_name': request.get('user_name', 'Не указан'),
-                'client_address': request.get('location', 'Не указан'),
+                'client_address': location_str,  # Используем отформатированный адрес
                 'client_phone': request.get('user_phone', 'Не указан'),
                 'description': request.get('description', ''),
                 'delivery_type': 'sc_to_client',  # Вторая доставка - из СЦ
@@ -771,7 +836,7 @@ class SCHandler(BaseHandler):
                 f"✅ Создана задача доставки #{new_task_id}\n"
                 f"Тип: Доставка из СЦ клиенту\n"
                 f"СЦ: {sc_data.get('name', 'Не указан')}\n"
-                f"Адрес клиента: {request.get('location', 'Не указан')}"
+                f"Адрес клиента: {location_str}"
             )
             
         except Exception as e:
