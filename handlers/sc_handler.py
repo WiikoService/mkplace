@@ -18,11 +18,14 @@ from database import (
 )
 from utils import notify_client
 import logging
+from handlers.sc_price_handler import SCPriceHandler
 
 logger = logging.getLogger(__name__)
 
 
 class SCHandler(BaseHandler):
+    def __init__(self):
+        self.price_handler = SCPriceHandler()
 
     async def show_sc_menu(self, update: Update, context: CallbackContext):
         keyboard = [
@@ -92,6 +95,11 @@ class SCHandler(BaseHandler):
             f"📝 Описание: {request_data['description']}\n"
             f"🏠 Адрес: {request_data['location_display']}"
         )
+        
+        # Добавляем информацию о цене, если она есть
+        if 'final_price' in request_data:
+            message_text += f"\n💰 Подтвержденная стоимость: {request_data['final_price']} руб."
+        
         # Добавляем комментарии, если они есть
         if 'comments' in request_data and request_data['comments']:
             message_text += "\n\n📋 Комментарии:\n"
@@ -101,9 +109,11 @@ class SCHandler(BaseHandler):
             # Если комментариев больше 3, укажем об этом
             if len(request_data['comments']) > 3:
                 message_text += f"(и еще {len(request_data['comments']) - 3} комментариев)\n"
+        
         keyboard = [
             [InlineKeyboardButton("💬 Чат с клиентом", callback_data=f"sc_chat_{request_id}")],
             [InlineKeyboardButton("📝 Комментарий", callback_data=f"sc_comment_{request_id}")],
+            [InlineKeyboardButton("💰 Подтверждение цены", callback_data=f"confirm_price_{request_id}")],
             [InlineKeyboardButton("🔙 Вернуться к списку", callback_data="sc_back_to_list")]
         ]
         await query.edit_message_text(message_text, reply_markup=InlineKeyboardMarkup(keyboard))
@@ -424,6 +434,15 @@ class SCHandler(BaseHandler):
         request_id = parts[2]
         requests_data = load_requests()
         request = requests_data.get(request_id, {})
+        
+        # Проверяем наличие финальной цены
+        if 'final_price' not in request or request['final_price'] is None:
+            await query.edit_message_text(
+                f"❌ Заявка #{request_id} не может быть отправлена в доставку.\n"
+                "Сначала необходимо подтвердить окончательную стоимость ремонта."
+            )
+            return ConversationHandler.END
+        
         # Проверяем статус
         current_status = request.get('status')
         if current_status in ['Ожидает доставку', ORDER_STATUS_DELIVERY_TO_CLIENT, ORDER_STATUS_DELIVERY_TO_SC]:
@@ -431,31 +450,41 @@ class SCHandler(BaseHandler):
                 f"❌ Заявка #{request_id} уже отправлена в доставку."
             )
             return ConversationHandler.END
+        
         # Обновляем статус заявки
         request['status'] = 'Ожидает выбора даты доставки'
         requests_data[request_id] = request
         save_requests(requests_data)
+        
         # Уведомляем клиента о необходимости выбрать дату доставки
         client_id = request.get('user_id')
         if client_id:
             keyboard = [[
                 InlineKeyboardButton(
-                        "📅 Выбрать дату доставки",
-                        callback_data=f"select_delivery_date_{request_id}"
-                    )
-                ]]
+                    "📅 Выбрать дату доставки",
+                    callback_data=f"select_delivery_date_{request_id}"
+                )
+            ]]
             reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Добавляем информацию о подтвержденной цене в сообщение клиенту
+            final_price = request.get('final_price', 'не указана')
+            message_text = (
+                f"🔄 Сервисный центр готов отправить ваш заказ #{request_id} в доставку.\n"
+                f"💰 Подтвержденная стоимость ремонта: {final_price} руб.\n"
+                "Пожалуйста, выберите удобную дату и время доставки."
+            )
+            
             await context.bot.send_message(
                 chat_id=int(client_id),
-                text=(
-                    f"🔄 Сервисный центр готов отправить ваш заказ #{request_id} в доставку.\n"
-                    "Пожалуйста, выберите удобную дату и время доставки."
-                ),
+                text=message_text,
                 reply_markup=reply_markup
             )
+        
         # Уведомляем СЦ
         await query.edit_message_text(
             f"✅ Заявка #{request_id} отправлена клиенту для выбора даты доставки.\n"
+            f"💰 Подтвержденная стоимость: {request['final_price']} руб.\n"
             "Ожидайте подтверждения от клиента."
         )
         return ConversationHandler.END

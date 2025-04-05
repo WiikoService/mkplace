@@ -767,6 +767,37 @@ def register_sc_handlers(application, sc_handler, sc_item_handler, sc_chat_handl
         pattern="^create_return_delivery_"
     ))
 
+    # Регистрация обработчиков для подтверждения цены
+    application.add_handler(ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                sc_handler.price_handler.start_price_confirmation,
+                pattern=r"^confirm_price_"
+            )
+        ],
+        states={
+            ENTER_REPAIR_PRICE: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    sc_handler.price_handler.handle_price_input
+                )
+            ],
+            CONFIRMATION: [
+                CallbackQueryHandler(
+                    sc_handler.price_handler.confirm_price,
+                    pattern=r"^confirm_price_"
+                ),
+                CallbackQueryHandler(
+                    sc_handler.price_handler.change_price,
+                    pattern=r"^change_price_"
+                )
+            ]
+        },
+        fallbacks=[],
+        map_to_parent={
+            ConversationHandler.END: ConversationHandler.END
+        }
+    ))
 
 def register_callbacks(application, delivery_handler, admin_handler, delivery_sc_handler, client_handler):
     # Обработчики callback-запросов
