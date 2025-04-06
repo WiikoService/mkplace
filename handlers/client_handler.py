@@ -82,9 +82,10 @@ class ClientHandler:
         context.user_data["description"] = update.message.text
         await update.message.reply_text(
             "Описание проблемы сохранено.\n"
-            "Теперь пришлите фотографии проблемы. Когда закончите, отправьте /done"
+            "Теперь пришлите фотографии проблемы (обязательно хотя бы одно фото).\n"
+            "Когда закончите отправлять фото, нажмите\n\n/DONE"
         )
-        context.user_data["photos"] = []
+        context.user_data["photos"] = []  # Инициализируем пустой список для фото
         return CREATE_REQUEST_PHOTOS
 
     async def handle_request_photos(self, update: Update, context: CallbackContext):
@@ -95,19 +96,36 @@ class ClientHandler:
         file_path = os.path.join(PHOTOS_DIR, file_name)
         await file.download_to_drive(file_path)
         context.user_data["photos"].append(file_path)
+        
+        # После сохранения фото отправляем напоминание о команде /DONE
+        await update.message.reply_text(
+            "Фото сохранено! Можете отправить еще фото или нажмите\n\n/DONE"
+        )
+        
         return CREATE_REQUEST_PHOTOS
 
     async def done_photos(self, update: Update, context: CallbackContext):
         """Обработка завершения фотографий заявки"""
+        # Проверяем, есть ли фотографии
+        if not context.user_data.get("photos") or len(context.user_data["photos"]) == 0:
+            await update.message.reply_text(
+                "Вы не отправили ни одной фотографии.\nПожалуйста, отправьте хотя бы одно фото.\n"
+                "Когда закончите отправлять фото, нажмите:\n\n/DONE"
+            )
+            return CREATE_REQUEST_PHOTOS
+            
+        # Если фото есть, переходим к этапу локации
         keyboard = [
             [KeyboardButton(text="Отправить местоположение", request_location=True)],
             [KeyboardButton(text="Ввести адрес вручную")]
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+        
         await update.message.reply_text(
-            "Отлично! Теперь отправьте свое местоположение или выберите 'Ввести адрес вручную':",
+            f"Получено {len(context.user_data['photos'])} фото. Теперь отправьте свое местоположение или выберите 'Ввести адрес вручную':",
             reply_markup=reply_markup
         )
+        
         return CREATE_REQUEST_LOCATION
 
     async def handle_request_location(self, update: Update, context: CallbackContext):
