@@ -122,7 +122,7 @@ class DeliverySCHandler(DeliveryHandler):
         photo_path = f"photos/from_sc_{len(context.user_data['photos_from_sc'])}_{context.user_data['current_request']}.jpg"
         await photo_file.download_to_drive(photo_path)
         context.user_data['photos_from_sc'].append(photo_path)
-        await update.message.reply_text("Фото добавлено. Отправьте /done когда закончите.")
+        await update.message.reply_text("Фото добавлено. Когда закончите, нажмите\n\n/DONE")
         return CREATE_REQUEST_PHOTOS
 
     async def handle_sc_photos_done(self, update: Update, context: CallbackContext):
@@ -262,7 +262,7 @@ class DeliverySCHandler(DeliveryHandler):
             await update.message.reply_text(
                 "✅ Код подтверждения верный!\n\n"
                 "Пожалуйста, сделайте фотографии товара при передаче клиенту.\n"
-                "Когда закончите, отправьте /done"
+                "Когда закончите, нажмите\n\n/DONE"
             )
             return CREATE_REQUEST_PHOTOS
         except Exception as e:
@@ -282,7 +282,7 @@ class DeliverySCHandler(DeliveryHandler):
         await photo_file.download_to_drive(photo_path)
         context.user_data['delivery_photos'].append(photo_path)
         await update.message.reply_text(
-            "Фото добавлено. Отправьте еще фотографии или /done для завершения."
+            "Фото добавлено. Когда закончите, нажмите\n\n/DONE"
         )
         return CREATE_REQUEST_PHOTOS
 
@@ -505,7 +505,7 @@ class DeliverySCHandler(DeliveryHandler):
         photo_path = f"photos/from_sc_{len(context.user_data['photos_from_sc'])}_{context.user_data['current_request']}.jpg"
         await photo_file.download_to_drive(photo_path)
         context.user_data['photos_from_sc'].append(photo_path)
-        await update.message.reply_text("Фото добавлено. Отправьте /done когда закончите.")
+        await update.message.reply_text("Фото добавлено. Наж.")
         return CREATE_REQUEST_PHOTOS
 
     async def handle_sc_pickup_photos_done(self, update: Update, context: CallbackContext):
@@ -818,7 +818,7 @@ class DeliverySCHandler(DeliveryHandler):
                 await update.message.reply_text(
                     "✅ Код подтвержден! Товар успешно получен из СЦ.\n\n"
                     "Пожалуйста, сделайте фотографии товара для подтверждения его состояния.\n"
-                    "Когда закончите, отправьте /done"
+                    "Когда закончите, нажмите\n\n/DONE"
                 )
                 # Очищаем код подтверждения
                 if 'sc_confirmation_code' in context.user_data:

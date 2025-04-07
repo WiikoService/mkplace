@@ -282,7 +282,7 @@ class DeliveryHandler(BaseHandler):
             # Запрашиваем фотографии у доставщика
             await query.edit_message_text(
                 "Пожалуйста, сделайте фотографии товара перед получением. "
-                "Когда закончите, отправьте /done"
+                "Когда закончите, нажмите\n\n/DONE"
             )
             return CREATE_REQUEST_PHOTOS
         else:
@@ -389,7 +389,7 @@ class DeliveryHandler(BaseHandler):
         request_id = query.data.split('_')[-1]
         await query.edit_message_text(
             "Пожалуйста, сделайте фото товара перед передачей в СЦ. "
-            "Когда закончите, отправьте /done"
+            "Когда закончите, нажмите\n\n/DONE"
         )
         context.user_data['photos_to_sc'] = []
         context.user_data['current_request'] = request_id
@@ -404,7 +404,7 @@ class DeliveryHandler(BaseHandler):
         photo_path = f"photos/delivery_to_sc_{len(context.user_data['photos_to_sc'])}_{context.user_data['current_request']}.jpg"
         await photo_file.download_to_drive(photo_path)
         context.user_data['photos_to_sc'].append(photo_path)
-        await update.message.reply_text("Фото добавлено. Отправьте /done когда закончите.")
+        await update.message.reply_text("Фото добавлено. Когда закончите, нажмите\n\n/DONE")
         return CREATE_REQUEST_PHOTOS
 
     async def handle_delivery_photos_done(self, update: Update, context: CallbackContext):
@@ -781,7 +781,7 @@ class DeliveryHandler(BaseHandler):
         photo_path = f"photos/pickup_{len(context.user_data['pickup_photos'])}_{context.user_data['current_request']}.jpg"
         await photo_file.download_to_drive(photo_path)
         context.user_data['pickup_photos'].append(photo_path)
-        await update.message.reply_text("Фото добавлено. Отправьте /done когда закончите.")
+        await update.message.reply_text("Фото добавлено. Когда закончите, нажмите\n\n/DONE")
         return CREATE_REQUEST_PHOTOS
 
     async def handle_pickup_photos_done(self, update: Update, context: CallbackContext):

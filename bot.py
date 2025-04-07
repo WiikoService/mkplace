@@ -24,6 +24,7 @@ from handlers.sc_item_handler import SCItemHandler
 from handlers.admin_sc_management_handler import SCManagementHandler
 from handlers.delivery_sc_handler import DeliverySCHandler
 from handlers.sc_chat_handler import SCChatHandler
+from handlers.client_request_create import RequestCreator
 
 from database import ensure_data_dir, load_users
 from utils import ensure_photos_dir
@@ -45,12 +46,12 @@ def main():
     sc_item_handler = SCItemHandler()
     delivery_sc_handler = DeliverySCHandler()
     sc_chat_handler = SCChatHandler()
-
+    request_creator = RequestCreator()
     # Создание приложения
     application = Application.builder().token(TELEGRAM_API_TOKEN).build()
 
     # Регистрация обработчиков
-    register_client_handlers(application, client_handler, user_handler)
+    register_client_handlers(application, client_handler, user_handler, request_creator)
     register_admin_handlers(application, admin_handler, user_handler, sc_handler, sc_management_handler)
     register_delivery_handlers(application, delivery_handler, user_handler, delivery_sc_handler)
     register_sc_handlers(application, sc_handler, sc_item_handler, sc_chat_handler)
@@ -73,7 +74,7 @@ def main():
     application.run_polling()
 
 
-def register_client_handlers(application, client_handler, user_handler):
+def register_client_handlers(application, client_handler, user_handler, request_creator):
 
     # Обработчик меню клиента
     application.add_handler(
@@ -87,57 +88,57 @@ def register_client_handlers(application, client_handler, user_handler):
         entry_points=[
             MessageHandler(
                 filters.Regex("^Создать заявку$"),
-                client_handler.create_request
+                request_creator.create_request
             )
         ],
         states={
             CREATE_REQUEST_CATEGORY: [
-                CallbackQueryHandler(client_handler.handle_category)
+                CallbackQueryHandler(request_creator.handle_category)
             ],
             CREATE_REQUEST_DESC: [
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
-                    client_handler.handle_request_desc
+                    request_creator.handle_request_desc
                 )
             ],
             CREATE_REQUEST_PHOTOS: [
-                MessageHandler(filters.PHOTO, client_handler.handle_request_photos),
-                CommandHandler("done", client_handler.done_photos)
+                MessageHandler(filters.PHOTO, request_creator.handle_request_photos),
+                CommandHandler("done", request_creator.done_photos)
             ],
             CREATE_REQUEST_LOCATION: [
                 MessageHandler(
                     filters.LOCATION | filters.TEXT,
-                    client_handler.handle_request_location
+                    request_creator.handle_request_location
                 )
             ],
             CREATE_REQUEST_ADDRESS: [
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
-                    client_handler.handle_request_address
+                    request_creator.handle_request_address
                 )
             ],
             CREATE_REQUEST_DATA: [
                 CallbackQueryHandler(
-                    client_handler.handle_date_selection,
+                    request_creator.handle_date_selection,
                     pattern="^select_date_"
                 ),
                 CallbackQueryHandler(
-                    client_handler.handle_time_selection,
+                    request_creator.handle_time_selection,
                     pattern="^select_time_"
                 )
             ],
             CREATE_REQUEST_COMMENT: [
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
-                    client_handler.handle_request_comment
+                    request_creator.handle_request_comment
                 ),
                 CallbackQueryHandler(
-                    client_handler.skip_comment,
+                    request_creator.skip_comment,
                     pattern="^skip_comment$"
                 )
             ],
             CREATE_REQUEST_CONFIRMATION: [
-                CallbackQueryHandler(client_handler.handle_request_confirmation)
+                CallbackQueryHandler(request_creator.handle_request_confirmation)
             ]
         },
         fallbacks=[],

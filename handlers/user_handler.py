@@ -1,3 +1,4 @@
+import locale
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
 from handlers.base_handler import BaseHandler
@@ -360,27 +361,30 @@ class UserHandler(BaseHandler):
 
     async def handle_delivery_date_selection(self, update: Update, context: CallbackContext):
         """Обработка выбора даты доставки клиентом"""
+        # Устанавливаем русскую локаль
+        locale.setlocale(locale.LC_TIME, 'ru_RU.UTF-8')
+        
         query = update.callback_query
         await query.answer()
         request_id = query.data.split('_')[-1]
-        # Сохраняем ID заявки в контексте
         context.user_data['delivery_request_id'] = request_id
-        # Создаем клавиатуру с датами на ближайшую неделю
+        
         keyboard = []
         current_date = datetime.now()
-        # Форматируем текущую дату и добавляем кнопки для следующих 7 дней
+        
         for i in range(3):
             date = current_date + timedelta(days=i)
-            # Форматируем дату для отображения
-            date_display = date.strftime("%d.%m (%A)")  # Добавляем день недели
-            # Форматируем дату для callback_data
+            # %A будет автоматически использовать русские названия из locale
+            date_display = date.strftime("%d.%m (%A)")
             date_value = date.strftime("%H:%M %d.%m.%Y")
+            
             keyboard.append([
                 InlineKeyboardButton(
                     f"📅 {date_display}",
                     callback_data=f"select_delivery_time_{date_value}"
                 )
             ])
+        
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
             f"Выберите удобную дату доставки для заявки #{request_id}:",
