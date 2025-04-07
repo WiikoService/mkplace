@@ -1,3 +1,8 @@
+DEBUG = False
+
+# Настройки логирования
+LOG_LEVEL = 'INFO'  # Можно изменить на 'DEBUG' для подробного логирования
+
 TELEGRAM_API_TOKEN = "8161286312:AAEJP6NfLW9koP7_EiOnBnsF3T6Ck3OPUF8"  # 7921991483:AAHM8c918j5B9rGKiegUsZCt1N89vtePJP4
 SMS_TOKEN = 'c9afa2690ed58aeb83dec04833e0fe1c'
 
@@ -13,7 +18,7 @@ REQUESTS_JSON = f"{DATA_DIR}/requests.json"
 
 SERVICE_CENTERS_JSON = f"{DATA_DIR}/service_centers.json"
 DELIVERY_TASKS_JSON = f"{DATA_DIR}/delivery_tasks.json"
-
+PAYMENT_JSON = f"{DATA_DIR}/payment.json"
 # Состояния для ConversationHandler
 CREATE_REQUEST_LOCATION, ADMIN_PANEL, REGISTER, CREATE_REQUEST_DESC, CREATE_REQUEST_PHOTOS, ASSIGN_REQUEST, CREATE_DELIVERY_TASK, ENTER_NAME, ENTER_PHONE = range(9)
 
@@ -62,3 +67,9 @@ FEEDBACK_TEXT = 101
 
 # Состояния для просмотра чата
 WAITING_REQUEST_ID = 'WAITING_REQUEST_ID'
+
+# Состояния для оплаты
+WAITING_PAYMENT = "WAITING_PAYMENT"
+WAITING_PAYMENT_CONFIRM = "WAITING_PAYMENT_CONFIRM"
+PAYMENT_API_URL = "https://dombyta.by/tgbrqst01.php"
+WAITING_PAYMENT_CONF = "WAITING_PAYMENT_CONF"

@@ -1,6 +1,6 @@
 import json
 import os
-from config import USERS_JSON, REQUESTS_JSON, SERVICE_CENTERS_JSON, DELIVERY_TASKS_JSON, DATA_DIR
+from config import USERS_JSON, REQUESTS_JSON, SERVICE_CENTERS_JSON, DELIVERY_TASKS_JSON, DATA_DIR, PAYMENT_JSON
 import logging
 
 logger = logging.getLogger(__name__)
@@ -86,3 +86,9 @@ def save_delivery_tasks(delivery_tasks):
     except Exception as e:
         logger.error(f"Error saving delivery tasks: {e}")
         raise
+
+def load_payment():
+    return load_json(PAYMENT_JSON)
+
+def save_payment(payment_data):
+    save_json(payment_data, PAYMENT_JSON)

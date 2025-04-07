@@ -1,5 +1,6 @@
 import logging
 import json
+from copy import deepcopy
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, InputMediaPhoto, CallbackQuery
 from telegram.ext import CallbackContext, ConversationHandler
 from .base_handler import BaseHandler
@@ -9,7 +10,7 @@ from database import (
 )
 from config import (
     ASSIGN_REQUEST, ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK,
-    ORDER_STATUS_ASSIGNED_TO_SC, ORDER_STATUS_PICKUP_FROM_SC, ORDER_STATUS_NEW, ORDER_STATUS_DELIVERY_TO_SC
+    ORDER_STATUS_ASSIGNED_TO_SC, ORDER_STATUS_PICKUP_FROM_SC, ORDER_STATUS_NEW, ORDER_STATUS_DELIVERY_TO_SC, DEBUG
 )
 from utils import notify_client
 from datetime import datetime
@@ -17,11 +18,7 @@ import os
 from config import DATA_DIR
 from handlers.user_handler import UserHandler
 import time
-
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+from handlers.client_request_create import PrePaymentHandler
 
 logger = logging.getLogger(__name__)
 
@@ -860,49 +857,39 @@ class AdminHandler(BaseHandler):
             await query.edit_message_text("❌ Произошла ошибка при обработке запроса")
 
     async def handle_client_price_approved(self, update: Update, context: CallbackContext):
-        """Обработка подтверждения цены клиентом и создание задачи доставки"""
+        """Обработка подтверждения цены клиентом (точка входа)"""
         query = update.callback_query
         await query.answer()
+        
         request_id = query.data.split('_')[-1]
-        # Загружаем данные с обработкой ошибок
         requests_data = load_requests()
-        delivery_tasks = load_delivery_tasks()
-        service_centers = load_service_centers()
-        request = requests_data.get(request_id)
-        # Обновляем статус подтверждения цены
+        
+        if request_id not in requests_data:
+            await query.edit_message_text("❌ Заявка не найдена")
+            return ConversationHandler.END
+            
+        request = requests_data[request_id]
+        
+        # Устанавливаем флаг одобрения цены
         request['price_approved'] = True
         save_requests(requests_data)
-        # Получаем данные СЦ
-        sc_id = request.get('assigned_sc')
-        sc_data = service_centers.get(sc_id, {})
-        # Создаем задачу доставки ОТ КЛИЕНТА В СЦ
-        new_task_id = str(len(delivery_tasks) + 1)
-        new_task = {
-            'task_id': new_task_id,
-            'request_id': request_id,
-            'status': 'Новая',
-            'sc_name': sc_data.get('name', 'Не указан'),
-            'sc_address': sc_data.get('address', 'Не указан'),
-            'client_name': request.get('user_name', 'Не указан'),
-            'client_address': request.get('location', 'Не указан'),
-            'client_phone': request.get('user_phone', 'Не указан'),
-            'description': request.get('description', ''),
-            'delivery_type': 'client_to_sc',
-            'is_sc_to_client': False,
-            'desired_date': request.get('desired_date', '')
-        }
-        delivery_tasks[new_task_id] = new_task
-        save_delivery_tasks(delivery_tasks)
-        # Обновляем статус заявки
-        request['status'] = ORDER_STATUS_DELIVERY_TO_SC
-        save_requests(requests_data)
-        await query.edit_message_text(
-            f"✅ Клиент подтвердил цену для заявки #{request_id}\n"
-            f"Создана задача доставки #{new_task_id}\n"
-            f"Тип: Доставка от клиента в СЦ\n"
-            f"СЦ: {sc_data.get('name', 'Не указан')}\n"
-            f"Адрес клиента: {request.get('location', 'Не указан')}"
-        )
+        
+        logger.info(f"Клиент подтвердил цену для заявки #{request_id}")
+        
+        # Если в режиме отладки, сразу создаем задачу доставки
+        if DEBUG:
+            # Создаем задачу доставки напрямую через PrePaymentHandler
+            logger.info(f"DEBUG режим: Создаем задачу доставки без оплаты для заявки #{request_id}")
+            pre_payment_handler = PrePaymentHandler()
+            # Устанавливаем фиксированную стоимость для отладки
+            request['delivery_cost'] = '100.00'
+            save_requests(requests_data)
+            return await pre_payment_handler.create_delivery_task(update, context, request_id, request)
+        
+        # В обычном режиме переходим к созданию платежа
+        logger.info(f"Переходим к созданию платежа для заявки #{request_id}")
+        pre_payment_handler = PrePaymentHandler()
+        return await pre_payment_handler.create_payment(update, context, request_id, request)
 
     async def handle_comment_approval(self, update: Update, context: CallbackContext):
         """Обработка одобрения комментария от администратора"""

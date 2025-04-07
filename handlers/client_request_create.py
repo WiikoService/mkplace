@@ -1,6 +1,7 @@
 import os
 from datetime import datetime, timedelta
 import locale
+import json
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, CallbackQuery, ReplyKeyboardMarkup
 from telegram.ext import CallbackContext, ConversationHandler
@@ -8,13 +9,21 @@ from telegram.ext import CallbackContext, ConversationHandler
 from config import (
     CREATE_REQUEST_DESC, CREATE_REQUEST_PHOTOS, CREATE_REQUEST_LOCATION,
     PHOTOS_DIR, CREATE_REQUEST_CATEGORY, CREATE_REQUEST_DATA,
-    CREATE_REQUEST_ADDRESS, CREATE_REQUEST_CONFIRMATION, CREATE_REQUEST_COMMENT
+    CREATE_REQUEST_ADDRESS, CREATE_REQUEST_CONFIRMATION, CREATE_REQUEST_COMMENT,
+    WAITING_PAYMENT, ORDER_STATUS_DELIVERY_TO_SC
 )
-from database import load_requests, load_users, save_requests
+from database import load_requests, load_users, save_requests, load_service_centers, load_delivery_tasks, save_delivery_tasks
 from utils import notify_admin, get_address_from_coords, format_location_for_display, prepare_location_for_storage
 import logging
 from handlers.client_handler import ClientHandler
-from config import ADMIN_IDS
+
+
+import time
+from decimal import Decimal, getcontext
+import aiohttp
+from config import ORDER_STATUS_DELIVERY_TO_SC, PAYMENT_API_URL, DEBUG, ADMIN_IDS, WAITING_PAYMENT_CONF
+
+
 
 logger = logging.getLogger(__name__)
 
@@ -428,3 +437,272 @@ class RequestCreator(ClientHandler):
         """Отмена создания заявки."""
         await update.message.reply_text("Создание заявки отменено.", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
+
+
+getcontext().prec = 6
+
+class PrePaymentHandler(ClientHandler):
+    def __init__(self):
+        super().__init__()
+        self.logger = logging.getLogger(__name__)
+
+    async def create_payment(self, update: Update, context: CallbackContext, request_id, request):
+        """Создание платежа после подтверждения цены"""
+        query = update.callback_query
+        
+        # Рассчитываем стоимость доставки
+        repair_price = Decimal(request.get('repair_price', '0'))
+        delivery_cost = Decimal('20') + (repair_price * Decimal('0.3'))
+        
+        # Создаем платеж - отправляем запрос в платежный API
+        payment_data = {
+            'amount': float(delivery_cost),
+            'description': request.get('description', '')
+        }
+        self.logger.info(f"💲 Подготовка данных платежа для заявки #{request_id}: {payment_data}")
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                # Исправляем формат отправки данных
+                payment_request_data = {'payment_request': json.dumps(payment_data)}
+                self.logger.info(f"📤 Отправляем запрос на создание платежа: {payment_request_data}")
+                
+                async with session.post(
+                    PAYMENT_API_URL,
+                    data=payment_request_data,
+                    timeout=10
+                ) as response:
+                    status = response.status
+                    self.logger.info(f"📥 Статус HTTP-ответа: {status}")
+                    
+                    if status != 200:
+                        response_text = await response.text()
+                        self.logger.error(f"❌ Ошибка HTTP: {status}, ответ: {response_text}")
+                        raise Exception(f"HTTP error {status}: {response_text}")
+                    
+                    # Получаем заголовки ответа
+                    content_type = response.headers.get('Content-Type', 'unknown')
+                    self.logger.info(f"🔍 Content-Type ответа при создании платежа: {content_type}")
+                    
+                    # Логируем ответ для отладки
+                    response_body = await response.text()
+                    self.logger.info(f"📄 Ответ сервера при создании платежа: {response_body}")
+                    
+                    # Пытаемся разобрать JSON, независимо от Content-Type
+                    try:
+                        result = json.loads(response_body)
+                        self.logger.info(f"✅ Успешно получен JSON при создании платежа: {result}")
+                    except json.JSONDecodeError as e:
+                        self.logger.error(f"❌ Ошибка парсинга JSON: {e}, тело ответа: {response_body}")
+                        raise Exception(f"Ошибка формата ответа: {e}")
+                    
+                    # Проверяем ожидаемые поля
+                    self.logger.info(f"🔑 Ключи в ответе: {list(result.keys())}")
+                    
+                    # Теперь result содержит разобранный JSON, независимо от Content-Type
+                    
+                    if not result.get('order_id') or not result.get('payment_url'):
+                        self.logger.error(f"❌ Неверный ответ API: {result}")
+                        raise Exception(f"Invalid API response: {result}")
+                    
+                    # Сохраняем order_id и стоимость в заявке для дальнейшей проверки
+                    request['payment_order_id'] = result['order_id']
+                    request['delivery_cost'] = str(delivery_cost)
+                    
+                    # Загружаем и сохраняем обновленные данные
+                    requests_data = load_requests()
+                    requests_data[request_id] = request
+                    save_requests(requests_data)
+                    
+                    self.logger.info(f"💾 Сохранен order_id: {result['order_id']} для заявки #{request_id}")
+                    
+                    # Отправляем кнопку оплаты
+                    keyboard = [
+                        [InlineKeyboardButton("✅ Оплатить", url=result['payment_url'])],
+                        [InlineKeyboardButton("🔄 Проверить оплату", callback_data=f"check_payment_{request_id}")],
+                        [InlineKeyboardButton("❌ Отменить", callback_data=f"payment_cancel_{request_id}")]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    await query.edit_message_text(
+                        f"💳 Перейдите по ссылке для оплаты:\n"
+                        f"Сумма к оплате: {delivery_cost:.2f} руб.\n"
+                        f"Описание услуги: {request.get('description', '')}\n\n"
+                        "После оплаты нажмите кнопку 'Проверить оплату'",
+                        reply_markup=reply_markup
+                    )
+                    return WAITING_PAYMENT
+                    
+        except Exception as e:
+            error_message = f"❌ Ошибка при создании платежа: {str(e)}"
+            self.logger.error(error_message)
+            self.logger.exception(e)  # Выводим полный стектрейс
+            await query.edit_message_text(f"❌ Не удалось создать платеж: {str(e)}")
+            return ConversationHandler.END
+
+    async def create_delivery_task(self, update: Update, context: CallbackContext, request_id, request):
+        """Создание задачи доставки после оплаты"""
+        query = update.callback_query
+        
+        # Загружаем необходимые данные
+        requests_data = load_requests()
+        delivery_tasks = load_delivery_tasks()
+        service_centers = load_service_centers()
+        
+        # Получаем СЦ
+        sc_id = request.get('assigned_sc')
+        sc_data = service_centers.get(sc_id, {})
+        
+        # Создаем задачу доставки
+        new_task_id = str(len(delivery_tasks) + 1)
+        delivery_cost = Decimal(request.get('delivery_cost', '0'))
+        new_task = {
+            'task_id': new_task_id,
+            'request_id': request_id,
+            'status': 'Новая',
+            'sc_name': sc_data.get('name', 'Не указан'),
+            'sc_address': sc_data.get('address', 'Не указан'),
+            'client_name': request.get('user_name', 'Не указан'),
+            'client_address': request.get('location', {}).get('address', 'Не указан'),
+            'client_phone': request.get('user_phone', 'Не указан'),
+            'description': request.get('description', ''),
+            'delivery_type': 'client_to_sc',
+            'is_sc_to_client': False,
+            'desired_date': request.get('desired_date', ''),
+            'delivery_cost': str(delivery_cost)
+        }
+        # Сохраняем задачу
+        delivery_tasks[new_task_id] = new_task
+        save_delivery_tasks(delivery_tasks)
+        # Обновляем статус заявки
+        requests_data[request_id]['status'] = ORDER_STATUS_DELIVERY_TO_SC
+        save_requests(requests_data)
+        
+        # Отправляем подтверждение
+        await query.edit_message_text(
+            f"✅ Оплата принята для заявки #{request_id}\n"
+            f"Стоимость доставки: {delivery_cost:.2f} руб.\n\n"
+            f"Создана задача доставки #{new_task_id}\n"
+            f"Тип: Доставка от клиента в СЦ\n"
+            f"СЦ: {sc_data.get('name', 'Не указан')}\n"
+            f"Адрес клиента: {request.get('location', {}).get('address', 'Не указан')}"
+        )
+        return ConversationHandler.END
+
+    async def handle_payment_cancel(self, update: Update, context: CallbackContext):
+        """Обработка отмены оплаты"""
+        query = update.callback_query
+        await query.answer()
+        context.user_data.pop('payment_order_id', None)
+        context.user_data.pop('delivery_cost', None)
+        await query.edit_message_text("❌ Оплата отменена. Вы можете попробовать позже.")
+        return ConversationHandler.END
+
+    async def check_payment_status(self, update: Update, context: CallbackContext):
+        """Проверка статуса платежа"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Получаем ID заявки из callback_data
+        request_id = query.data.split('_')[-1]
+        self.logger.info(f"📊 Проверка статуса платежа для заявки #{request_id}")
+        
+        requests_data = load_requests()
+        
+        if request_id not in requests_data:
+            self.logger.error(f"❌ Заявка #{request_id} не найдена при проверке статуса платежа")
+            await query.edit_message_text("❌ Заявка не найдена")
+            return ConversationHandler.END
+        
+        request = requests_data[request_id]
+        order_id = request.get('payment_order_id')
+        
+        if not order_id:
+            self.logger.error(f"❌ payment_order_id не найден в заявке #{request_id}")
+            await query.edit_message_text("❌ Информация о платеже не найдена")
+            return ConversationHandler.END
+        
+        try:
+            # Отправляем запрос на проверку статуса платежа
+            status_data = {'payment_status_order_id': order_id}
+            self.logger.info(f"📤 Отправляем запрос статуса платежа: {status_data}")
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    PAYMENT_API_URL,
+                    data=status_data,
+                    timeout=10
+                ) as response:
+                    status = response.status
+                    self.logger.info(f"📥 Статус HTTP-ответа: {status}")
+                    
+                    # Получаем текстовый ответ
+                    response_text = await response.text()
+                    self.logger.info(f"📄 Ответ сервера проверки платежа: {response_text}")
+                    
+                    # Изучаем заголовки ответа
+                    content_type = response.headers.get('Content-Type', 'unknown')
+                    self.logger.info(f"🔍 Content-Type ответа: {content_type}")
+                    
+                    if status != 200:
+                        self.logger.error(f"❌ Ошибка HTTP: {status}, ответ: {response_text}")
+                        raise Exception(f"HTTP error {status}: {response_text}")
+                    
+                    # Пытаемся разобрать JSON, независимо от Content-Type
+                    try:
+                        result = json.loads(response_text)
+                        self.logger.info(f"✅ Успешно разобран JSON ответа: {result}")
+                    except json.JSONDecodeError as e:
+                        self.logger.error(f"❌ Ошибка парсинга JSON: {e}, текст ответа: {response_text}")
+                        raise Exception(f"Ошибка формата ответа при проверке платежа: {e}")
+                    
+                    # Проверяем ожидаемые поля в ответе
+                    self.logger.info(f"🔑 Ключи в ответе: {list(result.keys())}")
+                    
+                    # Проверяем статус платежа по информации от банка
+                    if (result.get('errorCode') == '0' and 
+                        result.get('orderStatus') == 2 and 
+                        result.get('paymentAmountInfo', {}).get('paymentState') == 'DEPOSITED'):
+                        self.logger.info(f"💰 Платеж для заявки #{request_id} успешен! Создаем задачу доставки.")
+                        # Платеж успешен, создаем задачу доставки
+                        return await self.create_delivery_task(update, context, request_id, request)
+                    else:
+                        # Платеж не завершен или отклонен
+                        error_message = result.get('errorMessage', 'Неизвестная ошибка')
+                        payment_state = result.get('paymentAmountInfo', {}).get('paymentState', 'Неизвестно')
+                        order_status = result.get('orderStatus', 'Неизвестно')
+                        status_message = f"Статус: {payment_state}, Код: {order_status}, Сообщение: {error_message}"
+                        
+                        self.logger.info(f"⏳ Платеж для заявки #{request_id} не завершен: {status_message}")
+                        
+                        # Отправляем обновленные кнопки
+                        keyboard = [
+                            [InlineKeyboardButton("🔄 Проверить еще раз", callback_data=f"check_payment_{request_id}")],
+                            [InlineKeyboardButton("❌ Отменить", callback_data=f"payment_cancel_{request_id}")]
+                        ]
+                        reply_markup = InlineKeyboardMarkup(keyboard)
+                        
+                        await query.edit_message_text(
+                            f"⏳ Платеж не завершен: {status_message}\n\n"
+                            "Возможно, операция еще обрабатывается. Проверьте еще раз через несколько секунд.",
+                            reply_markup=reply_markup
+                        )
+                        return WAITING_PAYMENT
+                    
+        except Exception as e:
+            error_message = f"❌ Ошибка при проверке статуса платежа: {str(e)}"
+            self.logger.error(error_message)
+            self.logger.exception(e)  # Выводим полный стектрейс
+            
+            # Отправляем кнопку для повторной проверки
+            keyboard = [
+                [InlineKeyboardButton("🔄 Проверить еще раз", callback_data=f"check_payment_{request_id}")],
+                [InlineKeyboardButton("❌ Отменить", callback_data=f"payment_cancel_{request_id}")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                f"❌ Не удалось проверить статус платежа: {str(e)}",
+                reply_markup=reply_markup
+            )
+            return WAITING_PAYMENT

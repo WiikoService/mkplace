@@ -1,5 +1,23 @@
 import logging
 
+# Настройка логирования - единственная настройка для всего приложения
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.WARNING  # По умолчанию все логгеры на WARNING
+)
+
+# Настраиваем логи для основных модулей
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+logging.getLogger('handlers').setLevel(logging.INFO)
+
+# Отключаем шумные логи от библиотек
+logging.getLogger('asyncio').setLevel(logging.ERROR)
+logging.getLogger('httpcore').setLevel(logging.ERROR)
+logging.getLogger('httpx').setLevel(logging.ERROR)
+logging.getLogger('telegram').setLevel(logging.WARNING)
+logging.getLogger('aiohttp').setLevel(logging.ERROR)
+
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, filters, ConversationHandler,
     CallbackQueryHandler
@@ -13,7 +31,7 @@ from config import (
     ENTER_SC_CONFIRMATION_CODE, ENTER_REPAIR_PRICE, CONFIRMATION,
     RATING_SERVICE, FEEDBACK_TEXT,
     ORDER_STATUS_ASSIGNED_TO_SC, ORDER_STATUS_PICKUP_FROM_SC,
-    WAITING_REQUEST_ID
+    WAITING_REQUEST_ID, WAITING_PAYMENT, LOG_LEVEL
 )
 from handlers.user_handler import UserHandler
 from handlers.client_handler import ClientHandler
@@ -24,18 +42,20 @@ from handlers.sc_item_handler import SCItemHandler
 from handlers.admin_sc_management_handler import SCManagementHandler
 from handlers.delivery_sc_handler import DeliverySCHandler
 from handlers.sc_chat_handler import SCChatHandler
-from handlers.client_request_create import RequestCreator
+from handlers.client_request_create import RequestCreator, PrePaymentHandler
 
 from database import ensure_data_dir, load_users
 from utils import ensure_photos_dir
 
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
-
 def main():
+    # Повторно применяем настройки логирования для гарантии
+    for logger_name in ('asyncio', 'httpcore', 'httpx', 'telegram', 'aiohttp'):
+        logging.getLogger(logger_name).setLevel(logging.ERROR)
+    
+    # Только наши логи на уровне INFO
+    logging.getLogger('handlers').setLevel(logging.INFO)
+    logging.getLogger(__name__).setLevel(logging.INFO)
+
     # Создание экземпляров обработчиков
     user_handler = UserHandler()
     client_handler = ClientHandler()
@@ -47,11 +67,12 @@ def main():
     delivery_sc_handler = DeliverySCHandler()
     sc_chat_handler = SCChatHandler()
     request_creator = RequestCreator()
+    pre_payment_handler = PrePaymentHandler()
     # Создание приложения
     application = Application.builder().token(TELEGRAM_API_TOKEN).build()
 
     # Регистрация обработчиков
-    register_client_handlers(application, client_handler, user_handler, request_creator)
+    register_client_handlers(application, client_handler, user_handler, request_creator, admin_handler, pre_payment_handler)
     register_admin_handlers(application, admin_handler, user_handler, sc_handler, sc_management_handler)
     register_delivery_handlers(application, delivery_handler, user_handler, delivery_sc_handler)
     register_sc_handlers(application, sc_handler, sc_item_handler, sc_chat_handler)
@@ -74,7 +95,7 @@ def main():
     application.run_polling()
 
 
-def register_client_handlers(application, client_handler, user_handler, request_creator):
+def register_client_handlers(application, client_handler, user_handler, request_creator, admin_handler, pre_payment_handler):
 
     # Обработчик меню клиента
     application.add_handler(
@@ -144,6 +165,43 @@ def register_client_handlers(application, client_handler, user_handler, request_
         fallbacks=[],
         allow_reentry=True
     ))
+    
+    application.add_handler(CallbackQueryHandler(
+        pre_payment_handler.handle_payment_cancel,
+        pattern="^payment_cancel$"
+    ))
+    
+    # Создаем ConversationHandler для процесса оплаты
+    payment_conv_handler = ConversationHandler(
+        entry_points=[
+            # Начинаем с метода админки для подтверждения цены
+            CallbackQueryHandler(
+                admin_handler.handle_client_price_approved,
+                pattern="^client_approve_price_"
+            )
+        ],
+        states={
+            WAITING_PAYMENT: [
+                # Проверка статуса платежа
+                CallbackQueryHandler(
+                    pre_payment_handler.check_payment_status,
+                    pattern="^check_payment_"
+                ),
+                # Отмена платежа
+                CallbackQueryHandler(
+                    pre_payment_handler.handle_payment_cancel,
+                    pattern="^payment_cancel_"
+                )
+            ]
+        },
+        fallbacks=[],
+        name="payment_conversation"
+    )
+
+    application.add_handler(payment_conv_handler)
+
+
+
     application.add_handler(MessageHandler(filters.Regex("^Мои заявки$"), client_handler.show_client_requests))
     application.add_handler(MessageHandler(filters.Regex("^Мой профиль$"), client_handler.show_client_profile))
 
