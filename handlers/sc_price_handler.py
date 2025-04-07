@@ -37,7 +37,7 @@ class SCPriceHandler:
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
-                f"Вы указали стоимость: {price} руб.\nПодтвердите или измените:",
+                f"Вы указали стоимость: {price} BYN\nПодтвердите или измените:",
                 reply_markup=reply_markup
             )
             return CONFIRMATION
@@ -64,7 +64,7 @@ class SCPriceHandler:
         save_requests(requests_data)
         # Отправляем уведомления
         await self._notify_admin_and_client(update, context, request_id, price)
-        await query.edit_message_text(f"✅ Окончательная стоимость {price} руб. подтверждена и сохранена")
+        await query.edit_message_text(f"✅ Окончательная стоимость {price} BYN подтверждена и сохранена")
         return CONFIRMATION
 
     async def change_price(self, update: Update, context: CallbackContext):
@@ -92,7 +92,7 @@ class SCPriceHandler:
             f"💰 Подтверждена окончательная стоимость ремонта\n\n"
             f"Заявка: #{request_id}\n"
             f"СЦ: {sc_name}\n"
-            f"Стоимость: {price} руб.\n"
+            f"Стоимость: {price} BYN\n"
             f"Описание: {request.get('description', 'Нет описания')}"
         )
         # Отправляем уведомления администраторам
@@ -110,7 +110,7 @@ class SCPriceHandler:
             client_message = (
                 f"💰 Сервисный центр подтвердил окончательную стоимость ремонта\n\n"
                 f"Заявка: #{request_id}\n"
-                f"Стоимость: {price} руб.\n"
+                f"Стоимость: {price} BYN\n"
             )
             try:
                 await context.bot.send_message(
