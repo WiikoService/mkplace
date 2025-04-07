@@ -34,8 +34,8 @@ class SCItemHandler(SCHandler):
         if action == "accept":
             logger.info("Принятие товара по заявке: %s", request_id)
             await query.edit_message_text(
-                "Пожалуйста, сделайте фото товара и отправьте его в чат.\n"
-                "Когда закончите, отправьте /done"
+                "Пожалуйста, сделайте фото товара.\n"
+                "Когда закончите, нажмите\n\n/DONE"
             )
             context.user_data['awaiting_photo_sc'] = request_id
             logger.info("Установлен awaiting_photo_sc: %s", request_id)
@@ -80,7 +80,7 @@ class SCItemHandler(SCHandler):
             context.user_data['sc_photos'] = [] 
         context.user_data['sc_photos'].append(photo_path)
         logger.info("Фото добавлено для заявки: %s, путь: %s", request_id, photo_path)
-        await update.message.reply_text("Фото добавлено. Отправьте /done когда закончите.")
+        await update.message.reply_text("Фото добавлено. Когда закончите, нажмите\n\n/DONE")
         return CREATE_REQUEST_PHOTOS
 
     async def handle_photos_done(self, update: Update, context: CallbackContext):
