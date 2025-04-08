@@ -8,7 +8,8 @@ from telegram.ext import CallbackContext, ConversationHandler
 from config import (
     ORDER_STATUS_IN_SC, SC_ASSIGN_REQUESTS, ADMIN_IDS,
     ORDER_STATUS_DELIVERY_TO_CLIENT, ORDER_STATUS_DELIVERY_TO_SC,
-    ENTER_REPAIR_PRICE, CONFIRMATION, ORDER_STATUS_SC_TO_CLIENT
+    ENTER_REPAIR_PRICE, CONFIRMATION, ORDER_STATUS_SC_TO_CLIENT,
+    ORDER_STATUS_REPAIR_COMPLETED
 )
 from handlers.base_handler import BaseHandler
 from database import (
@@ -402,7 +403,7 @@ class SCHandler(BaseHandler):
         for req_id, req_data in requests_data.items():
             # Проверяем, что заявка принадлежит этому СЦ и находится в нужном статусе
             if (req_data.get('assigned_sc') == sc_id and 
-                req_data.get('status') == ORDER_STATUS_IN_SC):
+                req_data.get('status') == ORDER_STATUS_REPAIR_COMPLETED):
                 desc = req_data.get('description', 'Нет описания')[:30] + '...'
                 button_text = f"Заявка #{req_id} - {desc}"
                 keyboard.append([InlineKeyboardButton(

@@ -57,6 +57,8 @@ ORDER_STATUS_DELIVERY_TO_CLIENT = 'Доставщик в пути. К клиен
 ORDER_STATUS_SC_TO_CLIENT = "Доставка из СЦ клиенту"
 ORDER_STATUS_PICKUP_FROM_SC = "Ожидает забор из СЦ"
 
+ORDER_STATUS_REPAIR_COMPLETED = 'Ремонт завершен, ожидает доставки'
+
 DELIVERY_MENU = 'DELIVERY_MENU'
 
 ENTER_SC_CONFIRMATION_CODE = 30

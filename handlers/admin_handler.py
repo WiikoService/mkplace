@@ -830,10 +830,8 @@ class AdminHandler(BaseHandler):
             )
             # Создаем клавиатуру для клиента
             keyboard = [
-                [
-                    InlineKeyboardButton("✅ Согласен", callback_data=f"client_approve_price_{request_id}"),
-                    InlineKeyboardButton("❌ Не согласен", callback_data=f"client_reject_price_{request_id}")
-                ]
+                [InlineKeyboardButton("✅ Согласен", callback_data=f"client_initial_price_{request_id}")],
+                [InlineKeyboardButton("❌ Не согласен", callback_data=f"client_initial_reject_{request_id}")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             # Отправляем сообщение клиенту

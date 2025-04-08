@@ -646,13 +646,8 @@ class DeliveryHandler(BaseHandler):
                     InlineKeyboardButton("Отказать в приёме", callback_data=f"reject_item_{request_id}")
                 ]]
                 reply_markup = InlineKeyboardMarkup(keyboard)
-                # Отправляем текстовое сообщение
-                await context.bot.send_message(
-                    chat_id=sc_telegram_id,
-                    text=sc_message,
-                    reply_markup=reply_markup
-                )
-                # Отправляем фотографии
+                
+                # Сначала отправляем фотографии
                 for photo_path in photos:
                     if os.path.exists(photo_path):
                         with open(photo_path, 'rb') as photo_file:
@@ -661,6 +656,12 @@ class DeliveryHandler(BaseHandler):
                                 photo=photo_file,
                                 caption=f"Фото товара по заявке #{request_id}"
                             )
+                # Затем отправляем текстовое сообщение с кнопками
+                await context.bot.send_message(
+                    chat_id=sc_telegram_id,
+                    text=sc_message,
+                    reply_markup=reply_markup
+                )
             except Exception as e:
                 logger.error(f"Ошибка отправки уведомления в СЦ: {str(e)}")
             context.user_data.pop('photos_to_sc', None)

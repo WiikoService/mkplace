@@ -178,7 +178,7 @@ def register_client_handlers(application, client_handler, user_handler, request_
             # Начинаем с метода админки для подтверждения цены
             CallbackQueryHandler(
                 admin_handler.handle_client_price_approved,
-                pattern="^client_approve_price_"
+                pattern="^client_initial_price_"
             )
         ],
         states={
@@ -442,8 +442,8 @@ def register_admin_handlers(application, admin_handler, user_handler, sc_handler
 
     # Регистрация обработчиков для согласования цены
     application.add_handler(CallbackQueryHandler(admin_handler.handle_price_approval, pattern="^send_price_approval_"))
-    application.add_handler(CallbackQueryHandler(user_handler.handle_client_price_approval, pattern="^client_approve_price_"))
-    application.add_handler(CallbackQueryHandler(user_handler.handle_client_price_rejection, pattern="^client_reject_price_"))
+    application.add_handler(CallbackQueryHandler(user_handler.handle_client_price_approval, pattern="^client_initial_price_"))
+    application.add_handler(CallbackQueryHandler(user_handler.handle_client_price_rejection, pattern="^client_initial_reject_"))
     
     # Регистрация обработчиков для комментариев
     application.add_handler(CallbackQueryHandler(admin_handler.handle_comment_approval, pattern="^approve_comment_"))
@@ -679,6 +679,32 @@ def register_sc_handlers(application, sc_handler, sc_item_handler, sc_chat_handl
         ),
         group=0
     )
+
+    # Регистрация обработчиков для согласования итоговой цены ремонта клиентом
+    application.add_handler(CallbackQueryHandler(
+        sc_handler.price_handler.handle_sc_final_price_approval,
+        pattern="^sc_final_approve_price_"
+    ))
+    application.add_handler(ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                sc_handler.price_handler.handle_sc_final_price_rejection,
+                pattern="^sc_final_reject_price_"
+            )
+        ],
+        states={
+            'HANDLE_CLIENT_REPLY': [
+                MessageHandler(
+                    (filters.TEXT | filters.PHOTO) & ~filters.COMMAND,
+                    sc_chat_handler.handle_client_message
+                )
+            ]
+        },
+        fallbacks=[
+            CommandHandler('cancel', sc_chat_handler.close_chat)
+        ],
+        allow_reentry=True
+    ))
 
     # Сначала регистрируем ConversationHandler для фотографий
     sc_photos_handler = ConversationHandler(
