@@ -1,4 +1,4 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove, InputMediaPhoto
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove, InputMediaPhoto, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import CallbackContext, ConversationHandler
 from config import (
     ORDER_STATUS_PICKUP_FROM_SC,
@@ -12,7 +12,9 @@ from config import (
     ORDER_STATUS_READY,
     ORDER_STATUS_PICKUP_FROM_SC,
     ENTER_CONFIRMATION_CODE,
-    ADMIN_IDS
+    ADMIN_IDS,
+    DEBUG,
+    SMS_TOKEN
 )
 from handlers.delivery_handler import DeliveryHandler
 from database import (
@@ -25,6 +27,7 @@ import logging
 import time
 import random
 import os
+from smsby import SMSBY
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +77,7 @@ class DeliverySCHandler(DeliveryHandler):
             sc_id = requests_data[request_id].get('assigned_sc')
             if not sc_id:
                 await query.edit_message_text("❌ Не удалось найти данные СЦ.")
-                return ConversationHandler.END
+                return
             # Находим пользователя СЦ
             sc_user_id = None
             for user_id, user_data in users_data.items():
@@ -83,7 +86,7 @@ class DeliverySCHandler(DeliveryHandler):
                     break
             if not sc_user_id:
                 await query.edit_message_text("❌ Не удалось найти пользователя СЦ.")
-                return ConversationHandler.END
+                return
             # Генерируем код подтверждения
             confirmation_code = ''.join(random.choices('0123456789', k=4))
             # Сохраняем код в контексте доставщика
@@ -496,6 +499,138 @@ class DeliverySCHandler(DeliveryHandler):
             logger.error(f"Ошибка при принятии заказа: {e}")
             await query.edit_message_text("❌ Произошла ошибка при принятии заказа")
 
+    async def handle_sc_pickup_confirmation(self, update: Update, context: CallbackContext):
+        """Обработка подтверждения получения товара из СЦ"""
+        query = update.callback_query
+        await query.answer()
+        request_id = query.data.split('_')[-1]
+        try:
+            requests_data = load_requests()
+            users_data = load_users()
+            
+            # Генерируем код подтверждения
+            confirmation_code = ''.join([str(random.randint(0, 9)) for _ in range(4)])
+            
+            # Сохраняем код в контексте и в данных заявки
+            context.user_data['sc_confirmation_code'] = confirmation_code
+            context.user_data['current_request'] = request_id
+            
+            # Получаем данные запроса и СЦ
+            request = requests_data.get(request_id)
+            sc_id = request.get('assigned_sc')
+            
+            # Ищем пользователя СЦ
+            sc_user_id = None
+            sc_phone = None
+            for user_id, user_data in users_data.items():
+                if user_data.get('role') == 'sc' and user_data.get('sc_id') == sc_id:
+                    sc_user_id = user_id
+                    sc_phone = user_data.get('phone')
+                    break
+                    
+            if not sc_user_id:
+                await query.edit_message_text("❌ Не удалось найти данные СЦ.")
+                return ConversationHandler.END
+                
+            # Определяем режим работы
+            if DEBUG:
+                # В тестовом режиме отправляем код СЦ через бота
+                await context.bot.send_message(
+                    chat_id=int(sc_user_id),
+                    text=f"Код подтверждения для передачи товара доставщику: {confirmation_code}"
+                )
+                # Сообщаем доставщику, что нужно ввести код от СЦ
+                await query.edit_message_text(
+                    "Введите код подтверждения, полученный от СЦ:"
+                )
+            else:
+                # В боевом режиме отправляем SMS с кодом СЦ, если есть телефон
+                if sc_phone:
+                    try:
+                        phone = sc_phone.replace('+', '')
+                        logger.info(f"Отправка SMS на номер СЦ: {phone}")
+                        
+                        # Инициализируем SMS-клиент (аналогично как в delivery_handler.py)
+                        sms_client = SMSBY(SMS_TOKEN, 'by')
+                        
+                        # Создаем объект пароля
+                        logger.info("Создание объекта пароля...")
+                        password_response = sms_client.create_password_object('numbers', 4)
+                        logger.info(f"Ответ создания пароля: {password_response}")
+                        
+                        if 'result' in password_response and 'password_object_id' in password_response['result']:
+                            password_object_id = password_response['result']['password_object_id']
+                            logger.info(f"ID объекта пароля: {password_object_id}")
+                            
+                            # Получаем доступные альфа-имена
+                            alphanames = sms_client.get_alphanames()
+                            logger.info(f"Доступные альфа-имена: {alphanames}")
+                            
+                            if alphanames:
+                                alphaname_id = next(iter(alphanames.keys()))
+                                sms_message = f"Код подтверждения для заявки #{request_id}: %CODE%"
+                                logger.info(f"Отправка SMS с сообщением: {sms_message}")
+                                
+                                sms_response = sms_client.send_sms_message_with_code(
+                                    password_object_id=password_object_id,
+                                    phone=phone,
+                                    message=sms_message,
+                                    alphaname_id=alphaname_id
+                                )
+                                logger.info(f"Ответ отправки SMS: {sms_response}")
+                                
+                                if 'code' in sms_response:
+                                    # Сохраняем код в данных заявки
+                                    requests_data[request_id]['sms_id'] = sms_response.get('sms_id')
+                                    requests_data[request_id]['confirmation_code'] = sms_response['code']
+                                    context.user_data['sc_confirmation_code'] = sms_response['code']
+                                    save_requests(requests_data)
+                                    
+                                    # Сообщаем СЦ, что код отправлен по SMS
+                                    await context.bot.send_message(
+                                        chat_id=int(sc_user_id),
+                                        text=f"📲 Вам отправлен SMS с кодом подтверждения. Сообщите его доставщику."
+                                    )
+                                    
+                                    # Сообщаем доставщику, что нужно ввести код от СЦ
+                                    await query.edit_message_text(
+                                        "Введите код подтверждения, полученный от СЦ:"
+                                    )
+                                else:
+                                    logger.error(f"Ошибка отправки SMS: нет кода в ответе")
+                                    raise Exception("Не удалось отправить SMS")
+                            else:
+                                logger.error(f"Ошибка: нет доступных альфа-имен")
+                                raise Exception("Нет доступных альфа-имен для отправки SMS")
+                        else:
+                            logger.error(f"Ошибка создания пароля: {password_response}")
+                            raise Exception("Не удалось создать объект пароля")
+                    except Exception as e:
+                        logger.error(f"Ошибка при отправке SMS: {str(e)}")
+                        # В случае ошибки отправляем код через бота
+                        await context.bot.send_message(
+                            chat_id=int(sc_user_id),
+                            text=f"Не удалось отправить SMS. Используйте код: {confirmation_code}"
+                        )
+                        await query.edit_message_text(
+                            "Введите код подтверждения, полученный от СЦ:"
+                        )
+                else:
+                    # У СЦ нет телефона, отправляем код через бот
+                    await context.bot.send_message(
+                        chat_id=int(sc_user_id),
+                        text=f"Код подтверждения для передачи товара доставщику: {confirmation_code}"
+                    )
+                    await query.edit_message_text(
+                        "Введите код подтверждения, полученный от СЦ:"
+                    )
+            
+            return ENTER_SC_CONFIRMATION_CODE
+        except Exception as e:
+            logger.error(f"Ошибка при подтверждении получения из СЦ: {e}")
+            await query.edit_message_text("Произошла ошибка при обработке подтверждения")
+            return ConversationHandler.END
+
     async def handle_sc_pickup_photo(self, update: Update, context: CallbackContext):
         """Обработка фото при заборе из СЦ"""
         if 'photos_from_sc' not in context.user_data:
@@ -505,7 +640,7 @@ class DeliverySCHandler(DeliveryHandler):
         photo_path = f"photos/from_sc_{len(context.user_data['photos_from_sc'])}_{context.user_data['current_request']}.jpg"
         await photo_file.download_to_drive(photo_path)
         context.user_data['photos_from_sc'].append(photo_path)
-        await update.message.reply_text("Фото добавлено. Наж.")
+        await update.message.reply_text("Фото добавлено. Можете отправить ещё фото или нажмите\n\n/DONE")
         return CREATE_REQUEST_PHOTOS
 
     async def handle_sc_pickup_photos_done(self, update: Update, context: CallbackContext):
