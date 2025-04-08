@@ -74,11 +74,15 @@ class RequestCreator(ClientHandler):
     async def handle_request_desc(self, update: Update, context: CallbackContext):
         """Обработка описания проблемы."""
         context.user_data["description"] = update.message.text
+        keyboard = [
+            [KeyboardButton(text="Завершить отправку фото")]
+        ]
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         await update.message.reply_text(
             "Описание проблемы сохранено.\n"
             "Теперь пришлите фотографии проблемы (обязательно хотя бы одно фото).\n"
-            "Когда закончите отправлять фото, нажмите\n\n/DONE"
-        )
+            "Когда закончите отправлять фото, нажмите кнопку ниже."
+        , reply_markup=reply_markup)
         context.user_data["photos"] = []
         return CREATE_REQUEST_PHOTOS
 
@@ -90,30 +94,40 @@ class RequestCreator(ClientHandler):
         file_path = os.path.join(PHOTOS_DIR, file_name)
         await file.download_to_drive(file_path)
         context.user_data["photos"].append(file_path)
+        keyboard = [
+            [KeyboardButton(text="Завершить отправку фото")]
+        ]
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         await update.message.reply_text(
-            "Фото сохранено! Можете отправить еще фото или нажмите\n\n/DONE"
-        )
+            "Фото сохранено! Можете отправить еще фото или нажмите кнопку ниже для завершения."
+        , reply_markup=reply_markup)
         return CREATE_REQUEST_PHOTOS
 
     async def done_photos(self, update: Update, context: CallbackContext):
         """Обработка завершения фотографий заявки"""
-        if not context.user_data.get("photos") or len(context.user_data["photos"]) == 0:
+        # Проверка нажатия кнопки или команды
+        if update.message.text == "Завершить отправку фото" or update.message.text == "/DONE":
+            if not context.user_data.get("photos") or len(context.user_data["photos"]) == 0:
+                keyboard = [
+                    [KeyboardButton(text="Завершить отправку фото")]
+                ]
+                reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+                await update.message.reply_text(
+                    "Вы не отправили ни одной фотографии.\nПожалуйста, отправьте хотя бы одно фото.\n"
+                    "Когда закончите отправлять фото, нажмите кнопку ниже."
+                , reply_markup=reply_markup)
+                return CREATE_REQUEST_PHOTOS
+                
+            keyboard = [
+                [KeyboardButton(text="Отправить местоположение", request_location=True)],
+                [KeyboardButton(text="Ввести адрес вручную")]
+            ]
+            reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
             await update.message.reply_text(
-                "Вы не отправили ни одной фотографии.\nПожалуйста, отправьте хотя бы одно фото.\n"
-                "Когда закончите отправлять фото, нажмите:\n\n/DONE"
+                f"Получено {len(context.user_data['photos'])} фото. Теперь отправьте свое местоположение или выберите 'Ввести адрес вручную':",
+                reply_markup=reply_markup
             )
-            return CREATE_REQUEST_PHOTOS
-            
-        keyboard = [
-            [KeyboardButton(text="Отправить местоположение", request_location=True)],
-            [KeyboardButton(text="Ввести адрес вручную")]
-        ]
-        reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-        await update.message.reply_text(
-            f"Получено {len(context.user_data['photos'])} фото. Теперь отправьте свое местоположение или выберите 'Ввести адрес вручную':",
-            reply_markup=reply_markup
-        )
-        return CREATE_REQUEST_LOCATION
+            return CREATE_REQUEST_LOCATION
 
     async def handle_request_location(self, update: Update, context: CallbackContext):
         """Обработка местоположения заявки."""
@@ -371,8 +385,15 @@ class RequestCreator(ClientHandler):
         if query.data == "confirm_request": 
             return await self.create_request_final(query, context)
         elif query.data == "restart_request":
-            await query.message.reply_text("Начинаем заново.")
-            return await self.create_request(update, context)
+            # Очищаем user_data для нового заполнения заявки
+            context.user_data.clear()
+            keyboard = [
+                [InlineKeyboardButton(
+                    self.category[i], callback_data=f"category_{i}")
+                    ] for i in range(len(self.category))]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text("Выберите категорию:", reply_markup=reply_markup)
+            return CREATE_REQUEST_CATEGORY
 
     async def create_request_final(self, query: CallbackQuery, context: CallbackContext):
         """Финальная обработка заявки."""

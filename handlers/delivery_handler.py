@@ -6,7 +6,7 @@ from config import (
     ORDER_STATUS_DELIVERY_TO_SC, ORDER_STATUS_DELIVERY_TO_CLIENT,
     ORDER_STATUS_CLIENT_REJECTED, ORDER_STATUS_WAITING_SC, CREATE_REQUEST_PHOTOS,
     ORDER_STATUS_PICKUP_FROM_SC, ORDER_STATUS_SC_TO_CLIENT, ORDER_STATUS_IN_SC,
-    ENTER_SC_CONFIRMATION_CODE, ORDER_STATUS_NEW
+    ENTER_SC_CONFIRMATION_CODE, ORDER_STATUS_NEW, DEBUG
 )
 from handlers.base_handler import BaseHandler
 from database import load_delivery_tasks, load_users, load_requests, save_delivery_tasks, save_requests, save_users, load_service_centers
@@ -180,9 +180,9 @@ class DeliveryHandler(BaseHandler):
                     f"📍 {task_data.get('client_address', 'Не указан')}\n"
                     f"📱 {task_data.get('client_phone', 'Не указан')}\n\n"
                     f"📋 Инструкции:\n"
-                    f"1. Заберите устройство из СЦ\n"
+                    f"1. Заберите товар из СЦ\n"
                     f"2. Подтвердите получение из СЦ кнопкой 'Забрал из СЦ'\n"
-                    f"3. Доставьте устройство клиенту\n"
+                    f"3. Доставьте товар клиенту\n"
                     f"4. Получите код подтверждения от клиента"
                 )
                 keyboard = [[
@@ -296,29 +296,140 @@ class DeliveryHandler(BaseHandler):
             action, request_id = query.data.split('_')[1:]
             requests_data = load_requests()
             delivery_tasks = load_delivery_tasks()
+            users_data = load_users()
             if request_id not in requests_data:
                 await query.edit_message_text("❌ Заявка не найдена")
                 return
             request = requests_data[request_id]
+            client_id = request.get('user_id')
+            client_data = users_data.get(str(client_id), {})
             if action == 'confirm':
-                # Клиент подтвердил получение
-                request['status'] = ORDER_STATUS_DELIVERY_TO_SC
-                request['client_confirmed'] = True
+                # Клиент подтвердил получение товара доставщиком
+                await query.edit_message_text("✅ Вы подтвердили получение товара доставщиком. Ожидайте код подтверждения.")
+                # Сохраняем ID запроса и клиента в контексте
+                context.user_data['current_request'] = request_id
+                context.user_data['client_id'] = client_id
+                # Генерируем код подтверждения
+                confirmation_code = ''.join([str(random.randint(0, 9)) for _ in range(4)])
+                requests_data[request_id]['confirmation_code'] = confirmation_code
                 save_requests(requests_data)
-                # Обновляем статус в delivery_tasks
-                for task_id, task in delivery_tasks.items():
-                    if isinstance(task, dict) and task.get('request_id') == request_id:
-                        task['status'] = ORDER_STATUS_DELIVERY_TO_SC
-                        save_delivery_tasks(delivery_tasks)
-                        break
-                # Уведомляем доставщика
-                delivery_id = request.get('assigned_delivery')
-                if delivery_id:
-                    await context.bot.send_message(
-                        chat_id=delivery_id,
-                        text=f"✅ Клиент подтвердил получение товара по заявке #{request_id}"
-                    )
-                await query.edit_message_text("✅ Вы подтвердили получение товара доставщиком.")
+                # Определяем режим работы (тестовый или боевой)
+                if DEBUG:
+                    # В тестовом режиме отправляем код ДОСТАВЩИКУ, а клиент его вводит
+                    delivery_id = request.get('assigned_delivery')
+                    if delivery_id:
+                        await context.bot.send_message(
+                            chat_id=delivery_id,
+                            text=f"Ваш код подтверждения для заявки #{request_id}: {confirmation_code}\n\nПродиктуйте его клиенту для подтверждения."
+                        )
+                        # Сообщаем клиенту, что нужно ввести код от доставщика
+                        await context.bot.send_message(
+                            chat_id=client_id,
+                            text=f"Доставщик получит код подтверждения. Пожалуйста, введите код, который вам сообщит доставщик:"
+                        )
+                    # Устанавливаем состояние для ожидания кода ОТ КЛИЕНТА
+                    context.user_data['awaiting_confirmation_code'] = request_id
+                    context.user_data['current_request'] = request_id
+                    return ENTER_CONFIRMATION_CODE
+                else:
+
+                    # В боевом режиме отправляем SMS с кодом КЛИЕНТУ
+
+                    if 'phone' in client_data and client_data['phone']:
+                        try:
+                            phone = client_data['phone'].replace('+', '')
+                            logger.info(f"Отправка SMS на номер: {phone}")
+                            # Инициализируем SMS-клиент
+                            sms_client = SMSBY(SMS_TOKEN, 'by')
+                            # Создаем объект пароля
+                            logger.info("Создание объекта пароля...")
+                            password_response = sms_client.create_password_object('numbers', 4)
+                            logger.info(f"Ответ создания пароля: {password_response}")
+                            if 'result' in password_response and 'password_object_id' in password_response['result']:
+                                password_object_id = password_response['result']['password_object_id']
+                                logger.info(f"ID объекта пароля: {password_object_id}")
+                                # Получаем доступные альфа-имена
+                                alphanames = sms_client.get_alphanames()
+                                logger.info(f"Доступные альфа-имена: {alphanames}")
+                                if alphanames:
+                                    alphaname_id = next(iter(alphanames.keys()))
+                                    sms_message = f"Код подтверждения для заявки #{request_id}: %CODE%"
+                                    logger.info(f"Отправка SMS с сообщением: {sms_message}")
+                                    sms_response = sms_client.send_sms_message_with_code(
+                                        password_object_id=password_object_id,
+                                        phone=phone,
+                                        message=sms_message,
+                                        alphaname_id=alphaname_id
+                                    )
+                                    logger.info(f"Ответ отправки SMS: {sms_response}")
+                                    if 'code' in sms_response:
+                                        # Сохраняем код в данных заявки
+                                        requests_data[request_id]['sms_id'] = sms_response.get('sms_id')
+                                        requests_data[request_id]['confirmation_code'] = sms_response['code']
+                                        save_requests(requests_data)
+                                        # Сообщаем КЛИЕНТУ, чтобы он ввёл код из SMS
+                                        await context.bot.send_message(
+                                            chat_id=client_id,
+                                            text=f"📲 Вам отправлен SMS с кодом подтверждения. Пожалуйста, введите его здесь:"
+                                        )
+                                        # Уведомляем ДОСТАВЩИКА, что нужно ждать подтверждения
+                                        delivery_id = request.get('assigned_delivery')
+                                        if delivery_id:
+                                            await context.bot.send_message(
+                                                chat_id=delivery_id,
+                                                text=f"🕒 Ожидайте, пока клиент введёт код подтверждения из SMS."
+                                            )
+                                        # Устанавливаем состояние для ожидания кода ОТ КЛИЕНТА
+                                        context.user_data['awaiting_confirmation_code'] = request_id
+                                        context.user_data['current_request'] = request_id
+                                        context.user_data['client_id'] = client_id
+                                        return ENTER_CONFIRMATION_CODE
+                                    else:
+                                        logger.error(f"Ошибка отправки SMS: нет кода в ответе")
+                                        raise Exception("Не удалось отправить SMS")
+                                else:
+                                    logger.error(f"Ошибка: нет доступных альфа-имен")
+                                    raise Exception("Нет доступных альфа-имен для отправки SMS")
+                            else:
+                                logger.error(f"Ошибка создания пароля: {password_response}")
+                                raise Exception("Не удалось создать объект пароля")
+                        except Exception as e:
+                            logger.error(f"Ошибка при отправке SMS: {str(e)}")
+                            # Если SMS не удалось отправить, используем код из интерфейса
+                            await context.bot.send_message(
+                                chat_id=client_id,
+                                text=f"Не удалось отправить SMS с кодом подтверждения. Используйте код: {confirmation_code}\n\nПожалуйста, введите его здесь:"
+                            )
+                            # Уведомляем доставщика, что клиент будет вводить код
+                            delivery_id = request.get('assigned_delivery')
+                            if delivery_id:
+                                await context.bot.send_message(
+                                    chat_id=delivery_id,
+                                    text=f"🕒 Ожидайте, пока клиент введёт код подтверждения."
+                                )
+                            # Устанавливаем состояние для ожидания кода ОТ КЛИЕНТА
+                            context.user_data['awaiting_confirmation_code'] = request_id
+                            context.user_data['current_request'] = request_id
+                            context.user_data['client_id'] = client_id
+                            return ENTER_CONFIRMATION_CODE
+                    else:
+                        # У клиента нет телефона, используем код из интерфейса
+                        await context.bot.send_message(
+                            chat_id=client_id,
+                            text=f"Ваш код подтверждения: {confirmation_code}\n\nПожалуйста, введите его здесь:"
+                        )
+                        # Уведомляем доставщика, что клиент будет вводить код
+                        delivery_id = request.get('assigned_delivery')
+                        if delivery_id:
+                            await context.bot.send_message(
+                                chat_id=delivery_id,
+                                text=f"🕒 Ожидайте, пока клиент введёт код подтверждения."
+                            )
+                            # Устанавливаем состояние для ожидания кода ОТ КЛИЕНТА
+                            context.user_data['awaiting_confirmation_code'] = request_id
+                            context.user_data['current_request'] = request_id
+                            context.user_data['client_id'] = client_id
+                            return ENTER_CONFIRMATION_CODE
             elif action == 'deny':
                 # Проверяем, было ли это уведомление от администратора
                 if request.get('status') == 'Требуется проверка':
@@ -380,7 +491,86 @@ class DeliveryHandler(BaseHandler):
                     await query.edit_message_text("❌ Вы отказались от получения товара. Администратор уведомлен.")
         except Exception as e:
             logger.error(f"Ошибка при обработке подтверждения клиента: {e}")
-            await query.edit_message_text("Произошла ошибка при обработке вашего запроса.")
+            await query.edit_message_text("❌ Произошла ошибка при обработке вашего запроса.")
+
+    async def pickup_client_code_confirmation(self, update: Update, context: CallbackContext):
+        """Обработка проверки кода подтверждения, вводимого клиентом"""
+        try:
+            entered_code = update.message.text.strip()
+            request_id = context.user_data.get('current_request')
+            # Проверяем, что код вводит клиент, а не доставщик
+            user_id = str(update.effective_user.id)
+            client_id = context.user_data.get('client_id')
+            if not client_id or user_id != str(client_id):
+                # Если код пытается ввести не клиент
+                logger.warning(f"Попытка ввода кода не клиентом: user_id={user_id}, client_id={client_id}")
+                await update.message.reply_text("⚠️ Только клиент должен ввести код подтверждения.")
+                return ENTER_CONFIRMATION_CODE
+            if not request_id:
+                await update.message.reply_text("❌ Ошибка: не найдена активная заявка.")
+                return ConversationHandler.END
+            requests_data = load_requests()
+            if request_id not in requests_data:
+                await update.message.reply_text("❌ Ошибка: заявка не найдена.")
+                return ConversationHandler.END
+            request = requests_data[request_id]
+            expected_code = request.get('confirmation_code')
+            if not expected_code:
+                await update.message.reply_text("❌ Ошибка: код подтверждения не найден.")
+                return ConversationHandler.END
+            if entered_code == expected_code:
+                # Код подтверждения верный
+                request['status'] = ORDER_STATUS_DELIVERY_TO_SC
+                request['client_confirmed'] = True
+                save_requests(requests_data)
+                # Обновляем статус в delivery_tasks
+                delivery_tasks = load_delivery_tasks()
+                for task_id, task in delivery_tasks.items():
+                    if isinstance(task, dict) and task.get('request_id') == request_id:
+                        task['status'] = ORDER_STATUS_DELIVERY_TO_SC
+                        save_delivery_tasks(delivery_tasks)
+                        break
+                # Уведомляем клиента
+                await update.message.reply_text(
+                    f"✅ Код подтвержден. Доставщик отправляется с товаром в СЦ."
+                )
+                # Отправляем сообщение доставщику
+                delivery_id = request.get('assigned_delivery')
+                if delivery_id:
+                    # Получаем данные СЦ
+                    sc_id = request.get('assigned_sc')
+                    service_centers = load_service_centers()
+                    sc_data = service_centers.get(sc_id, {})
+                    
+                    await context.bot.send_message(
+                        chat_id=delivery_id,
+                        text=f"✅ Клиент подтвердил получение товара по заявке #{request_id}!\n\n"
+                             f"Вы можете отправляться с товаром в СЦ.\n\n"
+                             f"Адрес СЦ для доставки:\n"
+                             f"🏢 {sc_data.get('name', 'Не указан')}\n"
+                             f"📍 {sc_data.get('address', 'Не указан')}"
+                    )
+                # Уведомляем администратора
+                for admin_id in ADMIN_IDS:
+                    await context.bot.send_message(
+                        chat_id=admin_id,
+                        text=f"✅ Доставщик получил товар от клиента по заявке #{request_id} и направляется в СЦ."
+                    )
+                # Очищаем данные контекста
+                context.user_data.pop('awaiting_confirmation_code', None)
+                context.user_data.pop('current_request', None)
+                context.user_data.pop('client_id', None)
+                return ConversationHandler.END
+            else:
+                # Неверный код
+                await update.message.reply_text(
+                    "❌ Неверный код подтверждения. Пожалуйста, проверьте код и попробуйте снова."
+                )
+                return ENTER_CONFIRMATION_CODE
+        except Exception as e:
+            logger.error(f"Ошибка при проверке кода подтверждения: {e}")
+            await update.message.reply_text("❌ Произошла ошибка при проверке кода.")
+            return ConversationHandler.END
 
     async def handle_delivered_to_sc(self, update: Update, context: CallbackContext):
         """Обработка передачи предмета в Сервисный Центр."""
