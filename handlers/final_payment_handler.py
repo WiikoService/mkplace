@@ -56,6 +56,7 @@ class FinalPaymentHandler(DeliverySCHandler):
             context.user_data['client_confirmation_code'] = confirmation_code
             requests_data[request_id]['confirmation_code'] = confirmation_code
             save_requests(requests_data)
+            
             # Определяем режим отправки кода (тестовый или боевой)
             if DEBUG:
                 # В тестовом режиме отправляем код доставщику
@@ -69,12 +70,12 @@ class FinalPaymentHandler(DeliverySCHandler):
                         text=f"📱 Введите код подтверждения, который вам назвал доставщик:"
                     )
             else:
-                # В боевом режиме отправляем SMS клиенту
+                # В боевом режиме отправляем только SMS клиенту
                 if client_id and client_data.get('phone'):
                     try:
                         success = await self._send_sms_confirmation(context, client_data, request_id, confirmation_code, requests_data)
                         if not success:
-                            # Если SMS не удалось отправить, используем код в интерфейсе
+                            # Если SMS не удалось отправить, переключаемся на тестовый режим
                             await query.edit_message_text(
                                 f"❌ Не удалось отправить SMS. Используйте код: {confirmation_code}\n\n"
                                 f"Попросите клиента ввести этот код в боте."
@@ -206,7 +207,7 @@ class FinalPaymentHandler(DeliverySCHandler):
                         requests_data[request_id]['confirmation_code'] = sms_response['code']
                         save_requests(requests_data)
                         
-                        # Отправляем инструкции клиенту
+                        # Отправляем инструкции клиенту через бота, но не отправляем код
                         await context.bot.send_message(
                             chat_id=int(client_data['user_id']),
                             text=f"📲 Вам отправлен SMS с кодом подтверждения. Пожалуйста, введите его здесь:"
@@ -252,9 +253,13 @@ class FinalPaymentHandler(DeliverySCHandler):
                     # Рассчитываем оставшуюся сумму к оплате
                     final_price = Decimal(request.get('final_price', '0'))
                     repair_price = Decimal(request.get('repair_price', '0'))
-                    # Сумма к оплате: final_price - (repair_price * 0.3 + 20)
-                    prepayment = (repair_price * Decimal('0.3')) + Decimal('20')
-                    amount_to_pay = final_price - prepayment if final_price > prepayment else Decimal('0')
+                    
+                    # Рассчитываем стоимость доставки (предоплата)
+                    delivery_cost = Decimal('20') + (repair_price * Decimal('0.3'))
+                    
+                    # Сумма к оплате: final_price - delivery_cost (вычитаем предоплату)
+                    amount_to_pay = final_price - delivery_cost + Decimal('20') if final_price > delivery_cost else Decimal('0')
+                    
                     if amount_to_pay > Decimal('0'):
                         # Создаем платеж для клиента
                         return await self._create_final_payment(update, context, request_id, request, amount_to_pay)
@@ -275,6 +280,9 @@ class FinalPaymentHandler(DeliverySCHandler):
     async def _create_final_payment(self, update, context, request_id, request, amount_to_pay):
         """Создание платежа для финальной оплаты"""
         client_id = request.get('user_id')
+        repair_price = Decimal(request.get('repair_price', '0'))
+        delivery_cost = Decimal('20') + (repair_price * Decimal('0.3'))
+        
         payment_data = {
             'amount': float(amount_to_pay),
             'description': f"Оплата ремонта по заявке #{request_id}"
