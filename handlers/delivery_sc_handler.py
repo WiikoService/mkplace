@@ -637,34 +637,24 @@ class DeliverySCHandler(DeliveryHandler):
             requests_data[request_id]['sc_pickup_photos'] = photos
             save_requests(requests_data)
             
-            # Отправляем фотографии администратору
-            try:
-                await context.bot.send_message(
-                    chat_id=ADMIN_CHAT_ID,
-                    text=f"📸 Фотографии при заборе из СЦ по заявке #{request_id}",
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton(
-                            "✅ Подтвердить",
-                            callback_data=f"confirm_sc_pickup_{request_id}"
-                        )
-                    ]])
+            # Создаем кнопку "Сдать товар клиенту"
+            keyboard = [[
+                InlineKeyboardButton(
+                    "📦 Сдать товар клиенту", 
+                    callback_data=f"deliver_to_client_{request_id}"
                 )
-                for photo_path in photos:
-                    with open(photo_path, 'rb') as photo:
-                        await context.bot.send_photo(
-                            chat_id=ADMIN_CHAT_ID,
-                            photo=photo,
-                            caption=f"Фото заявки #{request_id}"
-                        )
-            except Exception as e:
-                logger.error(f"Ошибка при отправке фото администратору: {str(e)}")
-                await update.message.reply_text("❌ Ошибка при отправке фото администратору")
-                return ConversationHandler.END
-                
+            ]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Отправляем доставщику сообщение с кнопкой
             await update.message.reply_text(
-                "✅ Фотографии успешно загружены и отправлены на проверку администратору.\n"
-                "Ожидайте подтверждения."
+                "✅ Фотографии успешно загружены.\n\n"
+                "Теперь вы можете доставить товар клиенту.",
+                reply_markup=reply_markup
             )
+            
+            # Очищаем данные контекста
+            context.user_data.pop('photos_from_sc', None)
             return ConversationHandler.END
             
         except Exception as e:

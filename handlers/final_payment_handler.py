@@ -76,15 +76,51 @@ class FinalPaymentHandler(DeliverySCHandler):
                         # Инициализируем SMS-клиент
                         sms_client = SMSBY(SMS_TOKEN, 'by')
                         
-                        # Создаем объект пароля
-                        password_response = sms_client.create_password_object('numbers', 4)
+                        # Получаем список существующих объектов пароля
+                        logger.info("Получение списка существующих объектов пароля...")
+                        password_objects = sms_client.get_password_objects()
+                        logger.info(f"Доступные объекты пароля: {password_objects}")
                         
-                        if 'result' in password_response and 'password_object_id' in password_response['result']:
-                            # Отправляем SMS
-                            sms_response = sms_client.send_sms(
-                                phone=client_phone.replace('+', ''),
-                                message=f"Код подтверждения для получения товара: {confirmation_code}"
+                        # Выбираем подходящий объект пароля
+                        password_object = None
+                        if password_objects and 'result' in password_objects and password_objects['result']:
+                            # Сортируем объекты пароля по дате создания (новые сначала)
+                            sorted_objects = sorted(
+                                password_objects['result'], 
+                                key=lambda x: x['d_create'], 
+                                reverse=True
                             )
+                            # Берем первый подходящий объект пароля типа 'numbers'
+                            password_object = next(
+                                (obj for obj in sorted_objects if obj['type_id'] == 'numbers'),
+                                None
+                            )
+                            if not password_object:
+                                # Если нет объектов типа 'numbers', берем первый доступный
+                                password_object = sorted_objects[0]
+                        
+                        if not password_object:
+                            logger.error("Не найдены доступные объекты пароля")
+                            raise Exception("Нет доступных объектов пароля для отправки SMS")
+                        
+                        logger.info(f"Используем объект пароля: {password_object}")
+                        
+                        # Получаем доступные альфа-имена
+                        alphanames = sms_client.get_alphanames()
+                        logger.info(f"Доступные альфа-имена: {alphanames}")
+                        
+                        if alphanames:
+                            alphaname_id = next(iter(alphanames.keys()))
+                            sms_message = f"Код подтверждения для заявки #{request_id}: %CODE%"
+                            logger.info(f"Отправка SMS с сообщением: {sms_message}")
+                            
+                            sms_response = sms_client.send_sms_message_with_code(
+                                password_object_id=password_object['id'],  # Используем ID объекта
+                                phone=client_phone.replace('+', ''),
+                                message=sms_message,
+                                alphaname_id=alphaname_id
+                            )
+                            logger.info(f"Ответ отправки SMS: {sms_response}")
                             
                             if 'code' in sms_response:
                                 # Сохраняем данные SMS
@@ -106,9 +142,10 @@ class FinalPaymentHandler(DeliverySCHandler):
                             else:
                                 raise Exception("Не удалось отправить SMS")
                         else:
-                            raise Exception("Не удалось создать объект пароля")
+                            logger.error(f"Ошибка: нет доступных альфа-имен")
+                            raise Exception("Нет доступных альфа-имен для отправки SMS")
                     except Exception as e:
-                        logger.error(f"Ошибка при отправке SMS: {e}")
+                        logger.error(f"Ошибка при отправке SMS: {str(e)}")
                         # В случае ошибки отправляем код через бота
                         await query.edit_message_text(
                             f"❌ Не удалось отправить SMS. Используйте код: {confirmation_code}\n\n"
@@ -193,78 +230,121 @@ class FinalPaymentHandler(DeliverySCHandler):
     async def _send_sms_confirmation(self, context, client_data, request_id, confirmation_code, requests_data):
         """Отправка SMS с кодом подтверждения клиенту"""
         try:
-            phone = client_data['phone'].replace('+', '')
-            logger.info(f"Отправка SMS на номер: {phone}")
-            
-            # Инициализируем SMS-клиент
-            from config import SMS_TOKEN
-            sms_client = SMSBY(SMS_TOKEN, 'by')
-            
-            # Получаем список существующих объектов пароля
-            logger.info("Получение списка существующих объектов пароля...")
-            password_objects = sms_client.get_password_objects()
-            logger.info(f"Доступные объекты пароля: {password_objects}")
-            
-            # Выбираем подходящий объект пароля
-            password_object = None
-            if password_objects and 'result' in password_objects and password_objects['result']:
-                # Сортируем объекты пароля по дате создания (новые сначала)
-                sorted_objects = sorted(
-                    password_objects['result'], 
-                    key=lambda x: x['d_create'], 
-                    reverse=True
-                )
-                # Берем первый подходящий объект пароля типа 'numbers'
-                password_object = next(
-                    (obj for obj in sorted_objects if obj['type_id'] == 'numbers'),
-                    None
-                )
-                if not password_object:
-                    # Если нет объектов типа 'numbers', берем первый доступный
-                    password_object = sorted_objects[0]
-            
-            if not password_object:
-                logger.error("Не найдены доступные объекты пароля")
-                raise Exception("Нет доступных объектов пароля для отправки SMS")
-                
-            logger.info(f"Используем объект пароля: {password_object}")
-            
-            # Получаем доступные альфа-имена
-            alphanames = sms_client.get_alphanames()
-            logger.info(f"Доступные альфа-имена: {alphanames}")
-            
-            if alphanames:
-                alphaname_id = next(iter(alphanames.keys()))
-                sms_message = f"Код подтверждения для заявки #{request_id}: %CODE%"
-                logger.info(f"Отправка SMS с сообщением: {sms_message}")
-                
-                sms_response = sms_client.send_sms_message_with_code(
-                    password_object_id=password_object['id'],  # Используем ID объекта
-                    phone=phone,
-                    message=sms_message,
-                    alphaname_id=alphaname_id
-                )
-                logger.info(f"Ответ отправки SMS: {sms_response}")
-                
-                if 'code' in sms_response:
-                    # Сохраняем код и SMS ID в данных заявки
-                    requests_data[request_id]['sms_id'] = sms_response.get('sms_id')
-                    requests_data[request_id]['confirmation_code'] = sms_response['code']
-                    save_requests(requests_data)
-                    
-                    # Отправляем инструкции клиенту через бота, но не отправляем код
+            # Определяем режим работы (тестовый или боевой)
+            if DEBUG:
+                # В тестовом режиме отправляем код ДОСТАВЩИКУ, а клиент его вводит
+                delivery_id = requests_data[request_id].get('assigned_delivery')
+                if delivery_id:
                     await context.bot.send_message(
-                        chat_id=int(client_data['user_id']),
-                        text=f"📲 Вам отправлен SMS с кодом подтверждения. Пожалуйста, введите его здесь:"
+                        chat_id=delivery_id,
+                        text=f"Ваш код подтверждения для заявки #{request_id}: {confirmation_code}\n\nПродиктуйте его клиенту для подтверждения."
                     )
-                    return True
-                else:
-                    logger.error(f"Ошибка отправки SMS: нет кода в ответе")
-                    raise Exception("Не удалось отправить SMS: нет кода в ответе")
+                    # Сообщаем клиенту, что нужно ввести код от доставщика
+                    await context.bot.send_message(
+                        chat_id=client_data['user_id'],
+                        text=f"Доставщик получит код подтверждения. Пожалуйста, введите код, который вам сообщит доставщик:"
+                    )
+                return True
             else:
-                logger.error(f"Ошибка: нет доступных альфа-имен")
-                raise Exception("Нет доступных альфа-имен для отправки SMS")
-                
+                # В боевом режиме отправляем SMS с кодом КЛИЕНТУ
+                if 'phone' in client_data and client_data['phone']:
+                    try:
+                        phone = client_data['phone'].replace('+', '')
+                        logger.info(f"Отправка SMS на номер: {phone}")
+                        # Инициализируем SMS-клиент
+                        sms_client = SMSBY(SMS_TOKEN, 'by')
+                        # Получаем список существующих объектов пароля
+                        logger.info("Получение списка существующих объектов пароля...")
+                        password_objects = sms_client.get_password_objects()
+                        logger.info(f"Доступные объекты пароля: {password_objects}")
+                        # Выбираем подходящий объект пароля
+                        password_object = None
+                        if password_objects and 'result' in password_objects and password_objects['result']:
+                            # Сортируем объекты пароля по дате создания (новые сначала)
+                            sorted_objects = sorted(
+                                password_objects['result'], 
+                                key=lambda x: x['d_create'], 
+                                reverse=True
+                            )
+                            # Берем первый подходящий объект пароля типа 'numbers'
+                            password_object = next(
+                                (obj for obj in sorted_objects if obj['type_id'] == 'numbers'),
+                                None
+                            )
+                            if not password_object:
+                                # Если нет объектов типа 'numbers', берем первый доступный
+                                password_object = sorted_objects[0]
+                        if not password_object:
+                            logger.error("Не найдены доступные объекты пароля")
+                            raise Exception("Нет доступных объектов пароля для отправки SMS")
+                        logger.info(f"Используем объект пароля: {password_object}")
+                        # Получаем доступные альфа-имена
+                        alphanames = sms_client.get_alphanames()
+                        logger.info(f"Доступные альфа-имена: {alphanames}")
+                        if alphanames:
+                            alphaname_id = next(iter(alphanames.keys()))
+                            sms_message = f"Код подтверждения для заявки #{request_id}: %CODE%"
+                            logger.info(f"Отправка SMS с сообщением: {sms_message}")
+                            sms_response = sms_client.send_sms_message_with_code(
+                                password_object_id=password_object['id'],  # Используем ID объекта
+                                phone=phone,
+                                message=sms_message,
+                                alphaname_id=alphaname_id
+                            )
+                            logger.info(f"Ответ отправки SMS: {sms_response}")
+                            if 'code' in sms_response:
+                                # Сохраняем код в данных заявки
+                                requests_data[request_id]['sms_id'] = sms_response.get('sms_id')
+                                requests_data[request_id]['confirmation_code'] = sms_response['code']
+                                save_requests(requests_data)
+                                # Сообщаем КЛИЕНТУ, чтобы он ввёл код из SMS
+                                await context.bot.send_message(
+                                    chat_id=client_data['user_id'],
+                                    text=f"📲 Вам отправлен SMS с кодом подтверждения. Пожалуйста, введите его здесь:"
+                                )
+                                # Уведомляем ДОСТАВЩИКА, что нужно ждать подтверждения
+                                delivery_id = requests_data[request_id].get('assigned_delivery')
+                                if delivery_id:
+                                    await context.bot.send_message(
+                                        chat_id=delivery_id,
+                                        text=f"🕒 Ожидайте, пока клиент введёт код подтверждения из SMS."
+                                    )
+                                return True
+                            else:
+                                logger.error(f"Ошибка отправки SMS: нет кода в ответе")
+                                raise Exception("Не удалось отправить SMS")
+                        else:
+                            logger.error(f"Ошибка: нет доступных альфа-имен")
+                            raise Exception("Нет доступных альфа-имен для отправки SMS")
+                    except Exception as e:
+                        logger.error(f"Ошибка при отправке SMS: {str(e)}")
+                        # Если SMS не удалось отправить, используем код из интерфейса
+                        await context.bot.send_message(
+                            chat_id=client_data['user_id'],
+                            text=f"Не удалось отправить SMS с кодом подтверждения. Используйте код: {confirmation_code}\n\nПожалуйста, введите его здесь:"
+                        )
+                        # Уведомляем доставщика, что клиент будет вводить код
+                        delivery_id = requests_data[request_id].get('assigned_delivery')
+                        if delivery_id:
+                            await context.bot.send_message(
+                                chat_id=delivery_id,
+                                text=f"🕒 Ожидайте, пока клиент введёт код подтверждения."
+                            )
+                        return True
+                else:
+                    # У клиента нет телефона, используем код из интерфейса
+                    await context.bot.send_message(
+                        chat_id=client_data['user_id'],
+                        text=f"Ваш код подтверждения: {confirmation_code}\n\nПожалуйста, введите его здесь:"
+                    )
+                    # Уведомляем доставщика, что клиент будет вводить код
+                    delivery_id = requests_data[request_id].get('assigned_delivery')
+                    if delivery_id:
+                        await context.bot.send_message(
+                            chat_id=delivery_id,
+                            text=f"🕒 Ожидайте, пока клиент введёт код подтверждения."
+                        )
+                    return True
         except Exception as e:
             logger.error(f"Ошибка при отправке SMS: {e}")
             # При ошибке возвращаем False, чтобы использовать код вручную
