@@ -134,6 +134,7 @@ class SCItemHandler(SCHandler):
             # Уведомление администраторов
             for admin_id in ADMIN_IDS:
                 try:
+                    # Сначала отправляем фотографии
                     for photo_path in photos:
                         if not os.path.exists(photo_path):
                             logger.warning(f"Файл {photo_path} не найден")
@@ -142,10 +143,16 @@ class SCItemHandler(SCHandler):
                             await context.bot.send_photo(
                                 chat_id=admin_id,
                                 photo=photo_file,
-                                caption=f"Товар по заявке #{request_id} принят СЦ"
+                                caption=f"Фото товара по заявке #{request_id}"
                             )
+                    
+                    # Затем отправляем текстовое сообщение
+                    await context.bot.send_message(
+                        chat_id=admin_id,
+                        text=f"✅ Товар по заявке #{request_id} принят СЦ\nСтатус: {ORDER_STATUS_IN_SC}"
+                    )
                 except Exception as e:
-                    logger.error(f"Ошибка отправки фото админу {admin_id}: {str(e)}")
+                    logger.error(f"Ошибка отправки уведомления админу {admin_id}: {str(e)}")
             # Уведомление доставщика
             delivery_id = request_data.get('assigned_delivery')
             if delivery_id:

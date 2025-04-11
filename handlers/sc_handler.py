@@ -8,7 +8,8 @@ from telegram.ext import CallbackContext, ConversationHandler
 from config import (
     ORDER_STATUS_IN_SC, SC_ASSIGN_REQUESTS, ADMIN_IDS,
     ORDER_STATUS_DELIVERY_TO_CLIENT, ORDER_STATUS_DELIVERY_TO_SC,
-    ENTER_REPAIR_PRICE, CONFIRMATION, ORDER_STATUS_SC_TO_CLIENT
+    ENTER_REPAIR_PRICE, CONFIRMATION, ORDER_STATUS_SC_TO_CLIENT,
+    ORDER_STATUS_REPAIR_COMPLETED
 )
 from handlers.base_handler import BaseHandler
 from database import (
@@ -97,7 +98,7 @@ class SCHandler(BaseHandler):
         )
         # Добавляем информацию о цене, если она есть
         if 'final_price' in request_data:
-            message_text += f"\n💰 Подтвержденная стоимость: {request_data['final_price']} руб."
+            message_text += f"\n💰 Подтвержденная стоимость: {request_data['final_price']} BYN"
         # Добавляем комментарии, если они есть
         if 'comments' in request_data and request_data['comments']:
             message_text += "\n\n📋 Комментарии:\n"
@@ -402,7 +403,7 @@ class SCHandler(BaseHandler):
         for req_id, req_data in requests_data.items():
             # Проверяем, что заявка принадлежит этому СЦ и находится в нужном статусе
             if (req_data.get('assigned_sc') == sc_id and 
-                req_data.get('status') == ORDER_STATUS_IN_SC):
+                req_data.get('status') == ORDER_STATUS_REPAIR_COMPLETED):
                 desc = req_data.get('description', 'Нет описания')[:30] + '...'
                 button_text = f"Заявка #{req_id} - {desc}"
                 keyboard.append([InlineKeyboardButton(
@@ -459,7 +460,7 @@ class SCHandler(BaseHandler):
             final_price = request.get('final_price', 'не указана')
             message_text = (
                 f"🔄 Сервисный центр готов отправить ваш заказ #{request_id} в доставку.\n"
-                f"💰 Подтвержденная стоимость ремонта: {final_price} руб.\n"
+                f"💰 Подтвержденная стоимость ремонта: {final_price} BYN\n"
                 "Пожалуйста, выберите удобную дату и время доставки."
             )
             await context.bot.send_message(
@@ -470,7 +471,7 @@ class SCHandler(BaseHandler):
         # Уведомляем СЦ
         await query.edit_message_text(
             f"✅ Заявка #{request_id} отправлена клиенту для выбора даты доставки.\n"
-            f"💰 Подтвержденная стоимость: {request['final_price']} руб.\n"
+            f"💰 Подтвержденная стоимость: {request['final_price']} BYN\n"
             "Ожидайте подтверждения от клиента."
         )
         return ConversationHandler.END
@@ -691,7 +692,7 @@ class SCHandler(BaseHandler):
             message_text = (
                 f"📦 Заявка #{request_id}\n"
                 f"📝 Описание: {request.get('description', 'Нет описания')}\n"
-                f"💰 Указанная стоимость: {price_text} руб.\n\n"
+                f"💰 Указанная стоимость: {price_text} BYN\n\n"
                 f"Нажмите кнопку ниже, чтобы подтвердить принятие заявки с указанной стоимостью:"
             )
             keyboard = [[
@@ -762,7 +763,7 @@ class SCHandler(BaseHandler):
                 f"🔄 Заявка принята СЦ и требует согласования цены\n\n"
                 f"Заявка: #{request_id}\n"
                 f"СЦ: {sc_name}\n"
-                f"Предварительная стоимость ремонта: {price_text} руб.\n"
+                f"Предварительная стоимость ремонта: {price_text} BYN\n"
                 f"Описание: {request.get('description', 'Нет описания')}\n"
                 f"Статус: Ожидает согласования цены"
             )
@@ -778,7 +779,7 @@ class SCHandler(BaseHandler):
                     logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
             # Отправляем подтверждение СЦ
             await query.edit_message_text(
-                f"✅ Заявка #{request_id} принята с указанной стоимостью {price_text} руб.\n"
+                f"✅ Заявка #{request_id} принята с указанной стоимостью {price_text} BYN\n"
                 f"Данные сохранены, ожидается согласование цены с клиентом."
             )
         except Exception as e:

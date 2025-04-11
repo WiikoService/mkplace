@@ -1,5 +1,23 @@
 import logging
 
+# Настройка логирования - единственная настройка для всего приложения
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.WARNING  # По умолчанию все логгеры на WARNING
+)
+
+# Настраиваем логи для основных модулей
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+logging.getLogger('handlers').setLevel(logging.INFO)
+
+# Отключаем шумные логи от библиотек
+logging.getLogger('asyncio').setLevel(logging.ERROR)
+logging.getLogger('httpcore').setLevel(logging.ERROR)
+logging.getLogger('httpx').setLevel(logging.ERROR)
+logging.getLogger('telegram').setLevel(logging.WARNING)
+logging.getLogger('aiohttp').setLevel(logging.ERROR)
+
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, filters, ConversationHandler,
     CallbackQueryHandler
@@ -13,7 +31,8 @@ from config import (
     ENTER_SC_CONFIRMATION_CODE, ENTER_REPAIR_PRICE, CONFIRMATION,
     RATING_SERVICE, FEEDBACK_TEXT,
     ORDER_STATUS_ASSIGNED_TO_SC, ORDER_STATUS_PICKUP_FROM_SC,
-    WAITING_REQUEST_ID
+    WAITING_REQUEST_ID, WAITING_PAYMENT, LOG_LEVEL,
+    WAITING_FINAL_PAYMENT
 )
 from handlers.user_handler import UserHandler
 from handlers.client_handler import ClientHandler
@@ -24,18 +43,21 @@ from handlers.sc_item_handler import SCItemHandler
 from handlers.admin_sc_management_handler import SCManagementHandler
 from handlers.delivery_sc_handler import DeliverySCHandler
 from handlers.sc_chat_handler import SCChatHandler
-from handlers.client_request_create import RequestCreator
+from handlers.client_request_create import RequestCreator, PrePaymentHandler
+from handlers.final_payment_handler import FinalPaymentHandler
 
 from database import ensure_data_dir, load_users
 from utils import ensure_photos_dir
 
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
-
 def main():
+    # Повторно применяем настройки логирования для гарантии
+    for logger_name in ('asyncio', 'httpcore', 'httpx', 'telegram', 'aiohttp'):
+        logging.getLogger(logger_name).setLevel(logging.ERROR)
+    
+    # Только наши логи на уровне INFO
+    logging.getLogger('handlers').setLevel(logging.INFO)
+    logging.getLogger(__name__).setLevel(logging.INFO)
+
     # Создание экземпляров обработчиков
     user_handler = UserHandler()
     client_handler = ClientHandler()
@@ -47,13 +69,16 @@ def main():
     delivery_sc_handler = DeliverySCHandler()
     sc_chat_handler = SCChatHandler()
     request_creator = RequestCreator()
+    pre_payment_handler = PrePaymentHandler()
+    final_payment_handler = FinalPaymentHandler()
+    
     # Создание приложения
     application = Application.builder().token(TELEGRAM_API_TOKEN).build()
 
     # Регистрация обработчиков
-    register_client_handlers(application, client_handler, user_handler, request_creator)
+    register_client_handlers(application, client_handler, user_handler, request_creator, delivery_handler, admin_handler, pre_payment_handler, final_payment_handler)
     register_admin_handlers(application, admin_handler, user_handler, sc_handler, sc_management_handler)
-    register_delivery_handlers(application, delivery_handler, user_handler, delivery_sc_handler)
+    register_delivery_handlers(application, delivery_handler, admin_handler, user_handler, delivery_sc_handler, final_payment_handler)
     register_sc_handlers(application, sc_handler, sc_item_handler, sc_chat_handler)
     register_callbacks(application, delivery_handler, admin_handler, delivery_sc_handler, client_handler)
     register_user_handlers(application, user_handler)
@@ -74,7 +99,7 @@ def main():
     application.run_polling()
 
 
-def register_client_handlers(application, client_handler, user_handler, request_creator):
+def register_client_handlers(application, client_handler, user_handler, request_creator, delivery_handler, admin_handler, pre_payment_handler, final_payment_handler):
 
     # Обработчик меню клиента
     application.add_handler(
@@ -103,6 +128,7 @@ def register_client_handlers(application, client_handler, user_handler, request_
             ],
             CREATE_REQUEST_PHOTOS: [
                 MessageHandler(filters.PHOTO, request_creator.handle_request_photos),
+                MessageHandler(filters.Regex("^Завершить отправку фото$"), request_creator.done_photos),
                 CommandHandler("done", request_creator.done_photos)
             ],
             CREATE_REQUEST_LOCATION: [
@@ -144,6 +170,43 @@ def register_client_handlers(application, client_handler, user_handler, request_
         fallbacks=[],
         allow_reentry=True
     ))
+    
+    application.add_handler(CallbackQueryHandler(
+        pre_payment_handler.handle_payment_cancel,
+        pattern="^payment_cancel$"
+    ))
+    
+    # Создаем ConversationHandler для процесса оплаты
+    payment_conv_handler = ConversationHandler(
+        entry_points=[
+            # Начинаем с метода админки для подтверждения цены
+            CallbackQueryHandler(
+                admin_handler.handle_client_price_approved,
+                pattern="^client_initial_price_"
+            )
+        ],
+        states={
+            WAITING_PAYMENT: [
+                # Проверка статуса платежа
+                CallbackQueryHandler(
+                    pre_payment_handler.check_payment_status,
+                    pattern="^check_payment_"
+                ),
+                # Отмена платежа
+                CallbackQueryHandler(
+                    pre_payment_handler.handle_payment_cancel,
+                    pattern="^payment_cancel_"
+                )
+            ]
+        },
+        fallbacks=[],
+        name="payment_conversation"
+    )
+
+    application.add_handler(payment_conv_handler)
+
+
+
     application.add_handler(MessageHandler(filters.Regex("^Мои заявки$"), client_handler.show_client_requests))
     application.add_handler(MessageHandler(filters.Regex("^Мой профиль$"), client_handler.show_client_profile))
 
@@ -187,6 +250,37 @@ def register_client_handlers(application, client_handler, user_handler, request_
     application.add_handler(MessageHandler(
         filters.Regex("^Документы$"),
         client_handler.show_documents
+    ))
+
+    # Добавляем ConversationHandler для обработки кода подтверждения после подтверждения клиентом
+    client_confirmation_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                delivery_handler.handle_client_confirmation,
+                pattern="^client_confirm_"
+            )
+        ],
+        states={
+            ENTER_CONFIRMATION_CODE: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    delivery_handler.pickup_client_code_confirmation
+                )
+            ]
+        },
+        fallbacks=[CommandHandler("cancel", delivery_handler.cancel_delivery)]
+    )
+    application.add_handler(client_confirmation_handler)
+
+    # Добавляем отдельный обработчик для отказа от получения товара
+    application.add_handler(CallbackQueryHandler(
+        delivery_handler.handle_client_confirmation,
+        pattern="^client_deny_"
+    ))
+
+    application.add_handler(CallbackQueryHandler(
+        admin_handler.handle_reject_request,
+        pattern="^reject_request_"
     ))
 
 def register_admin_handlers(application, admin_handler, user_handler, sc_handler, sc_management_handler):
@@ -352,8 +446,8 @@ def register_admin_handlers(application, admin_handler, user_handler, sc_handler
 
     # Регистрация обработчиков для согласования цены
     application.add_handler(CallbackQueryHandler(admin_handler.handle_price_approval, pattern="^send_price_approval_"))
-    application.add_handler(CallbackQueryHandler(user_handler.handle_client_price_approval, pattern="^client_approve_price_"))
-    application.add_handler(CallbackQueryHandler(user_handler.handle_client_price_rejection, pattern="^client_reject_price_"))
+    application.add_handler(CallbackQueryHandler(user_handler.handle_client_price_approval, pattern="^client_initial_price_"))
+    application.add_handler(CallbackQueryHandler(user_handler.handle_client_price_rejection, pattern="^client_initial_reject_"))
     
     # Регистрация обработчиков для комментариев
     application.add_handler(CallbackQueryHandler(admin_handler.handle_comment_approval, pattern="^approve_comment_"))
@@ -365,7 +459,7 @@ def register_admin_handlers(application, admin_handler, user_handler, sc_handler
         sc_handler.docs
     ))
 
-def register_delivery_handlers(application, delivery_handler, user_handler, delivery_sc_handler):
+def register_delivery_handlers(application, delivery_handler, admin_handler, user_handler, delivery_sc_handler, final_payment_handler):
     # Обработчики для доставщика
 
     application.add_handler(MessageHandler(
@@ -431,11 +525,11 @@ def register_delivery_handlers(application, delivery_handler, user_handler, deli
     )
     application.add_handler(sc_confirmation_handler)
 
-    # Обработчик для нажатия кнопки "Сдать товар клиенту"
-    client_delivery_handler = ConversationHandler(
+    # Обработчик для нажатия кнопки "Сдать товар клиенту" с финальной оплатой
+    final_payment_conv_handler = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(
-                delivery_sc_handler.handle_deliver_to_client,
+                final_payment_handler.handle_deliver_to_client,
                 pattern="^deliver_to_client_"
             )
         ],
@@ -443,17 +537,27 @@ def register_delivery_handlers(application, delivery_handler, user_handler, deli
             ENTER_CONFIRMATION_CODE: [
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
-                    delivery_sc_handler.handle_client_confirmation_code
+                    final_payment_handler.handle_client_confirmation_code
+                )
+            ],
+            WAITING_FINAL_PAYMENT: [
+                CallbackQueryHandler(
+                    final_payment_handler.check_final_payment,
+                    pattern="^check_final_payment_"
+                ),
+                CallbackQueryHandler(
+                    final_payment_handler.cancel_final_payment,
+                    pattern="^cancel_final_payment_"
                 )
             ],
             CREATE_REQUEST_PHOTOS: [
                 MessageHandler(
                     filters.PHOTO,
-                    delivery_sc_handler.handle_delivery_photos
+                    final_payment_handler.handle_delivery_photo
                 ),
                 CommandHandler(
                     "done",
-                    delivery_sc_handler.handle_delivery_photos_done
+                    final_payment_handler.handle_delivery_photos_done
                 )
             ]
         },
@@ -461,7 +565,7 @@ def register_delivery_handlers(application, delivery_handler, user_handler, deli
             CommandHandler('cancel', delivery_handler.cancel_delivery)
         ]
     )
-    application.add_handler(client_delivery_handler)
+    application.add_handler(final_payment_conv_handler)
 
     # Обработчики для доставки из СЦ
     application.add_handler(MessageHandler(
@@ -517,6 +621,12 @@ def register_delivery_handlers(application, delivery_handler, user_handler, deli
             CREATE_REQUEST_PHOTOS: [
                 MessageHandler(filters.PHOTO, delivery_handler.handle_pickup_photo),
                 CommandHandler("done", delivery_handler.handle_pickup_photos_done)
+            ],
+            ENTER_CONFIRMATION_CODE: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    delivery_handler.pickup_client_code_confirmation
+                )
             ]
         },
         fallbacks=[CommandHandler("cancel", delivery_handler.cancel_delivery)]
@@ -541,6 +651,16 @@ def register_delivery_handlers(application, delivery_handler, user_handler, deli
     )
     application.add_handler(delivery_photos_handler)
 
+    # Добавляем отдельный обработчик для отказа от получения товара
+    application.add_handler(CallbackQueryHandler(
+        delivery_handler.handle_client_confirmation,
+        pattern="^client_deny_"
+    ))
+
+    application.add_handler(CallbackQueryHandler(
+        admin_handler.handle_reject_request,
+        pattern="^reject_request_"
+    ))
 
 def register_sc_handlers(application, sc_handler, sc_item_handler, sc_chat_handler):
     # Обработчики для СЦ
@@ -573,6 +693,32 @@ def register_sc_handlers(application, sc_handler, sc_item_handler, sc_chat_handl
         ),
         group=0
     )
+
+    # Регистрация обработчиков для согласования итоговой цены ремонта клиентом
+    application.add_handler(CallbackQueryHandler(
+        sc_handler.price_handler.handle_sc_final_price_approval,
+        pattern="^sc_final_approve_price_"
+    ))
+    application.add_handler(ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                sc_handler.price_handler.handle_sc_final_price_rejection,
+                pattern="^sc_final_reject_price_"
+            )
+        ],
+        states={
+            'HANDLE_CLIENT_REPLY': [
+                MessageHandler(
+                    (filters.TEXT | filters.PHOTO) & ~filters.COMMAND,
+                    sc_chat_handler.handle_client_message
+                )
+            ]
+        },
+        fallbacks=[
+            CommandHandler('cancel', sc_chat_handler.close_chat)
+        ],
+        allow_reentry=True
+    ))
 
     # Сначала регистрируем ConversationHandler для фотографий
     sc_photos_handler = ConversationHandler(
@@ -825,24 +971,6 @@ def register_callbacks(application, delivery_handler, admin_handler, delivery_sc
         pattern="^accept_delivery_"
     ))
 
-    application.add_handler(ConversationHandler(
-        entry_points=[
-            CallbackQueryHandler(
-                delivery_handler.handle_confirm_pickup,
-                pattern="^confirm_pickup_"
-            )
-        ],
-        states={
-            ENTER_CONFIRMATION_CODE: [
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
-                    delivery_handler.handle_confirmation_code
-                )
-            ]
-        },
-        fallbacks=[]
-    ))
-
     delivery_photos_handler = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(
@@ -860,11 +988,6 @@ def register_callbacks(application, delivery_handler, admin_handler, delivery_sc
     )
 
     application.add_handler(delivery_photos_handler)
-
-    application.add_handler(CallbackQueryHandler(
-        delivery_handler.handle_client_confirmation,
-        pattern="^client_(confirm|deny)_"
-    ))
 
     application.add_handler(CallbackQueryHandler(
         admin_handler.handle_reject_request,
@@ -917,11 +1040,6 @@ def register_callbacks(application, delivery_handler, admin_handler, delivery_sc
     application.add_handler(CallbackQueryHandler(
         admin_handler.handle_contact_client,
         pattern="^contact_client_"
-    ))
-    
-    application.add_handler(CallbackQueryHandler(
-        delivery_handler.handle_client_confirmation,
-        pattern="^client_(confirm|deny)_"
     ))
 
 def register_user_handlers(application, user_handler):

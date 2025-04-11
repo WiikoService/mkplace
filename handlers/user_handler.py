@@ -171,7 +171,7 @@ class UserHandler(BaseHandler):
             # Отправляем подтверждение клиенту
             await query.edit_message_text(
                 f"✅ Вы согласились с предложенной стоимостью ремонта:\n"
-                f"Сумма: {repair_price} руб.\n\n"
+                f"Сумма: {repair_price} BYN\n\n"
                 f"Заявка переведена в статус: Ожидает доставку"
             )
             # Создаем задачу доставки автоматически
@@ -233,7 +233,7 @@ class UserHandler(BaseHandler):
                     f"✅ Клиент согласился с предложенной стоимостью\n\n"
                     f"Заявка: #{request_id}\n"
                     f"СЦ: {sc_data.get('name', 'Неизвестный СЦ')}\n"
-                    f"Стоимость ремонта: {repair_price} руб.\n"
+                    f"Стоимость ремонта: {repair_price} BYN\n"
                     f"Описание: {request.get('description', 'Нет описания')}\n"
                     f"Адрес клиента: {location_str}\n"
                     f"Статус: Ожидает доставку\n\n"
@@ -281,9 +281,9 @@ class UserHandler(BaseHandler):
             # Отправляем сообщение клиенту
             await query.edit_message_text(
                 f"❌ Вы отказались от предложенной стоимости ремонта:\n"
-                f"Сумма: {repair_price} руб.\n\n"
+                f"Сумма: {repair_price} BYN\n\n"
                 f"Заявка переведена в статус: Цена не согласована\n"
-                f"Пожалуйста, свяжитесь с сервисным центром для обсуждения стоимости."
+                f"Сервисный центр уведомлен о вашем решении и свяжется с вами."
             )
             # Отправляем уведомление администраторам
             service_centers = load_service_centers()
@@ -294,7 +294,7 @@ class UserHandler(BaseHandler):
                 f"❌ Клиент отказался от предложенной стоимости\n\n"
                 f"Заявка: #{request_id}\n"
                 f"СЦ: {sc_name}\n"
-                f"Стоимость ремонта: {repair_price} руб.\n"
+                f"Стоимость ремонта: {repair_price} BYN\n"
                 f"Адрес клиента: {location_str}\n"
                 f"Описание: {request.get('description', 'Нет описания')}\n"
                 f"Статус: Цена не согласована"
@@ -330,9 +330,9 @@ class UserHandler(BaseHandler):
             # Отправляем сообщение клиенту
             await query.edit_message_text(
                 f"❌ Вы отказались от предложенной стоимости ремонта:\n"
-                f"Сумма: {repair_price} руб.\n\n"
+                f"Сумма: {repair_price} BYN\n\n"
                 f"Заявка переведена в статус: Цена не согласована\n"
-                f"Пожалуйста, свяжитесь с сервисным центром для обсуждения стоимости."
+                f"Сервисный центр уведомлен о вашем решении и свяжется с вами."
             )
             # Отправляем уведомление администраторам
             service_centers = load_service_centers()
@@ -343,7 +343,7 @@ class UserHandler(BaseHandler):
                 f"❌ Клиент отказался от предложенной стоимости\n\n"
                 f"Заявка: #{request_id}\n"
                 f"СЦ: {sc_name}\n"
-                f"Стоимость ремонта: {repair_price} руб.\n"
+                f"Стоимость ремонта: {repair_price} BYN\n"
                 f"Описание: {request.get('description', 'Нет описания')}\n"
                 f"Статус: Цена не согласована"
             )
