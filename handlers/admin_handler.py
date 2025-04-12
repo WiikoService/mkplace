@@ -461,7 +461,7 @@ class AdminHandler(BaseHandler):
             )
             await context.bot.send_message(
                 chat_id=request['user_id'],
-                text=f"Ваша заявка #{request_id} была отклонена администратором."
+                text=f"К сожалению мы не можем гарантировать ремонт,\nвы можете обратиться к нашему порталу с услугами\nдля самостоятельного поиска мастерской:\ndombyta.by"
             )
 
     async def handle_block_user(self, update: Update, context: CallbackContext):
@@ -679,73 +679,88 @@ class AdminHandler(BaseHandler):
         await query.edit_message_text(message, reply_markup=reply_markup)
 
     async def show_new_requests(self, update: Update, context: CallbackContext):
-        """Показывает список новых заявок для назначения СЦ"""
+        """Показывает список новых заявок, отсортированных по дате создания (новые сверху)"""
         logger.info("🔍 Показ новых заявок для назначения СЦ")
         try:
             requests_data = load_requests()
-            # Фильтруем только новые заявки
-            new_requests = {
-                rid: req for rid, req in requests_data.items() 
-                if req.get('status') == 'Новая'
-            }
+            
+            # Фильтруем и сортируем заявки
+            new_requests = sorted(
+                (
+                    (rid, req) for rid, req in requests_data.items()
+                    if req.get('status') == 'Новая'
+                ),
+                key=lambda x: datetime.strptime(x[1]['created_at'], "%H:%M %d-%m-%Y"),
+                reverse=True  # Сначала новые
+            )
+            
             if not new_requests:
                 await update.message.reply_text("📭 Нет новых заявок для назначения.")
                 return
+                
             logger.debug(f"📋 Найдено {len(new_requests)} новых заявок")
-            # Отправляем каждую заявку отдельным сообщением с кнопками
-            for request_id, request in new_requests.items():
+            
+            # Отправляем заявки по одной с медиа и кнопками
+            for request_id, request in new_requests:
                 try:
-                    # Формируем сообщение
+                    # Формируем текст сообщения
                     message_text = (
                         f"📦 Заявка #{request_id}\n"
+                        f"📅 Создана: {request['created_at']}\n"
                         f"👤 Клиент: {request.get('user_name', 'Не указан')}\n"
                         f"📱 Телефон: {request.get('user_phone', 'Не указан')}\n"
-                        f"📍 Адрес: {request.get('location', 'Не указан')}\n"
+                        f"📍 Адрес: {request.get('location_display', 'Не указан')}\n"
                         f"📝 Описание: {request.get('description', 'Нет описания')}\n"
+                        f"🕒 Желаемая дата: {request.get('desired_date', 'Не указана')}"
                     )
-                    # Добавляем дату, если она есть
-                    if isinstance(request.get('desired_date'), datetime):
-                        message_text += f"🕒 Желаемая дата: {request['desired_date'].strftime('%d.%m.%Y %H:%M')}"
-                    else:
-                        message_text += f"🕒 Желаемая дата: {request.get('desired_date', 'Не указана')}"
-                    # Создаем клавиатуру с двумя кнопками
+                    
+                    # Подготовка кнопок
                     keyboard = [
                         [
-                            InlineKeyboardButton(
-                                "📨 Разослать СЦ",
-                                callback_data=f"send_to_sc_{request_id}"
-                            ),
-                            InlineKeyboardButton(
-                                "❌ Отклонить",
-                                callback_data=f"reject_request_{request_id}"
-                            )
+                            InlineKeyboardButton("📨 Разослать СЦ", callback_data=f"send_to_sc_{request_id}"),
+                            InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_request_{request_id}")
                         ]
                     ]
                     reply_markup = InlineKeyboardMarkup(keyboard)
-                    # Отправляем сообщение
-                    await update.message.reply_text(
+                    
+                    # Отправка фотографий (если есть)
+                    photos = request.get('photos', [])
+                    if photos:
+                        try:
+                            media_group = []
+                            for photo in photos[:10]:  # Ограничение на 10 фото
+                                try:
+                                    if os.path.exists(photo):
+                                        with open(photo, 'rb') as f:
+                                            media_group.append(InputMediaPhoto(f.read()))
+                                    else:
+                                        media_group.append(InputMediaPhoto(photo))
+                                except Exception as e:
+                                    logger.error(f"Ошибка обработки фото {photo}: {e}")
+                            
+                            if media_group:
+                                await context.bot.send_media_group(
+                                    chat_id=update.effective_chat.id,
+                                    media=media_group
+                                )
+                        except Exception as e:
+                            logger.error(f"Ошибка отправки медиагруппы: {e}")
+                    
+                    # Отправка текста с кнопками
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
                         text=message_text,
                         reply_markup=reply_markup
                     )
-                    # Если есть фотографии, отправляем их
-                    photos = request.get('photos', [])
-                    if photos:
-                        media_group = []
-                        for photo in photos:
-                            if isinstance(photo, str):
-                                if os.path.exists(photo):
-                                    with open(photo, 'rb') as photo_file:
-                                        media_group.append(InputMediaPhoto(photo_file.read()))
-                                else:
-                                    media_group.append(InputMediaPhoto(photo))
-                        if media_group:
-                            await update.message.reply_media_group(media=media_group)
+                    
                 except Exception as e:
-                    logger.error(f"❌ Ошибка при обработке заявки {request_id}: {e}")
+                    logger.error(f"Ошибка обработки заявки {request_id}: {e}")
                     continue
-            logger.info("✅ Успешно показаны все новые заявки")
+                    
+            logger.info(f"✅ Успешно показано {len(new_requests)} заявок")
+            
         except Exception as e:
-            logger.error(f"🔥 Ошибка при показе новых заявок: {e}")
+            logger.error(f"🔥 Ошибка при показе заявок: {e}")
             await update.message.reply_text("❌ Произошла ошибка при загрузке заявок")
 
     async def view_request_chat(self, update: Update, context: CallbackContext):

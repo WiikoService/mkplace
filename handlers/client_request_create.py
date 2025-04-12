@@ -2,6 +2,7 @@ import os
 from datetime import datetime, timedelta
 import locale
 import json
+import uuid
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, CallbackQuery, ReplyKeyboardMarkup
 from telegram.ext import CallbackContext, ConversationHandler
@@ -88,19 +89,34 @@ class RequestCreator(ClientHandler):
 
     async def handle_request_photos(self, update: Update, context: CallbackContext):
         """Обработка фотографий заявки."""
+        # Генерируем уникальное имя файла с timestamp
+        timestamp = int(time.time())
+        file_name = f"{update.effective_user.id}_{timestamp}.jpg"
+        file_path = os.path.join(PHOTOS_DIR, file_name)
+        
+        # Создаем директорию для фото, если её нет
+        os.makedirs(PHOTOS_DIR, exist_ok=True)
+        
+        # Получаем фото максимального качества
         photo = update.message.photo[-1]
         file = await context.bot.get_file(photo.file_id)
-        file_name = f"{update.effective_user.id}_{len(context.user_data['photos'])}.jpg"
-        file_path = os.path.join(PHOTOS_DIR, file_name)
+        
+        # Сохраняем фото на диск
         await file.download_to_drive(file_path)
-        context.user_data["photos"].append(file_path)
-        keyboard = [
-            [KeyboardButton(text="Завершить отправку фото")]
-        ]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        
+        # Сохраняем относительный путь
+        if 'photos' not in context.user_data:
+            context.user_data['photos'] = []
+        context.user_data['photos'].append(file_path)
+        
+        # Отправляем подтверждение
         await update.message.reply_text(
-            "Фото сохранено! Можете отправить еще фото или нажмите кнопку ниже для завершения."
-        , reply_markup=reply_markup)
+            "Фото сохранено! Можете отправить ещё или нажмите кнопку для завершения.",
+            reply_markup=ReplyKeyboardMarkup(
+                [[KeyboardButton("Завершить отправку фото")]], 
+                resize_keyboard=True
+            )
+        )
         return CREATE_REQUEST_PHOTOS
 
     async def done_photos(self, update: Update, context: CallbackContext):
@@ -383,7 +399,7 @@ class RequestCreator(ClientHandler):
         query = update.callback_query
         await query.answer()
         if query.data == "confirm_request": 
-            return await self.create_request_final(query, context)
+            return await self.create_request_final(update, context)
         elif query.data == "restart_request":
             # Очищаем user_data для нового заполнения заявки
             context.user_data.clear()
@@ -395,68 +411,85 @@ class RequestCreator(ClientHandler):
             await query.edit_message_text("Выберите категорию:", reply_markup=reply_markup)
             return CREATE_REQUEST_CATEGORY
 
-    async def create_request_final(self, query: CallbackQuery, context: CallbackContext):
-        """Финальная обработка заявки."""
-        try:
-            requests_data = load_requests()
-            request_id = str(len(requests_data) + 1)
-            user_id = str(query.from_user.id)
-            users_data = load_users()
-            user_name = users_data.get(user_id, {}).get('name', 'Неизвестный пользователь')
-            location = context.user_data.get("location", {})
-            location_display = format_location_for_display(location)
-            location_link = ""
-            if isinstance(location, dict) and location.get("type") == "coordinates":
-                lat = location.get("latitude")
-                lon = location.get("longitude")
-                if lat and lon:
-                    location_link = f"https://yandex.ru/maps/?pt={lon},{lat}&z=16&l=map"
-            desired_date = context.user_data.get("desired_date")
-            desired_date_str = desired_date.strftime("%H:%M %d.%m.%Y") if desired_date else "Не указана"
-            requests_data[request_id] = {
-                "id": request_id,
-                "user_id": user_id,
-                "user_name": user_name,
-                "category": context.user_data.get("category"),
-                "description": context.user_data.get("description"),
-                "photos": context.user_data.get("photos", []),
-                "location": prepare_location_for_storage(location),
-                "location_display": location_display,
-                "location_link": location_link,
-                "status": "Новая",
-                "assigned_sc": None,
-                "desired_date": desired_date_str,
-                "comment": context.user_data.get("comment", "")
-            }
-            save_requests(requests_data)
-            await query.message.reply_text(
-                f"✅ Заявка #{request_id} создана\n"
-                "Администратор уведомлен."
-            )
-            await self.show_client_menu(query, context)
-            await notify_admin(context.bot, request_id, requests_data, ADMIN_IDS)
-            for admin_id in ADMIN_IDS:
-                for photo_path in context.user_data.get("photos", []):
-                    try:
-                        with open(photo_path, 'rb') as photo:
-                            await context.bot.send_photo(
-                                chat_id=admin_id, 
-                                photo=photo,
-                                caption=f"Фото к заявке #{request_id}"
-                            )
-                    except Exception as e:
-                        logger.error(f"Error sending photo to admin {admin_id}: {e}")
-            return ConversationHandler.END
-        except Exception as e:
-            logger.error(f"Error in create_request_final: {e}")
-            await query.message.reply_text(
-                "Произошла ошибка при создании заявки. Пожалуйста, попробуйте еще раз."
-            )
-            return ConversationHandler.END
+    def get_next_request_id(self):
+        """Генерирует следующий ID заявки на основе существующих"""
+        requests_data = load_requests()  # Загружаем текущие данные
+        
+        if not requests_data:
+            return "1"
+        
+        # Ищем максимальный числовой ID среди существующих заявок
+        max_id = 0
+        for request_id in requests_data.keys():
+            try:
+                current_id = int(request_id)
+                if current_id > max_id:
+                    max_id = current_id
+            except ValueError:
+                continue
+        
+        return str(max_id + 1)
 
-    async def cancel_request(self, update: Update, context: CallbackContext):
-        """Отмена создания заявки."""
-        await update.message.reply_text("Создание заявки отменено.", reply_markup=ReplyKeyboardRemove())
+    async def create_request_final(self, update: Update, context: CallbackContext):
+        """Финальная обработка создания заявки."""
+        query = update.callback_query
+        await query.answer()
+        
+        requests_data = load_requests()
+        request_id = self.get_next_request_id()
+        user_id = str(update.effective_user.id)
+        
+        # Копируем фото во временную переменную перед очисткой user_data
+        photos = context.user_data.get('photos', [])
+        
+        # Проверяем и нормализуем пути к фото
+        valid_photos = []
+        for photo_path in photos:
+            if isinstance(photo_path, str):
+                # Сохраняем относительные пути
+                rel_path = os.path.relpath(photo_path, start=os.getcwd())
+                valid_photos.append(rel_path)
+        
+        # Преобразуем все даты в строки
+        desired_date = context.user_data.get("desired_date")
+        if isinstance(desired_date, datetime):
+            desired_date_str = desired_date.strftime("%H:%M %d.%m.%Y")
+        else:
+            desired_date_str = str(desired_date) if desired_date else "Не указана"
+        
+        # Формируем структуру заявки с преобразованными датами
+        request_data = {
+            "id": request_id,
+            "user_id": user_id,
+            "user_name": f"{update.effective_user.first_name or ''} {update.effective_user.last_name or ''}".strip(),
+            "user_phone": context.user_data.get("user_phone", "Не указан"),
+            "category": context.user_data.get("category", "Не указана"),
+            "description": context.user_data.get("description", "Не указано"),
+            "photos": valid_photos,
+            "location": context.user_data.get("location", {}),
+            "location_display": format_location_for_display(context.user_data.get("location", {})),
+            "status": "Новая",
+            "assigned_sc": None,
+            "desired_date": desired_date_str,  # Уже строка
+            "comment": context.user_data.get("comment", "Не указано"),
+            "created_at": datetime.now().strftime("%H:%M %d-%m-%Y")  # Строка
+        }
+        
+        # Сохраняем заявку
+        requests_data[request_id] = request_data
+        save_requests(requests_data)
+        
+        # Полная очистка данных пользователя
+        context.user_data.clear()
+
+        await query.edit_message_text(f"✅ Заявка #{request_id} создана!")
+        admin_msg = f"🆕 #{request_id}"
+        for admin_id in ADMIN_IDS:  # ADMIN_IDS - обычный список ID админов
+            try:
+                await context.bot.send_message(chat_id=admin_id, text=admin_msg)
+            except Exception as e:
+                logger.error(f"Не удалось уведомить админа {admin_id}: {e}")
+
         return ConversationHandler.END
 
 
