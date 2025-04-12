@@ -149,7 +149,6 @@ class SCItemHandler(SCHandler):
                                 photo=photo_file,
                                 caption=f"Фото товара по заявке #{request_id}"
                             )
-                    
                     # Затем отправляем текстовое сообщение
                     await context.bot.send_message(
                         chat_id=admin_id,

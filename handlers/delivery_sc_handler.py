@@ -1,16 +1,9 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove, InputMediaPhoto, ReplyKeyboardMarkup, KeyboardButton
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove, InputMediaPhoto
 from telegram.ext import CallbackContext, ConversationHandler
 from config import (
-    ORDER_STATUS_PICKUP_FROM_SC,
     ORDER_STATUS_SC_TO_CLIENT,
     CREATE_REQUEST_PHOTOS,
     ENTER_SC_CONFIRMATION_CODE, 
-    ORDER_STATUS_DELIVERY_TO_SC,
-    ORDER_STATUS_CLIENT_REJECTED,
-    ORDER_STATUS_WAITING_SC,
-    ORDER_STATUS_IN_SC,
-    ORDER_STATUS_READY,
-    ORDER_STATUS_PICKUP_FROM_SC,
     ENTER_CONFIRMATION_CODE,
     ADMIN_IDS,
     DEBUG,
@@ -22,7 +15,6 @@ from database import (
     load_delivery_tasks, save_delivery_tasks,
     load_users, load_service_centers
 )
-from utils import notify_client
 from logging_decorator import log_method_call
 import logging
 import time
@@ -246,43 +238,31 @@ class DeliverySCHandler(DeliveryHandler):
         """Проверка кода подтверждения от клиента"""
         try:
             entered_code = update.message.text.strip()
-            request_id = context.user_data.get('request_id')
-            
+            request_id = context.user_data.get('request_id') 
             if not request_id:
                 await update.message.reply_text("❌ Не найдена активная заявка.")
                 return ConversationHandler.END
-                
             # Загружаем данные
             requests_data = load_requests()
-            delivery_tasks = load_delivery_tasks()
-            users_data = load_users()
-            
             if request_id not in requests_data:
                 await update.message.reply_text("❌ Заявка не найдена.")
                 return ConversationHandler.END
-                
             request = requests_data[request_id]
             client_id = request.get('user_id')
             expected_code = request.get('confirmation_code')
-            
             # Проверяем, кто вводит код - клиент или доставщик
             user_id = str(update.effective_user.id)
-            
             # Если код вводит клиент
             if client_id and user_id == str(client_id):
                 if entered_code == expected_code:
                     # Проверяем, требуется ли оплата
-                    final_price = Decimal(request.get('final_price', '0'))
-                    repair_price = Decimal(request.get('repair_price', '0'))
-                    delivery_cost = Decimal(request.get('delivery_cost', '0'))
-                    
+                    final_price = Decimal(request.get('final_price', '0'))                    
                     if final_price > 0:
                         # Создаем платеж для клиента
                         payment_data = {
                             'amount': float(final_price),
                             'description': f"Оплата ремонта по заявке #{request_id}"
                         }
-                        
                         try:
                             async with aiohttp.ClientSession() as session:
                                 payment_request_data = {'payment_request': json.dumps(payment_data)}
@@ -294,30 +274,24 @@ class DeliverySCHandler(DeliveryHandler):
                                     if response.status != 200:
                                         response_text = await response.text()
                                         raise Exception(f"HTTP error {response.status}: {response_text}")
-                                        
                                     result = await response.json()
-                                    
                                     if not result.get('order_id') or not result.get('payment_url'):
                                         raise Exception(f"Invalid API response: {result}")
-                                        
                                     # Сохраняем данные платежа
                                     request['final_payment_order_id'] = result['order_id']
                                     save_requests(requests_data)
-                                    
                                     # Отправляем кнопку оплаты клиенту
                                     keyboard = [
                                         [InlineKeyboardButton("✅ Оплатить", url=result['payment_url'])],
                                         [InlineKeyboardButton("🔄 Проверить оплату", callback_data=f"check_final_payment_{request_id}")]
                                     ]
-                                    reply_markup = InlineKeyboardMarkup(keyboard)
-                                    
+                                    reply_markup = InlineKeyboardMarkup(keyboard)                                    
                                     await context.bot.send_message(
                                         chat_id=int(client_id),
                                         text=f"💳 Пожалуйста, оплатите оставшуюся сумму: {final_price:.2f} BYN\n"
                                             f"После оплаты нажмите кнопку 'Проверить оплату'",
                                         reply_markup=reply_markup
                                     )
-                                    
                                     # Уведомляем доставщика
                                     delivery_id = request.get('assigned_delivery')
                                     if delivery_id:
@@ -325,9 +299,7 @@ class DeliverySCHandler(DeliveryHandler):
                                             chat_id=int(delivery_id),
                                             text=f"🔄 Клиент подтвердил получение и должен оплатить {final_price:.2f} BYN. Ожидайте завершения оплаты."
                                         )
-                                    
                                     return WAITING_FINAL_PAYMENT
-                                    
                         except Exception as e:
                             logger.error(f"Ошибка при создании платежа: {e}")
                             await context.bot.send_message(
@@ -343,13 +315,11 @@ class DeliverySCHandler(DeliveryHandler):
                                 chat_id=int(delivery_id),
                                 text="✅ Клиент подтвердил получение. Сделайте фотографии передачи товара и отправьте их."
                             )
-                        
                         context.user_data['awaiting_delivery_photos'] = True
                         return CREATE_REQUEST_PHOTOS
                 else:
                     await update.message.reply_text("❌ Неверный код подтверждения. Попробуйте еще раз.")
                     return ENTER_CONFIRMATION_CODE
-                    
             # Если код вводит доставщик (в тестовом режиме)
             elif user_id == str(request.get('assigned_delivery')):
                 if entered_code == expected_code:
@@ -364,7 +334,6 @@ class DeliverySCHandler(DeliveryHandler):
             else:
                 await update.message.reply_text("❌ Только клиент или доставщик могут ввести код подтверждения.")
                 return ENTER_CONFIRMATION_CODE
-                
         except Exception as e:
             logger.error(f"Ошибка при проверке кода подтверждения: {e}")
             await update.message.reply_text("❌ Произошла ошибка. Попробуйте еще раз.")
@@ -395,32 +364,27 @@ class DeliverySCHandler(DeliveryHandler):
             if not request_id:
                 await update.message.reply_text("❌ Ошибка: не найден ID заявки")
                 return ConversationHandler.END
-                
             photos = context.user_data.get('delivery_photos', [])
             if not photos:
                 await update.message.reply_text("❌ Необходимо добавить хотя бы одно фото!")
                 return CREATE_REQUEST_PHOTOS
-                
             # Загружаем данные
             requests_data = load_requests()
             delivery_tasks = load_delivery_tasks()
             if request_id not in requests_data:
                 await update.message.reply_text("❌ Заявка не найдена.")
                 return ConversationHandler.END
-                
             # Обновляем статус и сохраняем фотографии
             request = requests_data[request_id]
             request['status'] = "Доставлено клиенту"
             request['delivery_photos'] = photos
             save_requests(requests_data)
-            
             # Обновляем задачу доставки
             for task_id, task in delivery_tasks.items():
                 if task.get('request_id') == request_id:
                     task['status'] = "Завершено"
                     save_delivery_tasks(delivery_tasks)
                     break
-                    
             # Отправляем уведомления администраторам
             admin_message = (
                 f"✅ Доставка завершена!\n"
@@ -449,7 +413,6 @@ class DeliverySCHandler(DeliveryHandler):
                         )
                 except Exception as e:
                     logger.error(f"Ошибка отправки уведомления администратору {admin_id}: {e}")
-                    
             # Уведомляем клиента
             client_id = request.get('user_id')
             if client_id:
@@ -474,20 +437,17 @@ class DeliverySCHandler(DeliveryHandler):
                     )
                 except Exception as e:
                     logger.error(f"Ошибка при отправке уведомления клиенту {client_id}: {e}")
-                    
             # Уведомляем доставщика
             await update.message.reply_text(
                 "✅ Доставка успешно завершена! Фотографии отправлены администраторам.\n\n"
                 "Спасибо за вашу работу!",
                 reply_markup=ReplyKeyboardRemove()
             )
-            
             # Очищаем контекст
             context.user_data.pop('request_id', None)
             context.user_data.pop('delivery_photos', None)
             context.user_data.pop('awaiting_delivery_photos', None)
             return ConversationHandler.END
-            
         except Exception as e:
             logger.error(f"Ошибка при завершении доставки: {e}")
             await update.message.reply_text("❌ Произошла ошибка. Попробуйте еще раз.")
@@ -598,13 +558,11 @@ class DeliverySCHandler(DeliveryHandler):
         """Обработка фото при заборе из СЦ"""
         if 'photos_from_sc' not in context.user_data:
             context.user_data['photos_from_sc'] = []
-        
         # Получаем request_id из контекста
         request_id = context.user_data.get('request_id')
         if not request_id:
             await update.message.reply_text("❌ Ошибка: не найден ID заявки. Пожалуйста, начните процесс заново.")
             return ConversationHandler.END
-            
         photo = update.message.photo[-1]
         photo_file = await context.bot.get_file(photo.file_id)
         photo_path = f"photos/from_sc_{len(context.user_data['photos_from_sc'])}_{request_id}.jpg"
@@ -621,22 +579,18 @@ class DeliverySCHandler(DeliveryHandler):
             if not request_id:
                 await update.message.reply_text("❌ Ошибка: не найден ID заявки")
                 return ConversationHandler.END
-                
             photos = context.user_data.get('photos_from_sc', [])
             if not photos:
                 await update.message.reply_text("Необходимо добавить хотя бы одно фото!")
                 return CREATE_REQUEST_PHOTOS
-                
             # Загружаем данные
             requests_data = load_requests()
             if request_id not in requests_data:
                 await update.message.reply_text("❌ Ошибка: заявка не найдена")
                 return ConversationHandler.END
-                
             # Сохраняем фотографии в заявке
             requests_data[request_id]['sc_pickup_photos'] = photos
             save_requests(requests_data)
-            
             # Создаем кнопку "Сдать товар клиенту"
             keyboard = [[
                 InlineKeyboardButton(
@@ -645,18 +599,15 @@ class DeliverySCHandler(DeliveryHandler):
                 )
             ]]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
             # Отправляем доставщику сообщение с кнопкой
             await update.message.reply_text(
                 "✅ Фотографии успешно загружены.\n\n"
                 "Теперь вы можете доставить товар клиенту.",
                 reply_markup=reply_markup
             )
-            
             # Очищаем данные контекста
             context.user_data.pop('photos_from_sc', None)
             return ConversationHandler.END
-            
         except Exception as e:
             logger.error(f"Ошибка в handle_sc_pickup_photos_done: {str(e)}")
             await update.message.reply_text("❌ Произошла ошибка при обработке фотографий")
@@ -713,35 +664,29 @@ class DeliverySCHandler(DeliveryHandler):
     async def handle_accept_sc_delivery(self, update: Update, context: CallbackContext):
         query = update.callback_query
         await query.answer()
-        
         try:
             # Получаем ID задачи
             task_id = query.data.split('_')[-1]
-            
             # Загружаем данные
             delivery_tasks = load_delivery_tasks()
             requests_data = load_requests()
             service_centers = load_service_centers()
-            
             # Находим задачу
             task_data = delivery_tasks.get(task_id)
             if not task_data:
                 await query.edit_message_text("❌ Задача доставки не найдена.")
                 return
-                
             # Проверяем назначение
             user_id = str(update.effective_user.id)
             if task_data.get('assigned_delivery_id') != user_id:
                 await query.edit_message_text("❌ Эта задача назначена другому доставщику.")
                 return
-                
             # Получаем данные заявки
             request_id = task_data.get('request_id')
             request = requests_data.get(request_id)
             if not request:
                 await query.edit_message_text("❌ Связанная заявка не найдена.")
                 return
-                
             # Получаем данные СЦ
             sc_id = request.get('assigned_sc')
             if not sc_id:
@@ -753,30 +698,24 @@ class DeliverySCHandler(DeliveryHandler):
                         if sc_data.get('name') == sc_name:
                             sc_id = sc_key
                             break
-                
                 # Если все еще не нашли, берем первый доступный СЦ
                 if not sc_id and service_centers:
                     sc_id = next(iter(service_centers.keys()))
-            
             # Преобразуем sc_id в строку, если это число
             sc_id_str = str(sc_id) if sc_id is not None else None
             sc_data = service_centers.get(sc_id_str) if sc_id_str else None
-            
             if not sc_data:
                 logger.error(f"Данные СЦ не найдены для sc_id: {sc_id} (тип: {type(sc_id)})")
                 logger.error(f"Доступные СЦ: {list(service_centers.keys())}")
                 await query.edit_message_text("❌ Данные сервисного центра не найдены.")
                 return
-                
             # Получаем телефон СЦ
             sc_phone = sc_data.get('phone')
             if not sc_phone:
                 await query.edit_message_text("❌ Сервисный центр не указал номер телефона.")
                 return
-                
             # Генерируем код подтверждения
             confirmation_code = ''.join([str(random.randint(0, 9)) for _ in range(4)])
-            
             # Сохраняем данные в контексте
             context.user_data.update({
                 'current_task_id': task_id,
@@ -786,7 +725,6 @@ class DeliverySCHandler(DeliveryHandler):
                 'sc_data': sc_data,
                 'confirmation_code': confirmation_code
             })
-            
             # Определяем режим работы (тестовый или боевой)
             if DEBUG:
                 await query.edit_message_text(
@@ -794,20 +732,16 @@ class DeliverySCHandler(DeliveryHandler):
                     "Введите этот код для продолжения:"
                 )
                 return ENTER_SC_CONFIRMATION_CODE
-            
             # В боевом режиме отправляем SMS с кодом СЦ
             try:
                 phone = sc_phone.replace('+', '')
                 logger.info(f"Отправка SMS на номер СЦ: {phone}")
-                
                 # Инициализируем SMS-клиент
                 sms_client = SMSBY(SMS_TOKEN, 'by')
-                
                 # Получаем список существующих объектов пароля
                 logger.info("Получение списка существующих объектов пароля...")
                 password_objects = sms_client.get_password_objects()
                 logger.info(f"Доступные объекты пароля: {password_objects}")
-                
                 # Выбираем подходящий объект пароля
                 password_object = None
                 if password_objects and 'result' in password_objects and password_objects['result']:
@@ -825,42 +759,33 @@ class DeliverySCHandler(DeliveryHandler):
                     if not password_object:
                         # Если нет объектов типа 'numbers', берем первый доступный
                         password_object = sorted_objects[0]
-                
                 if not password_object:
                     logger.error("Не найдены доступные объекты пароля")
                     raise Exception("Нет доступных объектов пароля для отправки SMS")
-                
                 logger.info(f"Используем объект пароля: {password_object}")
-                
                 # Получаем доступные альфа-имена
                 alphanames = sms_client.get_alphanames()
                 logger.info(f"Доступные альфа-имена: {alphanames}")
-                
                 if alphanames:
                     alphaname_id = next(iter(alphanames.keys()))
                     sms_message = f"Код подтверждения для заявки #{request_id}: %CODE%"
                     logger.info(f"Отправка SMS с сообщением: {sms_message}")
-                    
                     sms_response = sms_client.send_sms_message_with_code(
                         password_object_id=password_object['id'],
                         phone=phone,
                         message=sms_message,
                         alphaname_id=alphaname_id
                     )
-                    
                     logger.info(f"Ответ отправки SMS: {sms_response}")
-                    
                     if 'code' in sms_response:
                         # Сохраняем код в данных заявки
                         requests_data[request_id]['sms_id'] = sms_response.get('sms_id')
                         requests_data[request_id]['sc_confirmation_code'] = sms_response['code']
                         save_requests(requests_data)
-                        
                         await query.edit_message_text(
                             "📲 Код подтверждения отправлен в сервисный центр.\n"
                             "Пожалуйста, запросите код у сотрудника СЦ и введите его здесь:"
                         )
-                        
                         # Уведомляем клиента
                         client_id = request.get('user_id')
                         if client_id:
@@ -869,7 +794,6 @@ class DeliverySCHandler(DeliveryHandler):
                                 text=f"🚚 Доставщик принял ваш заказ №{request_id} и направляется в сервисный центр.\n"
                                     "Скоро ваше устройство будет у вас!"
                             )
-                        
                         return ENTER_SC_CONFIRMATION_CODE
                     else:
                         logger.error(f"Ошибка отправки SMS: нет кода в ответе")
@@ -877,7 +801,6 @@ class DeliverySCHandler(DeliveryHandler):
                 else:
                     logger.error(f"Ошибка: нет доступных альфа-имен")
                     raise Exception("Нет доступных альфа-имен для отправки SMS")
-                    
             except Exception as e:
                 logger.error(f"Ошибка при отправке SMS: {str(e)}")
                 # Если SMS не удалось отправить, используем код из интерфейса
@@ -885,7 +808,6 @@ class DeliverySCHandler(DeliveryHandler):
                     f"⚠️ Не удалось отправить SMS в СЦ. Используйте код: {confirmation_code}\n\n"
                     f"Введите этот код для продолжения:"
                 )
-                
                 # Уведомляем клиента
                 client_id = request.get('user_id')
                 if client_id:
@@ -894,9 +816,7 @@ class DeliverySCHandler(DeliveryHandler):
                         text=f"🚚 Доставщик принял ваш заказ №{request_id} и направляется в сервисный центр.\n"
                             "Скоро ваше устройство будет у вас!"
                     )
-                
                 return ENTER_SC_CONFIRMATION_CODE
-            
         except Exception as e:
             logger.error(f"Ошибка: {e}", exc_info=True)
             await query.edit_message_text("❌ Произошла ошибка. Пожалуйста, попробуйте еще раз.")
@@ -904,7 +824,6 @@ class DeliverySCHandler(DeliveryHandler):
 
     @log_method_call
     async def show_available_sc_tasks(self, update: Update, context: CallbackContext):
-
         """Показать доступные задания доставки из СЦ"""
         try:
             delivery_tasks = load_delivery_tasks()
@@ -945,16 +864,12 @@ class DeliverySCHandler(DeliveryHandler):
         """Проверка кода подтверждения от СЦ"""
         user_input = update.message.text
         request_id = context.user_data.get('request_id')
-        
         requests_data = load_requests()
         request = requests_data.get(request_id)
-        
         if not request:
             await update.message.reply_text("❌ Заявка не найдена")
             return ConversationHandler.END
-        
         correct_code = request.get('sc_confirmation_code')
-        
         if user_input == correct_code:
             # Код верный, переходим к следующему шагу
             await update.message.reply_text(
@@ -1018,7 +933,6 @@ class DeliverySCHandler(DeliveryHandler):
                         text=f"🚚 Доставщик прибыл с вашим устройством и скоро передаст его вам.\n"
                             f"Адрес доставки: {requests_data[request_id].get('location_display', 'указанный в заявке')}"
                     )
-                    
                     # Отправляем фотографии клиенту
                     for photo_path in photos:
                         if os.path.exists(photo_path):
@@ -1049,9 +963,7 @@ class DeliverySCHandler(DeliveryHandler):
             context.user_data['client_confirmation_code'] = confirmation_code
             requests_data[request_id]['confirmation_code'] = confirmation_code
             save_requests(requests_data)
-            
             # ЧЕТКО РАЗДЕЛЯЕМ ЛОГИКУ ТЕСТОВОГО И БОЕВОГО РЕЖИМОВ
-            
             # В тестовом режиме отправляем код доставщику
             if DEBUG:
                 await query.edit_message_text(
@@ -1068,7 +980,6 @@ class DeliverySCHandler(DeliveryHandler):
                     except Exception as e:
                         logger.error(f"Ошибка при отправке инструкции клиенту {client_id}: {e}")
                 return ENTER_CONFIRMATION_CODE
-            
             # В боевом режиме отправляем SMS клиенту
             else:
                 if client_id and client_data.get('phone'):
@@ -1173,20 +1084,16 @@ class DeliverySCHandler(DeliveryHandler):
         """Проверка оплаты клиентом оставшейся суммы"""
         query = update.callback_query
         await query.answer()
-        
         try:
             request_id = query.data.split('_')[-1]
             requests_data = load_requests()
-            
             if request_id not in requests_data:
                 await query.edit_message_text("❌ Заявка не найдена")
                 return ConversationHandler.END
-                
             request = requests_data[request_id]
             order_id = request.get('final_payment_order_id')
             client_id = request.get('user_id')
             delivery_id = request.get('assigned_delivery')
-            
             if not order_id:
                 await query.edit_message_text("❌ Информация о платеже не найдена")
                 return ConversationHandler.END
@@ -1197,7 +1104,7 @@ class DeliverySCHandler(DeliveryHandler):
                     async with session.post(
                         PAYMENT_API_URL,
                         data=status_data,
-                        timeout=10
+                        timeout=2
                     ) as response:
                         if response.status != 200:
                             response_text = await response.text()
@@ -1232,7 +1139,6 @@ class DeliverySCHandler(DeliveryHandler):
                             # Отправляем кнопки для повторной проверки
                             keyboard = [
                                 [InlineKeyboardButton("🔄 Проверить еще раз", callback_data=f"check_final_payment_{request_id}")],
-                                [InlineKeyboardButton("❌ Отменить", callback_data=f"cancel_final_payment_{request_id}")]
                             ]
                             reply_markup = InlineKeyboardMarkup(keyboard)
                             await query.edit_message_text(
@@ -1246,7 +1152,6 @@ class DeliverySCHandler(DeliveryHandler):
                 logger.error(f"Ошибка при проверке платежа: {e}")
                 keyboard = [
                     [InlineKeyboardButton("🔄 Проверить еще раз", callback_data=f"check_final_payment_{request_id}")],
-                    [InlineKeyboardButton("❌ Отменить", callback_data=f"cancel_final_payment_{request_id}")]
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 await query.edit_message_text(

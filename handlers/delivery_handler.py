@@ -1,34 +1,28 @@
-from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update, InputMediaPhoto
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackContext, ConversationHandler
 from config import (
     ADMIN_IDS, ENTER_NAME, ENTER_PHONE,
     ENTER_CONFIRMATION_CODE, SMS_TOKEN,
     ORDER_STATUS_DELIVERY_TO_SC, ORDER_STATUS_DELIVERY_TO_CLIENT,
     ORDER_STATUS_CLIENT_REJECTED, ORDER_STATUS_WAITING_SC, CREATE_REQUEST_PHOTOS,
-    ORDER_STATUS_PICKUP_FROM_SC, ORDER_STATUS_SC_TO_CLIENT, ORDER_STATUS_IN_SC,
-    ENTER_SC_CONFIRMATION_CODE, ORDER_STATUS_NEW, DEBUG
+    ORDER_STATUS_PICKUP_FROM_SC, ORDER_STATUS_SC_TO_CLIENT, DEBUG
 )
-from handlers.base_handler import BaseHandler
 from database import load_delivery_tasks, load_users, load_requests, save_delivery_tasks, save_requests, save_users, load_service_centers
 
 import logging
 import random
-import requests
 import os
-import time
 from datetime import datetime
 
 from smsby import SMSBY
 
-from utils import notify_client
 from logging_decorator import log_method_call
 
-# TODO: сделать смс - отдельным методом (не срочно) ИЛИ сделать отдельным потоком
 
 logger = logging.getLogger(__name__)
 
 
-class DeliveryHandler(BaseHandler):
+class DeliveryHandler:
 
     @log_method_call
     async def show_delivery_profile(self, update: Update, context: CallbackContext):
@@ -132,15 +126,12 @@ class DeliveryHandler(BaseHandler):
         """Принятие задачи доставщиком."""
         query = update.callback_query
         await query.answer()
-        
         try:
             # Получаем ID заявки из callback_data
             request_id = query.data.split('_')[-1]
-            
             # Загружаем данные
             requests_data = load_requests()
             delivery_tasks = load_delivery_tasks()
-            
             # Находим задачу с указанным request_id
             task_id = None
             task_data = None
@@ -149,28 +140,23 @@ class DeliveryHandler(BaseHandler):
                     task_id = task_key
                     task_data = task
                     break
-                    
             # Проверяем, что задача найдена
             if not task_id or not task_data:
                 logger.error(f"Задача доставки не найдена для request_id: {request_id}")
                 await query.edit_message_text("❌ Задача доставки не найдена или уже принята другим доставщиком.")
                 return
-                
             # Получаем информацию о доставщике
             user_id = str(update.effective_user.id)
             user_name = update.effective_user.first_name
-            
             # Проверяем тип доставки с защитой от None
             is_sc_to_client = task_data.get('is_sc_to_client', False)
             delivery_type = task_data.get('delivery_type', '')
-            
             # Обновляем статус задачи
             task_data['status'] = 'В процессе'
             task_data['assigned_delivery_id'] = user_id
             task_data['assigned_delivery_name'] = user_name
             delivery_tasks[task_id] = task_data
             save_delivery_tasks(delivery_tasks)
-            
             # Обновляем статус заявки
             if request_id in requests_data:
                 if is_sc_to_client or delivery_type == 'sc_to_client':
@@ -179,7 +165,6 @@ class DeliveryHandler(BaseHandler):
                     requests_data[request_id]['status'] = ORDER_STATUS_DELIVERY_TO_SC
                 requests_data[request_id]['assigned_delivery'] = user_id
                 save_requests(requests_data)
-                
             # Формируем сообщение и клавиатуру для доставщика
             if is_sc_to_client or delivery_type == 'sc_to_client':
                 # Доставка из СЦ клиенту
@@ -225,20 +210,16 @@ class DeliveryHandler(BaseHandler):
                     f"3. Доставьте устройство в СЦ\n"
                     f"4. Получите код подтверждения от СЦ"
                 )
-                
                 keyboard = [[
                     InlineKeyboardButton(
                         "✅ Получено от клиента", 
                         callback_data=f"confirm_pickup_{request_id}"
                     )
                 ]]
-                
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text(message, reply_markup=reply_markup)
-            
             # Уведомляем всех остальных доставщиков
             await self.update_delivery_messages(context.bot, task_id, task_data)
-            
             # Уведомляем клиента или СЦ в зависимости от типа доставки
             if request_id in requests_data:  # Добавляем проверку на существование заявки
                 if is_sc_to_client or delivery_type == 'sc_to_client':
@@ -265,7 +246,6 @@ class DeliveryHandler(BaseHandler):
                             chat_id=client_id,
                             text=client_message
                         )
-                        
             # Уведомляем администраторов
             user = load_users().get(str(query.from_user.id), {})
             delivery_name = user.get('name', user_name)
@@ -281,7 +261,6 @@ class DeliveryHandler(BaseHandler):
                     chat_id=admin_id,
                     text=admin_message
                 )
-                
         except Exception as e:
             logger.error(f"Ошибка при принятии задания доставки: {e}", exc_info=True)
             await query.edit_message_text("❌ Произошла ошибка при принятии задания. Пожалуйста, попробуйте еще раз.")
@@ -318,7 +297,6 @@ class DeliveryHandler(BaseHandler):
         try:
             action, request_id = query.data.split('_')[1:]
             requests_data = load_requests()
-            delivery_tasks = load_delivery_tasks()
             users_data = load_users()
             if request_id not in requests_data:
                 await query.edit_message_text("❌ Заявка не найдена")
@@ -562,7 +540,7 @@ class DeliveryHandler(BaseHandler):
                 save_requests(requests_data)
                 # Обновляем статус в delivery_tasks
                 delivery_tasks = load_delivery_tasks()
-                for task_id, task in delivery_tasks.items():
+                for _, task in delivery_tasks.items():
                     if isinstance(task, dict) and task.get('request_id') == request_id:
                         task['status'] = ORDER_STATUS_DELIVERY_TO_SC
                         save_delivery_tasks(delivery_tasks)
@@ -578,7 +556,6 @@ class DeliveryHandler(BaseHandler):
                     sc_id = request.get('assigned_sc')
                     service_centers = load_service_centers()
                     sc_data = service_centers.get(sc_id, {})
-                    
                     await context.bot.send_message(
                         chat_id=delivery_id,
                         text=f"✅ Клиент подтвердил получение товара по заявке #{request_id}!\n\n"
@@ -686,7 +663,6 @@ class DeliveryHandler(BaseHandler):
                     InlineKeyboardButton("Отказать в приёме", callback_data=f"reject_item_{request_id}")
                 ]]
                 reply_markup = InlineKeyboardMarkup(keyboard)
-                
                 # Сначала отправляем фотографии
                 for photo_path in photos:
                     if os.path.exists(photo_path):

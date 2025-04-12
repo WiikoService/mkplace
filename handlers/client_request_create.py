@@ -25,15 +25,15 @@ import aiohttp
 from config import ORDER_STATUS_DELIVERY_TO_SC, PAYMENT_API_URL, DEBUG, ADMIN_IDS, WAITING_PAYMENT_CONF
 
 
-
 logger = logging.getLogger(__name__)
 
 
 class RequestCreator(ClientHandler):
     category = [
         'Ремонт телефонов', 'Ремонт телевизоров',
-        'Ремонт обуви', 'Ремонт одежды', 'Ремонт мебели',
-        'Ремонт техники', 'Прочее'
+        'Ремонт ноутбуков', 'Ремонт одежды', 'Ремонт кроссовок',
+        'Ремонт чемоданов', 'Ремонт сумок', 'Ремонт обуви',
+        'Изготовление ключей и чипов, заточка'
     ]
 
     async def create_request(self, update: Update, context: CallbackContext):
@@ -93,22 +93,17 @@ class RequestCreator(ClientHandler):
         timestamp = int(time.time())
         file_name = f"{update.effective_user.id}_{timestamp}.jpg"
         file_path = os.path.join(PHOTOS_DIR, file_name)
-        
         # Создаем директорию для фото, если её нет
         os.makedirs(PHOTOS_DIR, exist_ok=True)
-        
         # Получаем фото максимального качества
         photo = update.message.photo[-1]
         file = await context.bot.get_file(photo.file_id)
-        
         # Сохраняем фото на диск
         await file.download_to_drive(file_path)
-        
         # Сохраняем относительный путь
         if 'photos' not in context.user_data:
             context.user_data['photos'] = []
         context.user_data['photos'].append(file_path)
-        
         # Отправляем подтверждение
         await update.message.reply_text(
             "Фото сохранено! Можете отправить ещё или нажмите кнопку для завершения.",
@@ -217,7 +212,6 @@ class RequestCreator(ClientHandler):
             if not address:
                 await update.message.reply_text("Пожалуйста, введите корректный адрес.")
                 return CREATE_REQUEST_ADDRESS
-                
             context.user_data["location"] = {
                 "address": address
             }
@@ -414,10 +408,8 @@ class RequestCreator(ClientHandler):
     def get_next_request_id(self):
         """Генерирует следующий ID заявки на основе существующих"""
         requests_data = load_requests()  # Загружаем текущие данные
-        
         if not requests_data:
             return "1"
-        
         # Ищем максимальный числовой ID среди существующих заявок
         max_id = 0
         for request_id in requests_data.keys():
@@ -427,21 +419,17 @@ class RequestCreator(ClientHandler):
                     max_id = current_id
             except ValueError:
                 continue
-        
         return str(max_id + 1)
 
     async def create_request_final(self, update: Update, context: CallbackContext):
         """Финальная обработка создания заявки."""
         query = update.callback_query
         await query.answer()
-        
         requests_data = load_requests()
         request_id = self.get_next_request_id()
         user_id = str(update.effective_user.id)
-        
         # Копируем фото во временную переменную перед очисткой user_data
         photos = context.user_data.get('photos', [])
-        
         # Проверяем и нормализуем пути к фото
         valid_photos = []
         for photo_path in photos:
@@ -449,14 +437,12 @@ class RequestCreator(ClientHandler):
                 # Сохраняем относительные пути
                 rel_path = os.path.relpath(photo_path, start=os.getcwd())
                 valid_photos.append(rel_path)
-        
         # Преобразуем все даты в строки
         desired_date = context.user_data.get("desired_date")
         if isinstance(desired_date, datetime):
             desired_date_str = desired_date.strftime("%H:%M %d.%m.%Y")
         else:
             desired_date_str = str(desired_date) if desired_date else "Не указана"
-        
         # Формируем структуру заявки с преобразованными датами
         request_data = {
             "id": request_id,
@@ -474,14 +460,11 @@ class RequestCreator(ClientHandler):
             "comment": context.user_data.get("comment", "Не указано"),
             "created_at": datetime.now().strftime("%H:%M %d-%m-%Y")  # Строка
         }
-        
         # Сохраняем заявку
         requests_data[request_id] = request_data
         save_requests(requests_data)
-        
         # Полная очистка данных пользователя
         context.user_data.clear()
-
         await query.edit_message_text(f"✅ Заявка #{request_id} создана!")
         admin_msg = f"🆕 #{request_id}"
         for admin_id in ADMIN_IDS:  # ADMIN_IDS - обычный список ID админов
@@ -489,7 +472,6 @@ class RequestCreator(ClientHandler):
                 await context.bot.send_message(chat_id=admin_id, text=admin_msg)
             except Exception as e:
                 logger.error(f"Не удалось уведомить админа {admin_id}: {e}")
-
         return ConversationHandler.END
 
 
@@ -543,9 +525,7 @@ class PrePaymentHandler(ClientHandler):
                         raise Exception(f"Ошибка формата ответа: {e}")
                     # Проверяем ожидаемые поля
                     self.logger.info(f"🔑 Ключи в ответе: {list(result.keys())}")
-                    
                     # Теперь result содержит разобранный JSON, независимо от Content-Type
-                    
                     if not result.get('order_id') or not result.get('payment_url'):
                         self.logger.error(f"❌ Неверный ответ API: {result}")
                         raise Exception(f"Invalid API response: {result}")
@@ -571,7 +551,6 @@ class PrePaymentHandler(ClientHandler):
                         "После оплаты нажмите кнопку 'Проверить оплату'",
                         reply_markup=reply_markup
                     )
-                    
                     return WAITING_PAYMENT
         except Exception as e:
             error_message = f"❌ Ошибка при создании платежа: {str(e)}"

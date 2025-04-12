@@ -1,30 +1,28 @@
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from telegram import (
     Update, InlineKeyboardButton, InlineKeyboardMarkup,
-    ReplyKeyboardMarkup, ReplyKeyboardRemove
+    ReplyKeyboardMarkup
 )
 from telegram.ext import CallbackContext, ConversationHandler
 from config import (
-    ORDER_STATUS_IN_SC, SC_ASSIGN_REQUESTS, ADMIN_IDS,
+    SC_ASSIGN_REQUESTS, ADMIN_IDS,
     ORDER_STATUS_DELIVERY_TO_CLIENT, ORDER_STATUS_DELIVERY_TO_SC,
-    ENTER_REPAIR_PRICE, CONFIRMATION, ORDER_STATUS_SC_TO_CLIENT,
+    ORDER_STATUS_SC_TO_CLIENT,
     ORDER_STATUS_REPAIR_COMPLETED
 )
-from handlers.base_handler import BaseHandler
 from database import (
     load_requests, save_requests, load_users,
     load_delivery_tasks, save_delivery_tasks, load_chat_history,
     save_chat_history, load_service_centers
 )
-from utils import notify_client
 import logging
 from handlers.sc_price_handler import SCPriceHandler
 from logging_decorator import log_method_call
 logger = logging.getLogger(__name__)
 
 
-class SCHandler(BaseHandler):
+class SCHandler:
     def __init__(self):
         self.price_handler = SCPriceHandler()
 
@@ -349,7 +347,6 @@ class SCHandler(BaseHandler):
         """Отправляет комментарий на согласование администратору"""
         user_comment = update.message.text
         request_id = context.user_data.get('current_request_id')
-        message_id = context.user_data.get('comment_message_id')
         requests_data = load_requests()
         if request_id in requests_data:
             request_data = requests_data[request_id]
@@ -689,30 +686,24 @@ class SCHandler(BaseHandler):
         # Проверка состояния (если не используется ConversationHandler)
         if not context.user_data.get('waiting_for_price'):
             return  # Игнорируем, если не ожидаем цену
-
         price_text = update.message.text.strip()
-        
         # Доп. проверка, что введено число (хотя фильтр уже это гарантирует)
         if not price_text.isdigit():
             await update.message.reply_text("❌ Введите только цифры (например: 150)")
             return
-
         request_id = context.user_data.get('current_request')
         if not request_id:
             await update.message.reply_text("❌ Ошибка: запрос не найден")
             context.user_data.pop('waiting_for_price', None)
             return
-
         # Сохраняем цену и сбрасываем флаг
         context.user_data['repair_price_text'] = price_text
         context.user_data.pop('waiting_for_price', None)
-
         # Формируем ответ
         request = load_requests().get(request_id)
         if not request:
             await update.message.reply_text("❌ Заявка не найдена")
             return
-
         await update.message.reply_text(
             f"📦 Заявка #{request_id}\n"
             f"📝 Описание: {request.get('description', 'Нет описания')}\n"
@@ -814,7 +805,6 @@ class SCHandler(BaseHandler):
             requests_data = load_requests()
             delivery_tasks = load_delivery_tasks()
             service_centers = load_service_centers()
-            
             request = requests_data.get(request_id)
             if not request:
                 await query.edit_message_text("❌ Заявка не найдена")

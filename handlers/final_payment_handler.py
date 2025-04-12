@@ -44,19 +44,16 @@ class FinalPaymentHandler(DeliverySCHandler):
             client_id = str(request.get('user_id'))  # Преобразуем в строку
             client_data = users_data.get(client_id, {})
             client_phone = client_data.get('phone')
-            
             # Обновляем статус заявки
             requests_data[request_id]['status'] = ORDER_STATUS_SC_TO_CLIENT
             save_requests(requests_data)
             # Обновляем статус задачи доставки
             await self._update_delivery_task_status(request_id, ORDER_STATUS_SC_TO_CLIENT)
-            
             # Генерируем код подтверждения
             confirmation_code = ''.join(random.choices('0123456789', k=4))
             context.user_data['client_confirmation_code'] = confirmation_code
             requests_data[request_id]['confirmation_code'] = confirmation_code
             save_requests(requests_data)
-            
             # Определяем режим отправки кода (тестовый или боевой)
             if DEBUG:
                 # В тестовом режиме отправляем код доставщику
@@ -75,12 +72,10 @@ class FinalPaymentHandler(DeliverySCHandler):
                     try:
                         # Инициализируем SMS-клиент
                         sms_client = SMSBY(SMS_TOKEN, 'by')
-                        
                         # Получаем список существующих объектов пароля
                         logger.info("Получение списка существующих объектов пароля...")
                         password_objects = sms_client.get_password_objects()
                         logger.info(f"Доступные объекты пароля: {password_objects}")
-                        
                         # Выбираем подходящий объект пароля
                         password_object = None
                         if password_objects and 'result' in password_objects and password_objects['result']:
@@ -98,22 +93,17 @@ class FinalPaymentHandler(DeliverySCHandler):
                             if not password_object:
                                 # Если нет объектов типа 'numbers', берем первый доступный
                                 password_object = sorted_objects[0]
-                        
                         if not password_object:
                             logger.error("Не найдены доступные объекты пароля")
                             raise Exception("Нет доступных объектов пароля для отправки SMS")
-                        
                         logger.info(f"Используем объект пароля: {password_object}")
-                        
                         # Получаем доступные альфа-имена
                         alphanames = sms_client.get_alphanames()
                         logger.info(f"Доступные альфа-имена: {alphanames}")
-                        
                         if alphanames:
                             alphaname_id = next(iter(alphanames.keys()))
                             sms_message = f"Код подтверждения для заявки #{request_id}: %CODE%"
                             logger.info(f"Отправка SMS с сообщением: {sms_message}")
-                            
                             sms_response = sms_client.send_sms_message_with_code(
                                 password_object_id=password_object['id'],  # Используем ID объекта
                                 phone=client_phone.replace('+', ''),
@@ -121,19 +111,16 @@ class FinalPaymentHandler(DeliverySCHandler):
                                 alphaname_id=alphaname_id
                             )
                             logger.info(f"Ответ отправки SMS: {sms_response}")
-                            
                             if 'code' in sms_response:
                                 # Сохраняем данные SMS
                                 requests_data[request_id]['sms_id'] = sms_response.get('sms_id')
                                 requests_data[request_id]['confirmation_code'] = sms_response['code']
                                 save_requests(requests_data)
-                                
                                 # Уведомляем клиента
                                 await context.bot.send_message(
                                     chat_id=int(client_id),
                                     text="📱 Вам отправлен SMS с кодом подтверждения. Введите его в боте:"
                                 )
-                                
                                 # Уведомляем доставщика
                                 await query.edit_message_text(
                                     "✅ Код подтверждения отправлен клиенту по SMS.\n"
@@ -162,10 +149,8 @@ class FinalPaymentHandler(DeliverySCHandler):
                             chat_id=int(client_id),
                             text=f"📱 Введите код подтверждения, который вам назвал доставщик:"
                         )
-            
             # Уведомляем администраторов
             await self._notify_admins_about_delivery(context, update.effective_user.first_name, request_id)
-            
             return ENTER_CONFIRMATION_CODE
         except Exception as e:
             logger.error(f"Ошибка при обработке доставки клиенту: {e}")
@@ -195,7 +180,6 @@ class FinalPaymentHandler(DeliverySCHandler):
                 text=f"🚚 Доставщик прибыл с вашим устройством и скоро передаст его вам.\n"
                     f"Адрес доставки: {requests_data[request_id].get('location_display', 'указанный в заявке')}"
             )
-            
             # Отправляем фотографии товара, если они есть
             photos = requests_data[request_id].get('sc_pickup_photos', [])
             for photo_path in photos:
@@ -358,12 +342,10 @@ class FinalPaymentHandler(DeliverySCHandler):
             'description': description
         }
         logger.info(f"💲 Подготовка данных платежа для заявки #{request_id}: {payment_data}")
-        
         try:
             async with aiohttp.ClientSession() as session:
                 payment_request_data = {'payment_request': json.dumps(payment_data)}
                 logger.info(f"📤 Отправляем запрос на создание платежа: {payment_request_data}")
-                
                 async with session.post(
                     PAYMENT_API_URL,
                     data=payment_request_data,
@@ -371,20 +353,16 @@ class FinalPaymentHandler(DeliverySCHandler):
                 ) as response:
                     status = response.status
                     logger.info(f"📥 Статус HTTP-ответа: {status}")
-                    
                     if status != 200:
                         response_text = await response.text()
                         logger.error(f"❌ Ошибка HTTP: {status}, ответ: {response_text}")
                         raise Exception(f"HTTP error {status}: {response_text}")
-                    
                     # Получаем заголовки ответа
                     content_type = response.headers.get('Content-Type', 'unknown')
                     logger.info(f"🔍 Content-Type ответа: {content_type}")
-                    
                     # Логируем ответ для отладки
                     response_body = await response.text()
                     logger.info(f"📄 Ответ сервера: {response_body}")
-                    
                     # Пытаемся разобрать JSON
                     try:
                         result = json.loads(response_body)
@@ -392,13 +370,11 @@ class FinalPaymentHandler(DeliverySCHandler):
                     except json.JSONDecodeError as e:
                         logger.error(f"❌ Ошибка парсинга JSON: {e}, тело ответа: {response_body}")
                         raise Exception(f"Ошибка формата ответа: {e}")
-                    
                     # Проверяем ожидаемые поля
                     logger.info(f"🔑 Ключи в ответе: {list(result.keys())}")
                     if not result.get('order_id') or not result.get('payment_url'):
                         logger.error(f"❌ Неверный ответ API: {result}")
                         raise Exception(f"Invalid API response: {result}")
-                    
                     return result
         except Exception as e:
             logger.error(f"❌ Ошибка при создании платежа: {str(e)}")
@@ -414,21 +390,16 @@ class FinalPaymentHandler(DeliverySCHandler):
             if not request_id:
                 await update.message.reply_text("❌ Не найдена активная заявка.")
                 return ConversationHandler.END
-            
             # Загружаем данные
             requests_data = load_requests()
-            users_data = load_users()
             if request_id not in requests_data:
                 await update.message.reply_text("❌ Заявка не найдена.")
                 return ConversationHandler.END
-            
             request = requests_data[request_id]
             client_id = str(request.get('user_id'))  # Преобразуем в строку
             expected_code = request.get('confirmation_code')
-            
             # Проверяем, кто вводит код - клиент или доставщик
             user_id = str(update.effective_user.id)
-            
             # Если код вводит клиент
             if client_id and user_id == client_id:
                 if entered_code == expected_code:
@@ -437,7 +408,6 @@ class FinalPaymentHandler(DeliverySCHandler):
                     repair_price = Decimal(request.get('repair_price', '0'))
                     delivery_cost = Decimal('20') + (repair_price * Decimal('0.3'))
                     amount_to_pay = final_price - delivery_cost + Decimal('20') if final_price > delivery_cost else Decimal('0')
-                    
                     if amount_to_pay > Decimal('0'):
                         try:
                             # Создаем платеж
@@ -446,16 +416,13 @@ class FinalPaymentHandler(DeliverySCHandler):
                                 amount=float(amount_to_pay),
                                 description=f"Оплата ремонта по заявке #{request_id}"
                             )
-                            
                             # Сохраняем данные платежа
                             request['final_payment_order_id'] = result['order_id']
                             save_requests(requests_data)
-                            
                             # Отправляем кнопку оплаты клиенту
                             keyboard = [
                                 [InlineKeyboardButton("✅ Оплатить", url=result['payment_url'])],
                                 [InlineKeyboardButton("🔄 Проверить оплату", callback_data=f"check_final_payment_{request_id}")],
-                                [InlineKeyboardButton("❌ Отменить", callback_data=f"cancel_final_payment_{request_id}")]
                             ]
                             reply_markup = InlineKeyboardMarkup(keyboard)
                             
@@ -465,7 +432,6 @@ class FinalPaymentHandler(DeliverySCHandler):
                                     f"После оплаты нажмите кнопку 'Проверить оплату'",
                                 reply_markup=reply_markup
                             )
-                            
                             # Уведомляем доставщика
                             delivery_id = request.get('assigned_delivery')
                             if delivery_id:
@@ -473,9 +439,7 @@ class FinalPaymentHandler(DeliverySCHandler):
                                     chat_id=int(delivery_id),
                                     text=f"🔄 Клиент подтвердил получение и должен оплатить {amount_to_pay:.2f} BYN. Ожидайте завершения оплаты."
                                 )
-                            
                             return WAITING_FINAL_PAYMENT
-                            
                         except Exception as e:
                             logger.error(f"Ошибка при создании платежа: {e}")
                             await context.bot.send_message(
@@ -536,7 +500,6 @@ class FinalPaymentHandler(DeliverySCHandler):
                 logger.error(f"❌ final_payment_order_id не найден в заявке #{request_id}")
                 await query.edit_message_text("❌ Информация о платеже не найдена")
                 return ConversationHandler.END
-            
             # Проверяем статус платежа
             status_data = {'payment_status_order_id': order_id}
             logger.info(f"📤 Отправляем запрос статуса финального платежа: {status_data}")
@@ -548,19 +511,15 @@ class FinalPaymentHandler(DeliverySCHandler):
                 ) as response:
                     status = response.status
                     logger.info(f"📥 Статус HTTP-ответа: {status}")
-                    
                     # Получаем текстовый ответ
                     response_text = await response.text()
                     logger.info(f"📄 Ответ сервера проверки финального платежа: {response_text}")
-                    
                     # Изучаем заголовки ответа
                     content_type = response.headers.get('Content-Type', 'unknown')
                     logger.info(f"🔍 Content-Type ответа: {content_type}")
-                    
                     if status != 200:
                         logger.error(f"❌ Ошибка HTTP: {status}, ответ: {response_text}")
                         raise Exception(f"HTTP error {status}: {response_text}")
-                    
                     # Пытаемся разобрать JSON, независимо от Content-Type
                     try:
                         result = json.loads(response_text)
@@ -568,10 +527,8 @@ class FinalPaymentHandler(DeliverySCHandler):
                     except json.JSONDecodeError as e:
                         logger.error(f"❌ Ошибка парсинга JSON: {e}, текст ответа: {response_text}")
                         raise Exception(f"Ошибка формата ответа при проверке платежа: {e}")
-                    
                     # Проверяем ожидаемые поля в ответе
                     logger.info(f"🔑 Ключи в ответе: {list(result.keys())}")
-                    
                     # Проверяем статус платежа по информации от банка
                     if (result.get('errorCode') == '0' and 
                         result.get('orderStatus') == 2 and 
@@ -581,20 +538,17 @@ class FinalPaymentHandler(DeliverySCHandler):
                         request['status'] = "Доставлено клиенту"
                         request['payment_status'] = "paid"
                         save_requests(requests_data)
-                        
                         # Уведомляем клиента
                         await context.bot.send_message(
                             chat_id=int(client_id),
                             text=f"✅ Оплата принята. Заявка #{request_id} успешно завершена!"
                         )
-                        
                         # Уведомляем доставщика
                         if delivery_id:
                             await context.bot.send_message(
                                 chat_id=int(delivery_id),
                                 text=f"✅ Клиент успешно оплатил заказ. Сделайте фотографии передачи товара и отправьте их."
-                            )   
-                        
+                            )
                         context.user_data['awaiting_delivery_photos'] = True
                         return CREATE_REQUEST_PHOTOS
                     else:
@@ -604,7 +558,6 @@ class FinalPaymentHandler(DeliverySCHandler):
                         order_status = result.get('orderStatus', 'Неизвестно')
                         status_message = f"Статус: {payment_state}, Код: {order_status}, Сообщение: {error_message}"
                         logger.info(f"⏳ Финальный платеж для заявки #{request_id} не завершен: {status_message}")
-                        
                         # Формируем новое сообщение с обновленными кнопками
                         new_message = (
                             f"⏳ Платеж не завершен: {error_message}\n"
@@ -612,15 +565,12 @@ class FinalPaymentHandler(DeliverySCHandler):
                             "Возможно, операция еще обрабатывается. Проверьте еще раз через несколько секунд."
                         )
                         keyboard = [
-                            [InlineKeyboardButton("🔄 Проверить еще раз", callback_data=f"check_final_payment_{request_id}")],
-                            [InlineKeyboardButton("❌ Отменить", callback_data=f"cancel_final_payment_{request_id}")]
+                            [InlineKeyboardButton("🔄 Проверить еще раз", callback_data=f"check_final_payment_{request_id}")]
                         ]
                         reply_markup = InlineKeyboardMarkup(keyboard)
-                        
                         # Проверяем, изменилось ли содержимое сообщения
                         current_text = query.message.text if query.message.text else ""
                         current_markup = query.message.reply_markup if query.message.reply_markup else InlineKeyboardMarkup([])
-                        
                         if current_text != new_message or current_markup != reply_markup:
                             try:
                                 await query.edit_message_text(new_message, reply_markup=reply_markup)
@@ -639,20 +589,16 @@ class FinalPaymentHandler(DeliverySCHandler):
                                 callback_query_id=query.id,
                                 text="Статус платежа не изменился. Попробуйте проверить позже."
                             )
-                            
                         return WAITING_FINAL_PAYMENT
         except Exception as e:
             error_message = f"❌ Ошибка при проверке финального платежа: {str(e)}"
             logger.error(error_message)
             logger.exception(e)  # Выводим полный стектрейс
-            
             # Формируем сообщение об ошибке
             keyboard = [
-                [InlineKeyboardButton("🔄 Проверить еще раз", callback_data=f"check_final_payment_{request_id}")],
-                [InlineKeyboardButton("❌ Отменить", callback_data=f"cancel_final_payment_{request_id}")]
+                [InlineKeyboardButton("🔄 Проверить еще раз", callback_data=f"check_final_payment_{request_id}")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
             try:
                 await query.edit_message_text(
                     f"❌ Ошибка при проверке платежа: {str(e)}",
@@ -666,7 +612,6 @@ class FinalPaymentHandler(DeliverySCHandler):
                     text=f"❌ Ошибка при проверке платежа: {str(e)}",
                     reply_markup=reply_markup
                 )
-                
             return WAITING_FINAL_PAYMENT
 
     @log_method_call
@@ -676,7 +621,6 @@ class FinalPaymentHandler(DeliverySCHandler):
         await query.answer()
         try:
             request_id = query.data.split('_')[-1]
-            client_id = update.effective_user.id
             delivery_id = None
             # Загружаем данные заявки
             requests_data = load_requests()

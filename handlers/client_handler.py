@@ -123,15 +123,15 @@ class ClientHandler:
         await query.answer()
         request_id = query.data.split('_')[-1]
         keyboard = [
-            [InlineKeyboardButton("⭐⭐⭐⭐⭐", callback_data=f"rate_5_{request_id}")],
-            [InlineKeyboardButton("⭐⭐⭐⭐", callback_data=f"rate_4_{request_id}")],
-            [InlineKeyboardButton("⭐⭐⭐", callback_data=f"rate_3_{request_id}")],
-            [InlineKeyboardButton("⭐⭐", callback_data=f"rate_2_{request_id}")],
-            [InlineKeyboardButton("⭐", callback_data=f"rate_1_{request_id}")]
+            [InlineKeyboardButton("🌟🌟🌟🌟🌟", callback_data=f"rate_5_{request_id}")],
+            [InlineKeyboardButton("🌟🌟🌟🌟", callback_data=f"rate_4_{request_id}")],
+            [InlineKeyboardButton("🌟🌟🌟", callback_data=f"rate_3_{request_id}")],
+            [InlineKeyboardButton("🌟🌟", callback_data=f"rate_2_{request_id}")],
+            [InlineKeyboardButton("🌟", callback_data=f"rate_1_{request_id}")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
-            "🌟 Пожалуйста, оцените качество обслуживания:",
+            "Пожалуйста, оцените качество обслуживания:",
             reply_markup=reply_markup
         )
         return RATING_SERVICE
@@ -242,7 +242,7 @@ class ClientHandler:
         self._save_rating(rating)
         context.user_data['current_rating'] = rating
         context.user_data['current_request_id'] = request_id
-        stars = "⭐" * rating
+        stars = "🌟" * rating
         if rating < 4:
             await query.edit_message_text(
                 f"Спасибо за оценку {stars}!\n\n"
