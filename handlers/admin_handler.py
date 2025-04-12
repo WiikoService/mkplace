@@ -16,7 +16,7 @@ import os
 from config import DATA_DIR
 import time
 from handlers.client_request_create import PrePaymentHandler
-
+from datetime import timedelta
 logger = logging.getLogger(__name__)
 
 class AdminHandler:
@@ -1058,37 +1058,34 @@ class AdminHandler:
         """Показывает календарь задач доставки"""
         logger.info("📅 Показ календаря задач доставки")
         try:
-            # Загружаем задачи доставки
             delivery_tasks = load_delivery_tasks()
             if not delivery_tasks:
                 await update.message.reply_text("📭 Нет активных задач доставки.")
                 return
-            # Группируем задачи по дате
+                
             tasks_by_date = {}
             for task_id, task in delivery_tasks.items():
                 desired_date = task.get('desired_date', '')
                 if not desired_date:
-                    continue 
-                # Пытаемся извлечь дату из строки формата "ЧЧ:ММ ДД.ММ.ГГГГ"
+                    continue
                 try:
-                    # Разделяем время и дату
                     _, date_part = desired_date.split(' ')
-                    # Преобразуем в объект datetime
                     date_obj = datetime.strptime(date_part, "%d.%m.%Y")
                     date_key = date_obj.strftime("%d.%m.%Y")
                     if date_key not in tasks_by_date:
                         tasks_by_date[date_key] = []
-                    tasks_by_date[date_key].append(task)
+                    tasks_by_date[date_key].append((task_id, task))
                 except (ValueError, IndexError) as e:
                     logger.error(f"Ошибка при обработке даты {desired_date}: {e}")
                     continue
+
             if not tasks_by_date:
                 await update.message.reply_text("📭 Нет задач доставки с указанной датой.")
                 return
-            # Сортируем даты
+
             sorted_dates = sorted(tasks_by_date.keys(), 
                                 key=lambda x: datetime.strptime(x, "%d.%m.%Y"))
-            # Создаем клавиатуру с датами
+            
             keyboard = []
             for date in sorted_dates:
                 task_count = len(tasks_by_date[date])
@@ -1097,8 +1094,8 @@ class AdminHandler:
                         f"📅 {date} ({task_count})", 
                         callback_data=f"calendar_date_{date}"
                     )
-                ]
-                )
+                ])
+                
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
                 "📅 Выберите дату для просмотра задач доставки:",
@@ -1108,60 +1105,198 @@ class AdminHandler:
             logger.error(f"🔥 Ошибка при показе календаря: {e}")
             await update.message.reply_text("❌ Произошла ошибка при загрузке календаря.")
             
-    async def show_tasks_by_date(self, update: Update, context: CallbackContext):
+    async def show_tasks_for_date(self, update: Update, context: CallbackContext):
         """Показывает задачи доставки на выбранную дату"""
         query = update.callback_query
         await query.answer()
+        
         try:
-            # Извлекаем дату из callback_data
-            date_str = query.data.split('_')[-1]
-            # Загружаем задачи доставки
+            date_str = query.data.split('_')[2]
             delivery_tasks = load_delivery_tasks()
-            # Фильтруем задачи по дате
-            tasks_on_date = []
-            for task_id, task in delivery_tasks.items():
-                desired_date = task.get('desired_date', '')
-                if desired_date and date_str in desired_date:
-                    tasks_on_date.append(task)
-            if not tasks_on_date:
-                await query.edit_message_text(
-                    f"📭 На дату {date_str} нет задач доставки."
-                )
-                return
-            # Сортируем задачи по времени
-            tasks_on_date.sort(key=lambda x: x.get('desired_date', ''))
-            # Формируем сообщение с задачами
-            message = f"📅 Задачи доставки на {date_str}:\n\n"
-            for task in tasks_on_date:
-                task_id = task.get('task_id', 'Не указан')
-                request_id = task.get('request_id', 'Не указан')
-                status = task.get('status', 'Не указан')
-                sc_name = task.get('sc_name', 'Не указан')
-                client_name = task.get('client_name', 'Не указан')
-                client_address = task.get('client_address', 'Не указан')
-                delivery_type = "От клиента в СЦ" if task.get('delivery_type') == 'client_to_sc' else "От СЦ клиенту"
-                message += (
-                    f"🔹 Задача #{task_id} (Заявка #{request_id})\n"
-                    f"📋 Статус: {status}\n"
-                    f"🏢 СЦ: {sc_name}\n"
-                    f"👤 Клиент: {client_name}\n"
-                    f"📍 Адрес: {client_address}\n"
-                    f"🚚 Тип: {delivery_type}\n"
-                    f"⏰ Время: {task.get('desired_date', 'Не указано')}\n\n"
-                )
-            # Создаем клавиатуру для возврата к календарю
-            keyboard = [[
-                InlineKeyboardButton("🔙 Назад к календарю", callback_data="back_to_calendar")
-            ]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text(
-                message,
-                reply_markup=reply_markup
-            )
-        except Exception as e:
-            logger.error(f"🔥 Ошибка при показе задач на дату: {e}")
-            await query.edit_message_text("❌ Произошла ошибка при загрузке задач.")
             
+            tasks_for_date = []
+            for task_id, task in delivery_tasks.items():
+                if task.get('desired_date', '').endswith(date_str):
+                    tasks_for_date.append((task_id, task))
+                    
+            if not tasks_for_date:
+                await query.edit_message_text(f"На {date_str} нет задач доставки.")
+                return
+                
+            for task_id, task in tasks_for_date:
+                message_text = (
+                    f"🚚 Задача доставки #{task_id}\n"
+                    f"📅 Дата: {task.get('desired_date', 'Не указана')}\n"
+                    f"📍 Откуда: {task.get('from_location', 'Не указано')}\n"
+                    f"🏁 Куда: {task.get('to_location', 'Не указано')}\n"
+                    f"📦 Описание: {task.get('description', 'Нет описания')}\n"
+                    f"🔄 Статус: {task.get('status', 'Не указан')}"
+                )
+                
+                keyboard = [
+                    [
+                        InlineKeyboardButton("🔄 Изменить дату", callback_data=f"reschedule_delivery_{task_id}"),
+                        InlineKeyboardButton("✅ Подтвердить", callback_data=f"confirm_delivery_{task_id}")
+                    ]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await context.bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text=message_text,
+                    reply_markup=reply_markup
+                )
+                
+        except Exception as e:
+            logger.error(f"Ошибка при показе задач на дату: {e}")
+            await query.edit_message_text("❌ Произошла ошибка при загрузке задач.")
+
+    async def reschedule_delivery(self, update: Update, context: CallbackContext):
+        """Начинает процесс изменения даты доставки"""
+        query = update.callback_query
+        await query.answer()
+        
+        task_id = query.data.split('_')[2]
+        context.user_data['reschedule_task_id'] = task_id
+        
+        # Показываем календарь для выбора новой даты
+        keyboard = []
+        current_date = datetime.now()
+        for i in range(7):
+            date = current_date + timedelta(days=i)
+            date_display = date.strftime("%d.%m (%A)")
+            date_value = date.strftime("%d.%m.%Y")
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"📅 {date_display}",
+                    callback_data=f"select_new_date_{date_value}"
+                )
+            ])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            "Выберите новую дату для задачи доставки:",
+            reply_markup=reply_markup
+        )
+
+    async def select_new_delivery_date(self, update: Update, context: CallbackContext):
+        """Обрабатывает выбор новой даты"""
+        query = update.callback_query
+        await query.answer()
+        
+        new_date = query.data.split('_')[3]
+        context.user_data['new_delivery_date'] = new_date
+        
+        # Показываем доступное время
+        keyboard = []
+        for hour in range(9, 21):
+            time_str = f"{hour:02d}:00"
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"🕒 {time_str}",
+                    callback_data=f"select_new_time_{time_str}"
+                )
+            ])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            "Выберите новое время для задачи доставки:",
+            reply_markup=reply_markup
+        )
+
+    async def select_new_delivery_time(self, update: Update, context: CallbackContext):
+        """Обрабатывает выбор нового времени и отправляет запрос на подтверждение клиенту"""
+        query = update.callback_query
+        await query.answer()
+        logger.info(f"Начало обработки select_new_delivery_time для задачи {query.data}")
+        
+        try:
+            new_time = query.data.split('_')[3]
+            task_id = context.user_data.get('reschedule_task_id')
+            new_date = context.user_data.get('new_delivery_date')
+            
+            logger.debug(f"Получены параметры: new_time={new_time}, task_id={task_id}, new_date={new_date}")
+            
+            if not task_id or not new_date:
+                error_msg = "❌ Ошибка: данные задачи не найдены."
+                logger.error(error_msg)
+                await query.edit_message_text(error_msg)
+                return
+            
+            # Загружаем данные
+            delivery_tasks = load_delivery_tasks()
+            requests_data = load_requests()
+            logger.debug(f"Загружено {len(delivery_tasks)} задач доставки и {len(requests_data)} заявок")
+            
+            if task_id in delivery_tasks:
+                # Получаем request_id из задачи доставки
+                request_id = delivery_tasks[task_id].get('request_id')
+                
+                if not request_id or request_id not in requests_data:
+                    error_msg = f"Не удалось найти связанную заявку для задачи {task_id}"
+                    logger.error(error_msg)
+                    await query.edit_message_text("❌ Ошибка: не найдены данные заявки.")
+                    return
+                    
+                # Получаем user_id из заявки
+                user_id = requests_data[request_id].get('user_id')
+                if not user_id:
+                    error_msg = f"Не удалось найти user_id в заявке {request_id}"
+                    logger.error(error_msg)
+                    await query.edit_message_text("❌ Не удалось найти ID клиента для уведомления.")
+                    return
+                    
+                # Обновляем задачу доставки
+                old_date = delivery_tasks[task_id]['desired_date']
+                delivery_tasks[task_id]['desired_date'] = f"{new_time} {new_date}"
+                delivery_tasks[task_id]['status'] = "Требует согласования"
+                delivery_tasks[task_id]['previous_date'] = old_date
+                delivery_tasks[task_id]['user_id'] = user_id  # Сохраняем user_id в задаче доставки
+                save_delivery_tasks(delivery_tasks)
+                
+                logger.info(f"Задача {task_id} обновлена, старая дата: {old_date}, новая дата: {new_time} {new_date}")
+                logger.debug(f"ID клиента для уведомления: {user_id}")
+                
+                try:
+                    keyboard = [
+                        [
+                            InlineKeyboardButton("✅ Подтвердить", callback_data=f"delivery_confirm_{task_id}"),
+                            InlineKeyboardButton("❌ Отклонить", callback_data=f"delivery_reject_{task_id}")
+                        ]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    message_text = (
+                        f"📅 Администратор предложил новую дату доставки:\n\n"
+                        f"Новая дата: {new_time} {new_date}\n"
+                        f"Предыдущая дата: {old_date}\n\n"
+                        "Пожалуйста, подтвердите или отклоните изменение:"
+                    )
+                    
+                    logger.debug(f"Попытка отправить сообщение клиенту {user_id}")
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text=message_text,
+                        reply_markup=reply_markup
+                    )
+                    logger.info(f"Уведомление успешно отправлено клиенту {user_id}")
+                    
+                    await query.edit_message_text(
+                        f"✅ Запрос на изменение даты отправлен клиенту. Новая дата: {new_time} {new_date}"
+                    )
+                except Exception as e:
+                    error_msg = f"Не удалось уведомить клиента: {e}"
+                    logger.error(error_msg)
+                    await query.edit_message_text("❌ Не удалось отправить уведомление клиенту.")
+            else:
+                error_msg = f"Задача доставки {task_id} не найдена."
+                logger.error(error_msg)
+                await query.edit_message_text("❌ " + error_msg)
+        except Exception as e:
+            error_msg = f"Критическая ошибка в select_new_delivery_time: {e}"
+            logger.error(error_msg, exc_info=True)
+            await query.edit_message_text("❌ Произошла критическая ошибка. Пожалуйста, попробуйте позже.")
+
     async def back_to_calendar(self, update: Update, context: CallbackContext):
         """Возврат к календарю"""
         query = update.callback_query

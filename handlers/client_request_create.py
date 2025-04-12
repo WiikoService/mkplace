@@ -458,7 +458,7 @@ class RequestCreator(ClientHandler):
             "assigned_sc": None,
             "desired_date": desired_date_str,  # Уже строка
             "comment": context.user_data.get("comment", "Не указано"),
-            "created_at": datetime.now().strftime("%H:%M %d-%m-%Y")  # Строка
+            "created_at": datetime.now().strftime("%H:%M %d.%m.%Y")  # Строка
         }
         # Сохраняем заявку
         requests_data[request_id] = request_data

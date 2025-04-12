@@ -8,7 +8,7 @@ from telegram import (
     Bot, Update, ReplyKeyboardMarkup, KeyboardButton,
     InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove
 )
-
+from database import load_delivery_tasks, save_delivery_tasks
 from config import (
     ADMIN_IDS, RATING_SERVICE, FEEDBACK_TEXT, ORDER_STATUS_DELIVERY_TO_SC
 )

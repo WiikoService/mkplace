@@ -1,7 +1,6 @@
 import locale
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
-from handlers.base_handler import BaseHandler
 from database import load_users, save_users, load_service_centers, load_requests, save_requests, load_delivery_tasks, save_delivery_tasks
 from config import ADMIN_IDS, DELIVERY_IDS, REGISTER, ORDER_STATUS_DELIVERY_TO_SC
 import logging
@@ -16,7 +15,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class UserHandler(BaseHandler):
+class UserHandler:
 
     async def start(self, update: Update, context: CallbackContext):
         """
@@ -492,3 +491,61 @@ class UserHandler(BaseHandler):
             )
             return 'SELECT_DELIVERY_TIME'            
         return ConversationHandler.END
+
+    async def handle_client_delivery_confirmation(self, update: Update, context: CallbackContext):
+        """Обрабатывает подтверждение/отклонение новой даты клиентом"""
+        query = update.callback_query
+        await query.answer()
+        
+        action, task_id = query.data.split('_')[1:3]
+        delivery_tasks = load_delivery_tasks()
+        
+        if task_id not in delivery_tasks:
+            await query.edit_message_text("❌ Задача доставки не найдена.")
+            return
+        
+        task = delivery_tasks[task_id]
+        
+        if action == "confirm":
+            # Подтверждаем новую дату
+            task['status'] = "Новая"
+            if 'previous_date' in task:
+                del task['previous_date']  # Удаляем временные данные
+            save_delivery_tasks(delivery_tasks)
+            
+            await query.edit_message_text("✅ Вы подтвердили новую дату доставки.")
+            
+            # Уведомляем администратора
+            try:
+                for admin_id in ADMIN_IDS:
+                    await context.bot.send_message(
+                        chat_id=admin_id,
+                        text=f"Клиент подтвердил новую дату доставки для задачи #{task_id}:\n"
+                            f"Дата: {task['desired_date']}"
+                    )
+            except Exception as e:
+                logger.error(f"Не удалось уведомить администратора: {e}")
+                
+        elif action == "reject":
+            # Возвращаем предыдущую дату
+            if 'previous_date' in task:
+                task['desired_date'] = task['previous_date']
+                del task['previous_date']
+            task['status'] = "Требует изменения"
+            save_delivery_tasks(delivery_tasks)
+            
+            await query.edit_message_text(
+                "❌ Вы отклонили новую дату доставки. Администратор свяжется с вами."
+            )
+            
+            # Уведомляем администратора
+            try:
+                for admin_id in ADMIN_IDS:
+                    await context.bot.send_message(
+                        chat_id=admin_id,
+                        text=f"⚠️ Клиент отклонил новую дату доставки для задачи #{task_id}.\n"
+                            f"Предложенная дата: {task['desired_date']}\n"
+                            f"Требуется ручное вмешательство."
+                    )
+            except Exception as e:
+                logger.error(f"Не удалось уведомить администратора: {e}")

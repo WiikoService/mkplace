@@ -95,7 +95,8 @@ class SCHandler:
             f"👤 Клиент: {request_data['user_name']}\n"
             f"📞 Телефон: {request_data.get('client_phone', 'не указан')}\n"
             f"📝 Описание: {request_data['description']}\n"
-            f"🏠 Адрес: {request_data['location_display']}"
+            f"🏠 Адрес: {request_data['location_display']}\n"
+            f"🕒 Предварительная стоимость: {request_data['delivery_cost']} BYN"
         )
         # Добавляем информацию о цене, если она есть
         if 'final_price' in request_data:
@@ -543,12 +544,18 @@ class SCHandler:
         if "temp_delivery_date" in context.user_data:
             del context.user_data["temp_delivery_date"]
         # Уведомляем администраторов
-        keyboard = [[
+        keyboard = [
+            [
             InlineKeyboardButton(
-                "Создать задачу доставки из СЦ", 
+                "Создать задачу доставки из СЦ",
                 callback_data=f"create_sc_delivery_{request_id}"
             )
-        ]]
+        ],
+        InlineKeyboardButton(
+            "🗓️ Изменить дату",
+            callback_data=f"change_delivery_date_{request_id}"
+        ),
+        ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         admin_message = (
                 f"🔄 Запрос на доставку из СЦ\n\n"
@@ -557,6 +564,7 @@ class SCHandler:
                 f"Дата доставки: {request['delivery_date']}\n"
                 f"Статус: Ожидает доставку из СЦ"
         )
+
         # Отправляем уведомления админам
         notification_sent = False
         for admin_id in ADMIN_IDS:
