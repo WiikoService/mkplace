@@ -210,7 +210,6 @@ class UserHandler(BaseHandler):
                     f"СЦ: {sc_data.get('name', 'Не указан')}\n"
                     f"Адрес клиента: {location_str}"
                 )
-                
                 for admin_id in ADMIN_IDS:
                     try:
                         await context.bot.send_message(
@@ -363,28 +362,23 @@ class UserHandler(BaseHandler):
         """Обработка выбора даты доставки клиентом"""
         # Устанавливаем русскую локаль
         locale.setlocale(locale.LC_TIME, 'ru_RU.UTF-8')
-        
         query = update.callback_query
         await query.answer()
         request_id = query.data.split('_')[-1]
         context.user_data['delivery_request_id'] = request_id
-        
         keyboard = []
         current_date = datetime.now()
-        
         for i in range(3):
             date = current_date + timedelta(days=i)
             # %A будет автоматически использовать русские названия из locale
             date_display = date.strftime("%d.%m (%A)")
             date_value = date.strftime("%H:%M %d.%m.%Y")
-            
             keyboard.append([
                 InlineKeyboardButton(
                     f"📅 {date_display}",
                     callback_data=f"select_delivery_time_{date_value}"
                 )
             ])
-        
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
             f"Выберите удобную дату доставки для заявки #{request_id}:",
@@ -397,7 +391,6 @@ class UserHandler(BaseHandler):
         query = update.callback_query
         await query.answer()
         selected_date_str = query.data.split('_', 3)[3]
-        request_id = context.user_data.get('delivery_request_id')
         try:
             # Сохраняем выбранную дату
             context.user_data["temp_delivery_date"] = selected_date_str

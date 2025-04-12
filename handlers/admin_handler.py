@@ -1,28 +1,25 @@
 import logging
 import json
-from copy import deepcopy
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, InputMediaPhoto, CallbackQuery
 from telegram.ext import CallbackContext, ConversationHandler
-from .base_handler import BaseHandler
 from database import (
     load_delivery_tasks, load_requests, load_service_centers,
     load_users, save_delivery_tasks, save_requests, save_users
 )
 from config import (
-    ASSIGN_REQUEST, ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK,
-    ORDER_STATUS_ASSIGNED_TO_SC, ORDER_STATUS_PICKUP_FROM_SC, ORDER_STATUS_NEW, ORDER_STATUS_DELIVERY_TO_SC, DEBUG
+    ADMIN_IDS, DELIVERY_IDS, CREATE_DELIVERY_TASK,
+    ORDER_STATUS_PICKUP_FROM_SC, ORDER_STATUS_NEW, DEBUG
 )
 from utils import notify_client
 from datetime import datetime
 import os
 from config import DATA_DIR
-from handlers.user_handler import UserHandler
 import time
 from handlers.client_request_create import PrePaymentHandler
 
 logger = logging.getLogger(__name__)
 
-class AdminHandler(BaseHandler):
+class AdminHandler:
 
     async def handle_assign_sc(self, update: Update, context: CallbackContext):
         """Обработка нажатия кнопки 'Привязать к СЦ'"""
@@ -91,7 +88,6 @@ class AdminHandler(BaseHandler):
                             valid_photos.append(InputMediaPhoto(photo))
                         else:
                             logger.warning(f"⚠️ Invalid photo type: {type(photo)}")
-                    
                     if valid_photos:
                         await query.message.reply_media_group(media=valid_photos)
                         logger.debug("🖼️ Photos sent successfully")
@@ -461,7 +457,7 @@ class AdminHandler(BaseHandler):
             )
             await context.bot.send_message(
                 chat_id=request['user_id'],
-                text=f"Ваша заявка #{request_id} была отклонена администратором."
+                text=f"К сожалению мы не можем гарантировать ремонт,\nвы можете обратиться к нашему порталу с услугами\nдля самостоятельного поиска мастерской:\ndombyta.by"
             )
 
     async def handle_block_user(self, update: Update, context: CallbackContext):
@@ -628,11 +624,11 @@ class AdminHandler(BaseHandler):
         # Формируем сообщение
         message = "📊 Статистика обратной связи:\n\n"
         message += f"Всего оценок: {total_ratings}\n"
-        message += f"Средняя оценка: {avg_rating:.1f} ⭐\n\n"
+        message += f"Средняя оценка: {avg_rating:.1f} 🌟\n\n"
         message += "Распределение оценок:\n"
         for rating in range(5, 0, -1):
             count = rating_distribution[rating]
-            stars = "⭐" * rating
+            stars = "🌟" * rating
             message += f"{stars}: {count}\n"
         if reviews:
             message += f"\nВсего отзывов: {len(reviews)}"
@@ -679,73 +675,77 @@ class AdminHandler(BaseHandler):
         await query.edit_message_text(message, reply_markup=reply_markup)
 
     async def show_new_requests(self, update: Update, context: CallbackContext):
-        """Показывает список новых заявок для назначения СЦ"""
+        """Показывает список новых заявок, отсортированных по дате создания (новые сверху)"""
         logger.info("🔍 Показ новых заявок для назначения СЦ")
         try:
             requests_data = load_requests()
-            # Фильтруем только новые заявки
-            new_requests = {
-                rid: req for rid, req in requests_data.items() 
-                if req.get('status') == 'Новая'
-            }
+            # Фильтруем и сортируем заявки
+            new_requests = sorted(
+                (
+                    (rid, req) for rid, req in requests_data.items()
+                    if req.get('status') == 'Новая'
+                ),
+                key=lambda x: datetime.strptime(x[1]['created_at'], "%H:%M %d.%m.%Y"),
+                reverse=True  # Сначала новые
+            )
             if not new_requests:
                 await update.message.reply_text("📭 Нет новых заявок для назначения.")
                 return
             logger.debug(f"📋 Найдено {len(new_requests)} новых заявок")
-            # Отправляем каждую заявку отдельным сообщением с кнопками
-            for request_id, request in new_requests.items():
+            # Отправляем заявки по одной с медиа и кнопками
+            for request_id, request in new_requests:
                 try:
-                    # Формируем сообщение
+                    # Формируем текст сообщения
                     message_text = (
                         f"📦 Заявка #{request_id}\n"
+                        f"📅 Создана: {request['created_at']}\n"
                         f"👤 Клиент: {request.get('user_name', 'Не указан')}\n"
                         f"📱 Телефон: {request.get('user_phone', 'Не указан')}\n"
-                        f"📍 Адрес: {request.get('location', 'Не указан')}\n"
+                        f"📍 Адрес: {request.get('location_display', 'Не указан')}\n"
                         f"📝 Описание: {request.get('description', 'Нет описания')}\n"
+                        f"🕒 Желаемая дата: {request.get('desired_date', 'Не указана')}"
                     )
-                    # Добавляем дату, если она есть
-                    if isinstance(request.get('desired_date'), datetime):
-                        message_text += f"🕒 Желаемая дата: {request['desired_date'].strftime('%d.%m.%Y %H:%M')}"
-                    else:
-                        message_text += f"🕒 Желаемая дата: {request.get('desired_date', 'Не указана')}"
-                    # Создаем клавиатуру с двумя кнопками
+                    # Подготовка кнопок
                     keyboard = [
                         [
-                            InlineKeyboardButton(
-                                "📨 Разослать СЦ",
-                                callback_data=f"send_to_sc_{request_id}"
-                            ),
-                            InlineKeyboardButton(
-                                "❌ Отклонить",
-                                callback_data=f"reject_request_{request_id}"
-                            )
+                            InlineKeyboardButton("📨 Разослать СЦ", callback_data=f"send_to_sc_{request_id}"),
+                            InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_request_{request_id}")
                         ]
                     ]
                     reply_markup = InlineKeyboardMarkup(keyboard)
-                    # Отправляем сообщение
-                    await update.message.reply_text(
+                    # Отправка фотографий (если есть)
+                    photos = request.get('photos', [])
+                    if photos:
+                        try:
+                            media_group = []
+                            for photo in photos[:10]:  # Ограничение на 10 фото
+                                try:
+                                    if os.path.exists(photo):
+                                        with open(photo, 'rb') as f:
+                                            media_group.append(InputMediaPhoto(f.read()))
+                                    else:
+                                        media_group.append(InputMediaPhoto(photo))
+                                except Exception as e:
+                                    logger.error(f"Ошибка обработки фото {photo}: {e}")
+                            if media_group:
+                                await context.bot.send_media_group(
+                                    chat_id=update.effective_chat.id,
+                                    media=media_group
+                                )
+                        except Exception as e:
+                            logger.error(f"Ошибка отправки медиагруппы: {e}")
+                    # Отправка текста с кнопками
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
                         text=message_text,
                         reply_markup=reply_markup
                     )
-                    # Если есть фотографии, отправляем их
-                    photos = request.get('photos', [])
-                    if photos:
-                        media_group = []
-                        for photo in photos:
-                            if isinstance(photo, str):
-                                if os.path.exists(photo):
-                                    with open(photo, 'rb') as photo_file:
-                                        media_group.append(InputMediaPhoto(photo_file.read()))
-                                else:
-                                    media_group.append(InputMediaPhoto(photo))
-                        if media_group:
-                            await update.message.reply_media_group(media=media_group)
                 except Exception as e:
-                    logger.error(f"❌ Ошибка при обработке заявки {request_id}: {e}")
+                    logger.error(f"Ошибка обработки заявки {request_id}: {e}")
                     continue
-            logger.info("✅ Успешно показаны все новые заявки")
+            logger.info(f"✅ Успешно показано {len(new_requests)} заявок")
         except Exception as e:
-            logger.error(f"🔥 Ошибка при показе новых заявок: {e}")
+            logger.error(f"🔥 Ошибка при показе заявок: {e}")
             await update.message.reply_text("❌ Произошла ошибка при загрузке заявок")
 
     async def view_request_chat(self, update: Update, context: CallbackContext):
@@ -858,22 +858,16 @@ class AdminHandler(BaseHandler):
         """Обработка подтверждения цены клиентом (точка входа)"""
         query = update.callback_query
         await query.answer()
-        
         request_id = query.data.split('_')[-1]
         requests_data = load_requests()
-        
         if request_id not in requests_data:
             await query.edit_message_text("❌ Заявка не найдена")
             return ConversationHandler.END
-            
         request = requests_data[request_id]
-        
         # Устанавливаем флаг одобрения цены
         request['price_approved'] = True
         save_requests(requests_data)
-        
         logger.info(f"Клиент подтвердил цену для заявки #{request_id}")
-        
         # Если в режиме отладки, сразу создаем задачу доставки
         if DEBUG:
             # Создаем задачу доставки напрямую через PrePaymentHandler
@@ -883,7 +877,6 @@ class AdminHandler(BaseHandler):
             request['delivery_cost'] = '100.00'
             save_requests(requests_data)
             return await pre_payment_handler.create_delivery_task(update, context, request_id, request)
-        
         # В обычном режиме переходим к созданию платежа
         logger.info(f"Переходим к созданию платежа для заявки #{request_id}")
         pre_payment_handler = PrePaymentHandler()
@@ -1070,38 +1063,31 @@ class AdminHandler(BaseHandler):
             if not delivery_tasks:
                 await update.message.reply_text("📭 Нет активных задач доставки.")
                 return
-                
             # Группируем задачи по дате
             tasks_by_date = {}
             for task_id, task in delivery_tasks.items():
                 desired_date = task.get('desired_date', '')
                 if not desired_date:
-                    continue
-                    
+                    continue 
                 # Пытаемся извлечь дату из строки формата "ЧЧ:ММ ДД.ММ.ГГГГ"
                 try:
                     # Разделяем время и дату
-                    time_part, date_part = desired_date.split(' ')
+                    _, date_part = desired_date.split(' ')
                     # Преобразуем в объект datetime
                     date_obj = datetime.strptime(date_part, "%d.%m.%Y")
                     date_key = date_obj.strftime("%d.%m.%Y")
-                    
                     if date_key not in tasks_by_date:
                         tasks_by_date[date_key] = []
-                    
                     tasks_by_date[date_key].append(task)
                 except (ValueError, IndexError) as e:
                     logger.error(f"Ошибка при обработке даты {desired_date}: {e}")
                     continue
-            
             if not tasks_by_date:
                 await update.message.reply_text("📭 Нет задач доставки с указанной датой.")
                 return
-                
             # Сортируем даты
             sorted_dates = sorted(tasks_by_date.keys(), 
                                 key=lambda x: datetime.strptime(x, "%d.%m.%Y"))
-            
             # Создаем клавиатуру с датами
             keyboard = []
             for date in sorted_dates:
@@ -1113,13 +1099,11 @@ class AdminHandler(BaseHandler):
                     )
                 ]
                 )
-            
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
                 "📅 Выберите дату для просмотра задач доставки:",
                 reply_markup=reply_markup
             )
-            
         except Exception as e:
             logger.error(f"🔥 Ошибка при показе календаря: {e}")
             await update.message.reply_text("❌ Произошла ошибка при загрузке календаря.")
@@ -1128,33 +1112,26 @@ class AdminHandler(BaseHandler):
         """Показывает задачи доставки на выбранную дату"""
         query = update.callback_query
         await query.answer()
-        
         try:
             # Извлекаем дату из callback_data
             date_str = query.data.split('_')[-1]
-            
             # Загружаем задачи доставки
             delivery_tasks = load_delivery_tasks()
-            
             # Фильтруем задачи по дате
             tasks_on_date = []
             for task_id, task in delivery_tasks.items():
                 desired_date = task.get('desired_date', '')
                 if desired_date and date_str in desired_date:
                     tasks_on_date.append(task)
-            
             if not tasks_on_date:
                 await query.edit_message_text(
                     f"📭 На дату {date_str} нет задач доставки."
                 )
                 return
-                
             # Сортируем задачи по времени
             tasks_on_date.sort(key=lambda x: x.get('desired_date', ''))
-            
             # Формируем сообщение с задачами
             message = f"📅 Задачи доставки на {date_str}:\n\n"
-            
             for task in tasks_on_date:
                 task_id = task.get('task_id', 'Не указан')
                 request_id = task.get('request_id', 'Не указан')
@@ -1163,7 +1140,6 @@ class AdminHandler(BaseHandler):
                 client_name = task.get('client_name', 'Не указан')
                 client_address = task.get('client_address', 'Не указан')
                 delivery_type = "От клиента в СЦ" if task.get('delivery_type') == 'client_to_sc' else "От СЦ клиенту"
-                
                 message += (
                     f"🔹 Задача #{task_id} (Заявка #{request_id})\n"
                     f"📋 Статус: {status}\n"
@@ -1173,18 +1149,15 @@ class AdminHandler(BaseHandler):
                     f"🚚 Тип: {delivery_type}\n"
                     f"⏰ Время: {task.get('desired_date', 'Не указано')}\n\n"
                 )
-            
             # Создаем клавиатуру для возврата к календарю
             keyboard = [[
                 InlineKeyboardButton("🔙 Назад к календарю", callback_data="back_to_calendar")
             ]]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
             await query.edit_message_text(
                 message,
                 reply_markup=reply_markup
             )
-            
         except Exception as e:
             logger.error(f"🔥 Ошибка при показе задач на дату: {e}")
             await query.edit_message_text("❌ Произошла ошибка при загрузке задач.")
@@ -1193,6 +1166,5 @@ class AdminHandler(BaseHandler):
         """Возврат к календарю"""
         query = update.callback_query
         await query.answer()
-        
         # Вызываем метод показа календаря
         await self.show_delivery_calendar(query, context)
