@@ -8,6 +8,7 @@ from database import (
 )
 from utils import notify_client
 import logging
+from logging_decorator import log_method_call
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +16,7 @@ logger = logging.getLogger(__name__)
 class SCItemHandler(SCHandler):
     """Обработчик для управления приёмкой товаров в сервисном центре"""
 
+    @log_method_call
     async def handle_item_acceptance(self, update: Update, context: CallbackContext):
         """Обработка принятия товара СЦ"""
         query = update.callback_query
@@ -55,6 +57,7 @@ class SCItemHandler(SCHandler):
             )
             return ConversationHandler.END
 
+    @log_method_call
     async def handle_photo_upload(self, update: Update, context: CallbackContext):
         """Обработка загрузки фото товара"""
         logger.info("Получено фото от пользователя: %s", update.effective_user.id)
@@ -83,6 +86,7 @@ class SCItemHandler(SCHandler):
         await update.message.reply_text("Фото добавлено. Когда закончите, нажмите\n\n/DONE")
         return CREATE_REQUEST_PHOTOS
 
+    @log_method_call
     async def handle_photos_done(self, update: Update, context: CallbackContext):
         """Завершение загрузки фотографий СЦ"""
         try:
@@ -179,6 +183,7 @@ class SCItemHandler(SCHandler):
             await update.message.reply_text("⚠️ Произошла критическая ошибка. Обратитесь к администратору.")
             return ConversationHandler.END
 
+    @log_method_call
     async def handle_reject_reason(self, update: Update, context: CallbackContext):
         """Обработка причины отказа в приеме товара"""
         query = update.callback_query

@@ -21,6 +21,7 @@ from datetime import datetime
 from smsby import SMSBY
 
 from utils import notify_client
+from logging_decorator import log_method_call
 
 # TODO: сделать смс - отдельным методом (не срочно) ИЛИ сделать отдельным потоком
 
@@ -29,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 class DeliveryHandler(BaseHandler):
 
+    @log_method_call
     async def show_delivery_profile(self, update: Update, context: CallbackContext):
         """Отображение профиля доставщика."""
         user_id = str(update.effective_user.id)
@@ -115,6 +117,7 @@ class DeliveryHandler(BaseHandler):
             logger.error(f"Ошибка при показе заданий: {e}")
             await update.message.reply_text("Произошла ошибка при загрузке заданий.")
 
+    @log_method_call
     async def handle_task_callback(self, update: Update, context: CallbackContext):
         """Обработка нажатий на кнопки в заданиях доставщика."""
         query = update.callback_query
@@ -124,16 +127,20 @@ class DeliveryHandler(BaseHandler):
         task_details = f"Детали задачи №{task_id}\n..."  # Замените это на реальные данные
         await query.edit_message_text(text=task_details)
 
+    @log_method_call
     async def accept_delivery(self, update: Update, context: CallbackContext):
         """Принятие задачи доставщиком."""
         query = update.callback_query
         await query.answer()
+        
         try:
             # Получаем ID заявки из callback_data
             request_id = query.data.split('_')[-1]
+            
             # Загружаем данные
             requests_data = load_requests()
             delivery_tasks = load_delivery_tasks()
+            
             # Находим задачу с указанным request_id
             task_id = None
             task_data = None
@@ -142,29 +149,37 @@ class DeliveryHandler(BaseHandler):
                     task_id = task_key
                     task_data = task
                     break
+                    
+            # Проверяем, что задача найдена
             if not task_id or not task_data:
-                await query.edit_message_text("❌ Задание не найдено или уже принято другим доставщиком.")
+                logger.error(f"Задача доставки не найдена для request_id: {request_id}")
+                await query.edit_message_text("❌ Задача доставки не найдена или уже принята другим доставщиком.")
                 return
+                
             # Получаем информацию о доставщике
-            user_id = update.effective_user.id
+            user_id = str(update.effective_user.id)
             user_name = update.effective_user.first_name
-            # Проверяем тип доставки
+            
+            # Проверяем тип доставки с защитой от None
             is_sc_to_client = task_data.get('is_sc_to_client', False)
             delivery_type = task_data.get('delivery_type', '')
+            
             # Обновляем статус задачи
             task_data['status'] = 'В процессе'
-            task_data['assigned_delivery_id'] = str(user_id)
+            task_data['assigned_delivery_id'] = user_id
             task_data['assigned_delivery_name'] = user_name
             delivery_tasks[task_id] = task_data
             save_delivery_tasks(delivery_tasks)
+            
             # Обновляем статус заявки
             if request_id in requests_data:
                 if is_sc_to_client or delivery_type == 'sc_to_client':
                     requests_data[request_id]['status'] = ORDER_STATUS_PICKUP_FROM_SC
                 else:
                     requests_data[request_id]['status'] = ORDER_STATUS_DELIVERY_TO_SC
-                requests_data[request_id]['assigned_delivery'] = str(user_id)
+                requests_data[request_id]['assigned_delivery'] = user_id
                 save_requests(requests_data)
+                
             # Формируем сообщение и клавиатуру для доставщика
             if is_sc_to_client or delivery_type == 'sc_to_client':
                 # Доставка из СЦ клиенту
@@ -187,8 +202,8 @@ class DeliveryHandler(BaseHandler):
                 )
                 keyboard = [[
                     InlineKeyboardButton(
-                        "✅ Забрал из СЦ", 
-                        callback_data=f"picked_up_from_sc_{request_id}"
+                        "✅ Забрал из СЦ",
+                        callback_data=f"sc_delivery_accept_{task_id}"
                     )
                 ]]
             else:
@@ -217,35 +232,40 @@ class DeliveryHandler(BaseHandler):
                         callback_data=f"confirm_pickup_{request_id}"
                     )
                 ]]
+                
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text(message, reply_markup=reply_markup)
+            
             # Уведомляем всех остальных доставщиков
             await self.update_delivery_messages(context.bot, task_id, task_data)
+            
             # Уведомляем клиента или СЦ в зависимости от типа доставки
-            if is_sc_to_client or delivery_type == 'sc_to_client':
-                # Уведомляем клиента, что заказ принят в доставку из СЦ
-                client_id = requests_data[request_id].get('user_id')
-                if client_id:
-                    client_message = (
-                        f"🚚 Доставщик принял ваш заказ №{request_id} и направляется в сервисный центр.\n"
-                        f"Скоро ваше устройство будет у вас!"
-                    )
-                    await context.bot.send_message(
-                        chat_id=client_id,
-                        text=client_message
-                    )
-            else:
-                # Уведомляем клиента, что заказ принят в доставку от клиента в СЦ
-                client_id = requests_data[request_id].get('user_id')
-                if client_id:
-                    client_message = (
-                        f"🚚 Доставщик принял ваш заказ №{request_id} и направляется к вам.\n"
-                        f"Ожидайте доставщика по адресу: {task_data.get('client_address', 'указанному в заказе')}."
-                    )
-                    await context.bot.send_message(
-                        chat_id=client_id,
-                        text=client_message
-                    )
+            if request_id in requests_data:  # Добавляем проверку на существование заявки
+                if is_sc_to_client or delivery_type == 'sc_to_client':
+                    # Уведомляем клиента, что заказ принят в доставку из СЦ
+                    client_id = requests_data[request_id].get('user_id')
+                    if client_id:
+                        client_message = (
+                            f"🚚 Доставщик принял ваш заказ №{request_id} и направляется в сервисный центр.\n"
+                            f"Скоро ваше устройство будет у вас!"
+                        )
+                        await context.bot.send_message(
+                            chat_id=client_id,
+                            text=client_message
+                        )
+                else:
+                    # Уведомляем клиента, что заказ принят в доставку от клиента в СЦ
+                    client_id = requests_data[request_id].get('user_id')
+                    if client_id:
+                        client_message = (
+                            f"🚚 Доставщик принял ваш заказ №{request_id} и направляется к вам.\n"
+                            f"Ожидайте доставщика по адресу: {task_data.get('client_address', 'указанному в заказе')}."
+                        )
+                        await context.bot.send_message(
+                            chat_id=client_id,
+                            text=client_message
+                        )
+                        
             # Уведомляем администраторов
             user = load_users().get(str(query.from_user.id), {})
             delivery_name = user.get('name', user_name)
@@ -254,17 +274,19 @@ class DeliveryHandler(BaseHandler):
                 f"✅ Заказ №{request_id} принят доставщиком.\n"
                 f"Доставщик: {delivery_name} - {delivery_phone}\n"
                 f"Тип: {'Доставка из СЦ клиенту' if is_sc_to_client or delivery_type == 'sc_to_client' else 'Доставка от клиента в СЦ'}\n"
-                f"Статус: {requests_data[request_id]['status']}"
+                f"Статус: {requests_data.get(request_id, {}).get('status', 'Неизвестно')}"
             )
             for admin_id in ADMIN_IDS:
                 await context.bot.send_message(
                     chat_id=admin_id,
                     text=admin_message
-                )   
+                )
+                
         except Exception as e:
-            logger.error(f"Ошибка при принятии задания доставки: {e}")
+            logger.error(f"Ошибка при принятии задания доставки: {e}", exc_info=True)
             await query.edit_message_text("❌ Произошла ошибка при принятии задания. Пожалуйста, попробуйте еще раз.")
 
+    @log_method_call
     async def handle_confirm_pickup(self, update: Update, context: CallbackContext):
         """
         Обработка подтверждения(отказа) передачи предмета клиентом
@@ -288,6 +310,7 @@ class DeliveryHandler(BaseHandler):
         else:
             await query.edit_message_text("Произошла ошибка. Заказ не найден.")
 
+    @log_method_call
     async def handle_client_confirmation(self, update: Update, context: CallbackContext):
         """Обработка подтверждения/отказа клиента о получении товара"""
         query = update.callback_query
@@ -506,6 +529,7 @@ class DeliveryHandler(BaseHandler):
             logger.error(f"Ошибка при обработке подтверждения клиента: {e}")
             await query.edit_message_text("❌ Произошла ошибка при обработке вашего запроса.")
 
+    @log_method_call
     async def pickup_client_code_confirmation(self, update: Update, context: CallbackContext):
         """Обработка проверки кода подтверждения, вводимого клиентом"""
         try:
@@ -585,6 +609,7 @@ class DeliveryHandler(BaseHandler):
             await update.message.reply_text("❌ Произошла ошибка при проверке кода.")
             return ConversationHandler.END
 
+    @log_method_call
     async def handle_delivered_to_sc(self, update: Update, context: CallbackContext):
         """Обработка передачи предмета в Сервисный Центр."""
         query = update.callback_query
@@ -598,6 +623,7 @@ class DeliveryHandler(BaseHandler):
         context.user_data['current_request'] = request_id
         return CREATE_REQUEST_PHOTOS
 
+    @log_method_call
     async def handle_delivery_photo(self, update: Update, context: CallbackContext):
         """Обработка фотографий от доставщика"""
         if 'photos_to_sc' not in context.user_data:
@@ -610,6 +636,7 @@ class DeliveryHandler(BaseHandler):
         await update.message.reply_text("Фото добавлено. Когда закончите, нажмите\n\n/DONE")
         return CREATE_REQUEST_PHOTOS
 
+    @log_method_call
     async def handle_delivery_photos_done(self, update: Update, context: CallbackContext):
         try:
             request_id = context.user_data.get('current_request')
@@ -686,6 +713,7 @@ class DeliveryHandler(BaseHandler):
             await update.message.reply_text("Произошла ошибка при обработке фотографий")
             return ConversationHandler.END
 
+    @log_method_call
     async def update_delivery_messages(self, bot, task_id, task_data):
         """Обновляет сообщения для других доставщиков"""
         try:
@@ -707,6 +735,7 @@ class DeliveryHandler(BaseHandler):
         except Exception as e:
             logger.error(f"Ошибка при обновлении сообщений доставщиков: {e}")
 
+    @log_method_call
     async def show_available_tasks(self, update: Update, context: CallbackContext):
         """Показать доступные задания доставки"""
         try:
@@ -790,6 +819,7 @@ class DeliveryHandler(BaseHandler):
             logger.error(f"Ошибка при показе доступных заданий: {e}")
             await update.message.reply_text("Произошла ошибка при загрузке заданий.")
 
+    @log_method_call
     async def show_my_tasks(self, update: Update, context: CallbackContext):
         """Показать мои активные задания"""
         try:
@@ -856,6 +886,7 @@ class DeliveryHandler(BaseHandler):
             logger.error(f"Ошибка при показе заданий: {e}")
             await update.message.reply_text("Произошла ошибка при загрузке заданий.")
 
+    @log_method_call
     async def handle_confirmation_code(self, update: Update, context: CallbackContext):
         """Обработка ввода кода подтверждения"""
         entered_code = update.message.text.strip()
@@ -904,6 +935,7 @@ class DeliveryHandler(BaseHandler):
             await update.message.reply_text("Неверный код. Попробуйте еще раз:")
             return ENTER_CONFIRMATION_CODE
 
+    @log_method_call
     async def handle_transfer_to_sc(self, update: Update, context: CallbackContext):
         """Обработка передачи товара в СЦ"""
         try:
@@ -944,6 +976,7 @@ class DeliveryHandler(BaseHandler):
             logger.error(f"Ошибка при показе заданий для передачи в СЦ: {e}")
             await update.message.reply_text("Произошла ошибка при загрузке заданий.")
 
+    @log_method_call
     async def cancel_delivery(self, update: Update, context: CallbackContext):
         """
         Отмена текущей операции доставки
@@ -976,6 +1009,7 @@ class DeliveryHandler(BaseHandler):
                 logger.error(f"Не удалось отправить сообщение об ошибке: {fallback_error}")
         return ConversationHandler.END
 
+    @log_method_call
     async def handle_pickup_photo(self, update: Update, context: CallbackContext):
         """Обработка фотографий при получении товара"""
         if 'pickup_photos' not in context.user_data:
@@ -988,6 +1022,7 @@ class DeliveryHandler(BaseHandler):
         await update.message.reply_text("Фото добавлено. Когда закончите, нажмите\n\n/DONE")
         return CREATE_REQUEST_PHOTOS
 
+    @log_method_call
     async def handle_pickup_photos_done(self, update: Update, context: CallbackContext):
         """Завершение процесса фотографирования при получении товара"""
         try:

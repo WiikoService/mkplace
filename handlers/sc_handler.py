@@ -20,7 +20,7 @@ from database import (
 from utils import notify_client
 import logging
 from handlers.sc_price_handler import SCPriceHandler
-
+from logging_decorator import log_method_call
 logger = logging.getLogger(__name__)
 
 
@@ -28,6 +28,7 @@ class SCHandler(BaseHandler):
     def __init__(self):
         self.price_handler = SCPriceHandler()
 
+    @log_method_call
     async def show_sc_menu(self, update: Update, context: CallbackContext):
         keyboard = [
             ["Заявки центра", "Отправить в доставку"],
@@ -37,6 +38,7 @@ class SCHandler(BaseHandler):
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         await update.message.reply_text("Меню СЦ:", reply_markup=reply_markup)
 
+    @log_method_call
     async def set_sc_requests(self, update: Update, context: CallbackContext):
         """Показывает список заявок сервисного центра"""
         try:
@@ -75,6 +77,7 @@ class SCHandler(BaseHandler):
             await update.effective_message.reply_text("⚠️ Произошла ошибка при загрузке заявок")
             return ConversationHandler.END
 
+    @log_method_call
     async def choose_requests(self, update: Update, context: CallbackContext):
         """
         Обработчик выбора заявки
@@ -116,12 +119,14 @@ class SCHandler(BaseHandler):
         ]
         await query.edit_message_text(message_text, reply_markup=InlineKeyboardMarkup(keyboard))
 
+    @log_method_call
     async def handle_back_to_list(self, update: Update, context: CallbackContext):
         """Возвращает пользователя к списку заявок"""
         query = update.callback_query
         await query.answer()
         await self.set_sc_requests(update, context)
 
+    @log_method_call
     async def sc_to_user_chat(self, update: Update, context: CallbackContext):
         """Инициализация чата с клиентом"""
         query = update.callback_query
@@ -154,6 +159,7 @@ class SCHandler(BaseHandler):
         )
         return 'HANDLE_SC_CHAT'
 
+    @log_method_call
     async def handle_sc_chat(self, update: Update, context: CallbackContext):
         """Обработка сообщений от СЦ"""
         message = update.message
@@ -200,6 +206,7 @@ class SCHandler(BaseHandler):
             await message.reply_text("❌ Не удалось отправить сообщение")
         return 'HANDLE_SC_CHAT'
 
+    @log_method_call
     async def handle_client_reply(self, update: Update, context: CallbackContext):
         """Обработка ответов клиента с очисткой контекста"""
         query = update.callback_query
@@ -231,6 +238,7 @@ class SCHandler(BaseHandler):
         )
         return 'HANDLE_CLIENT_REPLY'
 
+    @log_method_call
     async def handle_client_message(self, update: Update, context: CallbackContext):
         """Обработка сообщений с валидацией контекста и кнопкой выхода"""
         message = update.message
@@ -275,6 +283,7 @@ class SCHandler(BaseHandler):
             await message.reply_text("❌ Ошибка отправки")
         return 'HANDLE_CLIENT_REPLY'
 
+    @log_method_call
     def save_chat_history(self, request_id, sender, message, timestamp):
         """Сохранение истории переписки"""
         chat_history = load_chat_history()
@@ -288,6 +297,7 @@ class SCHandler(BaseHandler):
         chat_history[request_id].append(entry)
         save_chat_history(chat_history)
 
+    @log_method_call
     async def close_chat(self, update: Update, context: CallbackContext):
         """Закрытие чата"""
         query = update.callback_query
@@ -296,6 +306,7 @@ class SCHandler(BaseHandler):
         await query.edit_message_text("Чат закрыт")
         return ConversationHandler.END
 
+    @log_method_call
     async def cancel_client_chat(self, update: Update, context: CallbackContext):
         """Отмена чата клиентом"""
         query = update.callback_query
@@ -304,6 +315,7 @@ class SCHandler(BaseHandler):
         await query.edit_message_text("✅ Отправка сообщения отменена")
         return ConversationHandler.END
 
+    @log_method_call
     async def show_chat_history(self, update: Update, context: CallbackContext):
         """Показывает историю переписки по заявке"""
         query = update.callback_query
@@ -332,6 +344,7 @@ class SCHandler(BaseHandler):
         await query.edit_message_text("✍️ Введите комментарий для заявки:")
         return 'HANDLE_SC_COMMENT'
 
+    @log_method_call
     async def save_comment(self, update: Update, context: CallbackContext):
         """Отправляет комментарий на согласование администратору"""
         user_comment = update.message.text
@@ -390,6 +403,7 @@ class SCHandler(BaseHandler):
             await update.message.reply_text("❌ Заявка не найдена")
         return ConversationHandler.END
 
+    @log_method_call
     async def assign_to_delivery(self, update: Update, context: CallbackContext):
         """Назначить товар в доставку из СЦ"""
         users_data = load_users()
@@ -420,6 +434,7 @@ class SCHandler(BaseHandler):
         )
         return SC_ASSIGN_REQUESTS
 
+    @log_method_call
     async def handle_sc_delivery_request(self, update: Update, context: CallbackContext):
         """Обработка выбора заявки для отправки в доставку из СЦ"""
         query = update.callback_query
@@ -476,6 +491,7 @@ class SCHandler(BaseHandler):
         )
         return ConversationHandler.END
 
+    @log_method_call
     async def handle_sc_date_selection(self, update: Update, context: CallbackContext):
         """Обработка выбора даты доставки"""
         query = update.callback_query
@@ -502,6 +518,7 @@ class SCHandler(BaseHandler):
         )
         return 'SC_SELECT_DELIVERY_TIME'
 
+    @log_method_call
     async def handle_sc_time_selection(self, update: Update, context: CallbackContext):
         """Обработка выбора времени доставки"""
         query = update.callback_query
@@ -569,6 +586,7 @@ class SCHandler(BaseHandler):
         )    
         return ConversationHandler.END
 
+    @log_method_call
     async def call_to_admin(self, update: Update, context: CallbackContext):
         """Связаться с администратором"""
         user_id = str(update.effective_user.id)
@@ -602,15 +620,18 @@ class SCHandler(BaseHandler):
             "✅ Запрос отправлен администраторам. Ожидайте ответа."
         )
 
+    @log_method_call
     async def docs(self, update: Update, context: CallbackContext):
         """Отображение документов в разработке в целом"""
         await update.message.reply_text("📄 Этот раздел находится в разработке. Пожалуйста, следите за обновлениями!")
 
+    @log_method_call
     async def cancel(self, update: Update, context: CallbackContext):
         """Отмена операции."""
         await update.message.reply_text("Операция отменена.")
         return ConversationHandler.END
 
+    @log_method_call
     async def handle_request_notification(self, update: Update, context: CallbackContext):
         """Обработка уведомления о новой заявке"""
         query = update.callback_query
@@ -662,53 +683,50 @@ class SCHandler(BaseHandler):
             await query.edit_message_text("Произошла ошибка при обработке запроса")
             return ConversationHandler.END
 
+    @log_method_call
     async def handle_repair_price(self, update: Update, context: CallbackContext):
-        """Обработка ввода стоимости ремонта"""       
-        # Проверяем, что это обработчик для ввода стоимости
+        """Обработка ввода стоимости ремонта"""
+        # Проверка состояния (если не используется ConversationHandler)
         if not context.user_data.get('waiting_for_price'):
-            # Если не ожидаем ввод стоимости, то игнорируем сообщение
+            return  # Игнорируем, если не ожидаем цену
+
+        price_text = update.message.text.strip()
+        
+        # Доп. проверка, что введено число (хотя фильтр уже это гарантирует)
+        if not price_text.isdigit():
+            await update.message.reply_text("❌ Введите только цифры (например: 150)")
             return
-        try:
-            # Сохраняем оригинальный текст вместо преобразования в число
-            price_text = update.message.text.strip()
-            request_id = context.user_data.get('current_request')
-            if not request_id:
-                await update.message.reply_text("❌ Произошла ошибка, запрос не найден")
-                context.user_data.pop('waiting_for_price', None)
-                context.user_data.pop('price_entry_time', None)
-                return
-            # Сохраняем стоимость в контексте без преобразования в число
-            context.user_data['repair_price_text'] = price_text
-            # Сбрасываем флаг ожидания стоимости
+
+        request_id = context.user_data.get('current_request')
+        if not request_id:
+            await update.message.reply_text("❌ Ошибка: запрос не найден")
             context.user_data.pop('waiting_for_price', None)
-            context.user_data.pop('price_entry_time', None)
-            # Получаем данные заявки
-            requests_data = load_requests()
-            request = requests_data.get(request_id)
-            if not request:
-                await update.message.reply_text("❌ Заявка не найдена")
-                return
-            # Формируем сообщение с информацией и кнопкой подтверждения
-            message_text = (
-                f"📦 Заявка #{request_id}\n"
-                f"📝 Описание: {request.get('description', 'Нет описания')}\n"
-                f"💰 Указанная стоимость: {price_text} BYN\n\n"
-                f"Нажмите кнопку ниже, чтобы подтвердить принятие заявки с указанной стоимостью:"
-            )
-            keyboard = [[
+            return
+
+        # Сохраняем цену и сбрасываем флаг
+        context.user_data['repair_price_text'] = price_text
+        context.user_data.pop('waiting_for_price', None)
+
+        # Формируем ответ
+        request = load_requests().get(request_id)
+        if not request:
+            await update.message.reply_text("❌ Заявка не найдена")
+            return
+
+        await update.message.reply_text(
+            f"📦 Заявка #{request_id}\n"
+            f"📝 Описание: {request.get('description', 'Нет описания')}\n"
+            f"💰 Стоимость: {price_text} BYN\n\n"
+            "Подтвердите принятие:",
+            reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton(
-                    "✅ Принять с указанной стоимостью",
+                    "✅ Принять",
                     callback_data=f"accept_request_price_{request_id}"
                 )
-            ]]
-            # Отправляем сообщение с кнопкой подтверждения
-            await update.message.reply_text(
-                message_text,
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-        except Exception as e:
-            await update.message.reply_text("❌ Пожалуйста, введите корректную стоимость")
+            ]])
+        )
 
+    @log_method_call
     async def confirm_repair_price(self, update: Update, context: CallbackContext):
         """Подтверждение стоимости ремонта и принятие заявки"""           
         query = update.callback_query
@@ -786,6 +804,7 @@ class SCHandler(BaseHandler):
             logger.error(f"Ошибка при обработке подтверждения: {e}")
             await query.edit_message_text(f"❌ Произошла ошибка: {str(e)}")
 
+    @log_method_call
     async def create_return_delivery(self, update: Update, context: CallbackContext):
         """Создание задачи доставки из СЦ клиенту после ремонта"""
         query = update.callback_query
