@@ -85,18 +85,21 @@ class SCHandler:
         await query.answer()
         request_id = query.data.split('_')[-1]
         sc_requests = context.user_data.get('sc_requests', {})
+        
         if request_id not in sc_requests:
             await query.edit_message_text("❌ Заявка не найдена")
             return
         request_data = sc_requests[request_id]
+        # Получаем локацию (теперь это строка, а не словарь)
+        location = request_data.get('location', 'Адрес не указан')
         message_text = (
             f"📌 Заявка #{request_id}\n"
             f"🔧 Статус: {request_data['status']}\n"
             f"👤 Клиент: {request_data['user_name']}\n"
-            f"📞 Телефон: {request_data.get('client_phone', 'не указан')}\n"
+            f"📞 Телефон: {request_data.get('user_phone', 'не указан')}\n"
             f"📝 Описание: {request_data['description']}\n"
-            f"🏠 Адрес: {request_data['location_display']}\n"
-            f"🕒 Предварительная стоимость: {request_data['delivery_cost']} BYN"
+            f"🏠 Адрес: {location}\n"  # Используем строку напрямую
+            f"🕒 Предварительная стоимость: {request_data.get('delivery_cost', '0')} BYN"
         )
         # Добавляем информацию о цене, если она есть
         if 'final_price' in request_data:
@@ -116,7 +119,10 @@ class SCHandler:
             [InlineKeyboardButton("💰 Подтверждение цены", callback_data=f"confirm_price_{request_id}")],
             [InlineKeyboardButton("🔙 Вернуться к списку", callback_data="sc_back_to_list")]
         ]
-        await query.edit_message_text(message_text, reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text(
+            text=message_text,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
     @log_method_call
     async def handle_back_to_list(self, update: Update, context: CallbackContext):

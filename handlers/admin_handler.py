@@ -1137,30 +1137,40 @@ class AdminHandler:
         """Показывает задачи доставки на выбранную дату"""
         query = update.callback_query
         await query.answer()
-        
         try:
             date_str = query.data.split('_')[2]
             delivery_tasks = load_delivery_tasks()
-            
             tasks_for_date = []
+            # Собираем задачи для выбранной даты
             for task_id, task in delivery_tasks.items():
                 if task.get('desired_date', '').endswith(date_str):
                     tasks_for_date.append((task_id, task))
-                    
             if not tasks_for_date:
                 await query.edit_message_text(f"На {date_str} нет задач доставки.")
                 return
-                
             for task_id, task in tasks_for_date:
+                # Определяем направление доставки
+                if task.get('delivery_type') == 'sc_to_client':
+                    from_location = task.get('sc_address', 'Адрес СЦ не указан')
+                    to_location = task.get('client_address', 'Адрес клиента не указан')
+                    delivery_direction = "🚗 СЦ → Клиент"
+                else:  # client_to_sc или другие типы
+                    from_location = task.get('client_address', 'Адрес клиента не указан')
+                    to_location = task.get('sc_address', 'Адрес СЦ не указан')
+                    delivery_direction = "🚙 Клиент → СЦ"
+                # Формируем сообщение
                 message_text = (
-                    f"🚚 Задача доставки #{task_id}\n"
+                    f"📌 Задача #{task_id} (Заявка #{task.get('request_id', '?')})\n"
                     f"📅 Дата: {task.get('desired_date', 'Не указана')}\n"
-                    f"📍 Откуда: {task.get('from_location', 'Не указано')}\n"
-                    f"🏁 Куда: {task.get('to_location', 'Не указано')}\n"
+                    f"🔀 Тип: {delivery_direction}\n"
+                    f"📍 Откуда: {from_location}\n"
+                    f"🏁 Куда: {to_location}\n"
+                    f"👤 Клиент: {task.get('client_name', 'Не указан')}\n"
+                    f"📞 Телефон: {task.get('client_phone', 'Не указан')}\n"
                     f"📦 Описание: {task.get('description', 'Нет описания')}\n"
                     f"🔄 Статус: {task.get('status', 'Не указан')}"
                 )
-                
+                # Кнопки управления
                 keyboard = [
                     [
                         InlineKeyboardButton("🔄 Изменить дату", callback_data=f"reschedule_delivery_{task_id}"),
@@ -1168,13 +1178,11 @@ class AdminHandler:
                     ]
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
-                
                 await context.bot.send_message(
                     chat_id=query.message.chat_id,
                     text=message_text,
                     reply_markup=reply_markup
                 )
-                
         except Exception as e:
             logger.error(f"Ошибка при показе задач на дату: {e}")
             await query.edit_message_text("❌ Произошла ошибка при загрузке задач.")
@@ -1184,10 +1192,8 @@ class AdminHandler:
         """Начинает процесс изменения даты доставки"""
         query = update.callback_query
         await query.answer()
-        
         task_id = query.data.split('_')[2]
         context.user_data['reschedule_task_id'] = task_id
-        
         # Показываем календарь для выбора новой даты
         keyboard = []
         current_date = datetime.now()
@@ -1201,7 +1207,6 @@ class AdminHandler:
                     callback_data=f"select_new_date_{date_value}"
                 )
             ])
-        
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
             "Выберите новую дату для задачи доставки:",
@@ -1213,10 +1218,8 @@ class AdminHandler:
         """Обрабатывает выбор новой даты"""
         query = update.callback_query
         await query.answer()
-        
         new_date = query.data.split('_')[3]
         context.user_data['new_delivery_date'] = new_date
-        
         # Показываем доступное время
         keyboard = []
         for hour in range(9, 21):
@@ -1227,7 +1230,6 @@ class AdminHandler:
                     callback_data=f"select_new_time_{time_str}"
                 )
             ])
-        
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
             "Выберите новое время для задачи доставки:",
@@ -1240,35 +1242,28 @@ class AdminHandler:
         query = update.callback_query
         await query.answer()
         logger.info(f"Начало обработки select_new_delivery_time для задачи {query.data}")
-        
         try:
             new_time = query.data.split('_')[3]
             task_id = context.user_data.get('reschedule_task_id')
             new_date = context.user_data.get('new_delivery_date')
-            
             logger.debug(f"Получены параметры: new_time={new_time}, task_id={task_id}, new_date={new_date}")
-            
             if not task_id or not new_date:
                 error_msg = "❌ Ошибка: данные задачи не найдены."
                 logger.error(error_msg)
                 await query.edit_message_text(error_msg)
                 return
-            
             # Загружаем данные
             delivery_tasks = load_delivery_tasks()
             requests_data = load_requests()
             logger.debug(f"Загружено {len(delivery_tasks)} задач доставки и {len(requests_data)} заявок")
-            
             if task_id in delivery_tasks:
                 # Получаем request_id из задачи доставки
                 request_id = delivery_tasks[task_id].get('request_id')
-                
                 if not request_id or request_id not in requests_data:
                     error_msg = f"Не удалось найти связанную заявку для задачи {task_id}"
                     logger.error(error_msg)
                     await query.edit_message_text("❌ Ошибка: не найдены данные заявки.")
                     return
-                    
                 # Получаем user_id из заявки
                 user_id = requests_data[request_id].get('user_id')
                 if not user_id:
@@ -1276,7 +1271,6 @@ class AdminHandler:
                     logger.error(error_msg)
                     await query.edit_message_text("❌ Не удалось найти ID клиента для уведомления.")
                     return
-                    
                 # Обновляем задачу доставки
                 old_date = delivery_tasks[task_id]['desired_date']
                 delivery_tasks[task_id]['desired_date'] = f"{new_time} {new_date}"
@@ -1284,10 +1278,8 @@ class AdminHandler:
                 delivery_tasks[task_id]['previous_date'] = old_date
                 delivery_tasks[task_id]['user_id'] = user_id  # Сохраняем user_id в задаче доставки
                 save_delivery_tasks(delivery_tasks)
-                
                 logger.info(f"Задача {task_id} обновлена, старая дата: {old_date}, новая дата: {new_time} {new_date}")
                 logger.debug(f"ID клиента для уведомления: {user_id}")
-                
                 try:
                     keyboard = [
                         [
@@ -1296,14 +1288,12 @@ class AdminHandler:
                         ]
                     ]
                     reply_markup = InlineKeyboardMarkup(keyboard)
-                    
                     message_text = (
                         f"📅 Администратор предложил новую дату доставки:\n\n"
                         f"Новая дата: {new_time} {new_date}\n"
                         f"Предыдущая дата: {old_date}\n\n"
                         "Пожалуйста, подтвердите или отклоните изменение:"
                     )
-                    
                     logger.debug(f"Попытка отправить сообщение клиенту {user_id}")
                     await context.bot.send_message(
                         chat_id=user_id,
@@ -1311,7 +1301,6 @@ class AdminHandler:
                         reply_markup=reply_markup
                     )
                     logger.info(f"Уведомление успешно отправлено клиенту {user_id}")
-                    
                     await query.edit_message_text(
                         f"✅ Запрос на изменение даты отправлен клиенту. Новая дата: {new_time} {new_date}"
                     )
@@ -1333,5 +1322,4 @@ class AdminHandler:
         """Возврат к календарю"""
         query = update.callback_query
         await query.answer()
-        # Вызываем метод показа календаря
         await self.show_delivery_calendar(query, context)

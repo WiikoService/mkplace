@@ -661,9 +661,14 @@ class PrePaymentHandler(ClientHandler):
         requests_data = load_requests()
         delivery_tasks = load_delivery_tasks()
         service_centers = load_service_centers()
+        
         # Получаем СЦ
         sc_id = request.get('assigned_sc')
         sc_data = service_centers.get(sc_id, {})
+        
+        # Получаем адрес клиента (учитываем новый формат location как строку)
+        client_address = request.get('location', 'Не указан')  # Теперь location — это строка
+        
         # Создаем задачу доставки
         new_task_id = str(len(delivery_tasks) + 1)
         delivery_cost = Decimal(request.get('delivery_cost', '0'))
@@ -674,7 +679,7 @@ class PrePaymentHandler(ClientHandler):
             'sc_name': sc_data.get('name', 'Не указан'),
             'sc_address': sc_data.get('address', 'Не указан'),
             'client_name': request.get('user_name', 'Не указан'),
-            'client_address': request.get('location', {}).get('address', 'Не указан'),
+            'client_address': client_address,  # Используем строку напрямую
             'client_phone': request.get('user_phone', 'Не указан'),
             'description': request.get('description', ''),
             'delivery_type': 'client_to_sc',
@@ -682,32 +687,37 @@ class PrePaymentHandler(ClientHandler):
             'desired_date': request.get('desired_date', ''),
             'delivery_cost': str(delivery_cost)
         }
+        
         # Сохраняем задачу
         delivery_tasks[new_task_id] = new_task
         save_delivery_tasks(delivery_tasks)
+        
         # Обновляем статус заявки
         requests_data[request_id]['status'] = ORDER_STATUS_DELIVERY_TO_SC
         save_requests(requests_data)
+        
         # Отправляем подтверждение
         await query.edit_message_text(
             f"✅ Предоплата принята для заявки #{request_id}\n"
             f"Предоплата составила: {delivery_cost:.2f} BYN\n\n"
             f"Создана задача доставки\n"
             f"СЦ: {sc_data.get('name', 'Не указан')}\n"
-            f"Адрес клиента: {request.get('location', {}).get('address', 'Не указан')}"
+            f"Адрес клиента: {client_address}"  # Используем строку напрямую
         )
+        
         # Уведомляем администраторов
         for admin_id in ADMIN_IDS:
             try:
                 await context.bot.send_message(
                     chat_id=admin_id,
                     text=f"✅ Оплата принята для заявки #{request_id}\n"
-                         f"Стоимость доставки: {delivery_cost:.2f} BYN\n\n"
-                         f"Создана задача доставки #{new_task_id}\n"
-                         f"Тип: Доставка от клиента в СЦ\n"
-                         f"СЦ: {sc_data.get('name', 'Не указан')}\n"
-                         f"Адрес клиента: {request.get('location', {}).get('address', 'Не указан')}"
+                        f"Стоимость доставки: {delivery_cost:.2f} BYN\n\n"
+                        f"Создана задача доставки #{new_task_id}\n"
+                        f"Тип: Доставка от клиента в СЦ\n"
+                        f"СЦ: {sc_data.get('name', 'Не указан')}\n"
+                        f"Адрес клиента: {client_address}"  # Используем строку напрямую
                 )
             except Exception as e:
                 self.logger.error(f"❌ Ошибка отправки уведомления админу {admin_id}: {e}")
+        
         return ConversationHandler.END
