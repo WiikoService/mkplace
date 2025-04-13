@@ -1,11 +1,8 @@
-import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import CallbackContext, ConversationHandler
 from .admin_handler import AdminHandler
 from database import load_service_centers, save_service_centers
 from config import SC_MANAGEMENT_ADD_NAME, SC_MANAGEMENT_ADD_ADDRESS, SC_MANAGEMENT_ADD_PHONE
-
-logger = logging.getLogger(__name__)
 
 
 class SCManagementHandler(AdminHandler):

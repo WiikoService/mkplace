@@ -1,6 +1,5 @@
 import os
 import json
-import logging
 from datetime import datetime
 
 from telegram.ext import CallbackContext, ConversationHandler
@@ -13,9 +12,7 @@ from config import (
     ADMIN_IDS, RATING_SERVICE, FEEDBACK_TEXT, ORDER_STATUS_DELIVERY_TO_SC
 )
 from database import load_requests, load_users, DATA_DIR, save_requests
-import logging
-
-logger = logging.getLogger(__name__)
+from logging_decorator import log_method_call
 
 
 class ClientHandler:
@@ -110,6 +107,7 @@ class ClientHandler:
         message += "\nДля получения конкретного документа, пожалуйста, обратитесь к администратору."
         await update.message.reply_text(message)
 
+    @log_method_call
     async def notify_admin(self, bot: Bot, request_id: int, request_data: dict):
         for admin_id in ADMIN_IDS:
             message = f"Новая заявка #{request_id}\n"
@@ -149,14 +147,12 @@ class ClientHandler:
                 f"Спасибо за оценку!\n\n"
                 f"Мы стараемся стать лучше. Пожалуйста, расскажите, что мы могли бы улучшить:"
             )
-            logger.info(f"Запрошена обратная связь после оценки {rating} для заявки {request_id}")
             return FEEDBACK_TEXT
         else:
             await query.edit_message_text(
                 f"Благодарим за высокую оценку!\n\n"
                 f"Мы рады, что вы остались довольны нашим обслуживанием."
             )
-            logger.info(f"Получена высокая оценка {rating} для заявки {request_id}")
             return ConversationHandler.END
 
     async def handle_feedback(self, update: Update, context: CallbackContext):
@@ -168,15 +164,12 @@ class ClientHandler:
                     "❌ Пожалуйста, введите текст отзыва."
                 )
                 return FEEDBACK_TEXT
-            logger.info(f"Получен отзыв: {feedback_text}")
             self._save_feedback(feedback_text)
-            logger.info("Отзыв сохранен успешно")
             await update.message.reply_text(
                 "✅ Спасибо за ваш отзыв! Мы учтем ваши комментарии для улучшения нашего сервиса."
             )
             return ConversationHandler.END
         except Exception as e:
-            logger.error(f"Ошибка при обработке отзыва: {e}")
             await update.message.reply_text(
                 "❌ Произошла ошибка при сохранении отзыва. Пожалуйста, попробуйте еще раз."
             )
@@ -192,7 +185,6 @@ class ClientHandler:
             else:
                 feedback_data = {'ratings': [], 'reviews': []}
         except Exception as e:
-            logger.error(f"Ошибка при загрузке файла обратной связи: {e}")
             feedback_data = {'ratings': [], 'reviews': []}
         feedback_data['ratings'].append({
             'rating': rating,
@@ -202,7 +194,7 @@ class ClientHandler:
             with open(feedback_file, 'w', encoding='utf-8') as f:
                 json.dump(feedback_data, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            logger.error(f"Ошибка при сохранении оценки: {e}")
+            return
 
     def _save_feedback(self, feedback_text):
         """Сохраняет отзыв в JSON-файл"""
@@ -214,7 +206,6 @@ class ClientHandler:
             else:
                 feedback_data = {'ratings': [], 'reviews': []}
         except Exception as e:
-            logger.error(f"Ошибка при загрузке файла обратной связи: {e}")
             feedback_data = {'ratings': [], 'reviews': []}
         feedback_data['reviews'].append({
             'id': len(feedback_data['reviews']) + 1,
@@ -225,8 +216,7 @@ class ClientHandler:
             with open(feedback_file, 'w', encoding='utf-8') as f:
                 json.dump(feedback_data, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            logger.error(f"Ошибка при сохранении отзыва: {e}")
-
+            return
     async def cancel_operation(self, update: Update, context: CallbackContext):
         """Отмена операции оценки"""
         await update.message.reply_text("Операция отменена.")
@@ -248,16 +238,15 @@ class ClientHandler:
                 f"Спасибо за оценку {stars}!\n\n"
                 f"Мы стремимся стать лучше. Пожалуйста, расскажите, что мы могли бы улучшить:"
             )
-            logger.info(f"Запрошена обратная связь после оценки {rating} для заявки {request_id}")
             return FEEDBACK_TEXT
         else:
             await query.edit_message_text(
                 f"Благодарим за высокую оценку {stars}!\n\n"
                 f"Мы рады, что вы остались довольны нашим обслуживанием."
             )
-            logger.info(f"Получена высокая оценка {rating} для заявки {request_id}")
             return ConversationHandler.END
 
+    @log_method_call
     async def handle_client_confirmation(self, update: Update, context: CallbackContext):
         """Обработка подтверждения/отказа клиента о получении товара"""
         query = update.callback_query
@@ -324,5 +313,4 @@ class ClientHandler:
                             )
                 save_requests(requests_data)
         except Exception as e:
-            logger.error(f"Ошибка при обработке подтверждения клиента: {e}")
             await query.edit_message_text("Произошла ошибка при обработке вашего запроса.")

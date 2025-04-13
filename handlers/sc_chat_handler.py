@@ -9,7 +9,6 @@ import os
 
 logger = logging.getLogger(__name__)
 
-
 class SCChatHandler(SCHandler):
     """Обработчик для управления чатом между СЦ и клиентом"""
 

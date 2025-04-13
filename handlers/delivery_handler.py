@@ -9,7 +9,6 @@ from config import (
 )
 from database import load_delivery_tasks, load_users, load_requests, save_delivery_tasks, save_requests, save_users, load_service_centers
 
-import logging
 import random
 import os
 from datetime import datetime
@@ -17,10 +16,9 @@ from datetime import datetime
 from smsby import SMSBY
 
 from logging_decorator import log_method_call
-
+import logging
 
 logger = logging.getLogger(__name__)
-
 
 class DeliveryHandler:
 
@@ -108,7 +106,6 @@ class DeliveryHandler:
                 else:
                     await update.message.reply_text(message)
         except Exception as e:
-            logger.error(f"Ошибка при показе заданий: {e}")
             await update.message.reply_text("Произошла ошибка при загрузке заданий.")
 
     @log_method_call
@@ -142,7 +139,6 @@ class DeliveryHandler:
                     break
             # Проверяем, что задача найдена
             if not task_id or not task_data:
-                logger.error(f"Задача доставки не найдена для request_id: {request_id}")
                 await query.edit_message_text("❌ Задача доставки не найдена или уже принята другим доставщиком.")
                 return
             # Получаем информацию о доставщике
@@ -205,9 +201,9 @@ class DeliveryHandler:
                     f"📍 {task_data.get('sc_address', 'Не указан')}\n"
                     f"☎️ {task_data.get('sc_phone', 'Не указан')}\n\n"
                     f"📋 Инструкции:\n"
-                    f"1. Заберите устройство у клиента\n"
+                    f"1. Заберите товар у клиента\n"
                     f"2. Подтвердите получение от клиента кнопкой 'Получено от клиента'\n"
-                    f"3. Доставьте устройство в СЦ\n"
+                    f"3. Доставьте товар в СЦ\n"
                     f"4. Получите код подтверждения от СЦ"
                 )
                 keyboard = [[
@@ -262,7 +258,6 @@ class DeliveryHandler:
                     text=admin_message
                 )
         except Exception as e:
-            logger.error(f"Ошибка при принятии задания доставки: {e}", exc_info=True)
             await query.edit_message_text("❌ Произошла ошибка при принятии задания. Пожалуйста, попробуйте еще раз.")
 
     @log_method_call
@@ -337,13 +332,10 @@ class DeliveryHandler:
                     if 'phone' in client_data and client_data['phone']:
                         try:
                             phone = client_data['phone'].replace('+', '')
-                            logger.info(f"Отправка SMS на номер: {phone}")
                             # Инициализируем SMS-клиент
                             sms_client = SMSBY(SMS_TOKEN, 'by')
                             # Получаем список существующих объектов пароля
-                            logger.info("Получение списка существующих объектов пароля...")
                             password_objects = sms_client.get_password_objects()
-                            logger.info(f"Доступные объекты пароля: {password_objects}")
                             # Выбираем подходящий объект пароля
                             password_object = None
                             if password_objects and 'result' in password_objects and password_objects['result']:
@@ -362,23 +354,19 @@ class DeliveryHandler:
                                     # Если нет объектов типа 'numbers', берем первый доступный
                                     password_object = sorted_objects[0]
                             if not password_object:
-                                logger.error("Не найдены доступные объекты пароля")
                                 raise Exception("Нет доступных объектов пароля для отправки SMS")
                             logger.info(f"Используем объект пароля: {password_object}")
                             # Получаем доступные альфа-имена
                             alphanames = sms_client.get_alphanames()
-                            logger.info(f"Доступные альфа-имена: {alphanames}")
                             if alphanames:
                                 alphaname_id = next(iter(alphanames.keys()))
                                 sms_message = f"Код подтверждения для заявки #{request_id}: %CODE%"
-                                logger.info(f"Отправка SMS с сообщением: {sms_message}")
                                 sms_response = sms_client.send_sms_message_with_code(
                                     password_object_id=password_object['id'],  # Используем ID объекта
                                     phone=phone,
                                     message=sms_message,
                                     alphaname_id=alphaname_id
                                 )
-                                logger.info(f"Ответ отправки SMS: {sms_response}")
                                 if 'code' in sms_response:
                                     # Сохраняем код в данных заявки
                                     requests_data[request_id]['sms_id'] = sms_response.get('sms_id')
@@ -402,13 +390,10 @@ class DeliveryHandler:
                                     context.user_data['client_id'] = client_id
                                     return ENTER_CONFIRMATION_CODE
                                 else:
-                                    logger.error(f"Ошибка отправки SMS: нет кода в ответе")
                                     raise Exception("Не удалось отправить SMS")
                             else:
-                                logger.error(f"Ошибка: нет доступных альфа-имен")
                                 raise Exception("Нет доступных альфа-имен для отправки SMS")
                         except Exception as e:
-                            logger.error(f"Ошибка при отправке SMS: {str(e)}")
                             # Если SMS не удалось отправить, используем код из интерфейса
                             await context.bot.send_message(
                                 chat_id=client_id,
@@ -504,7 +489,6 @@ class DeliveryHandler:
                             )
                     await query.edit_message_text("❌ Вы отказались от получения товара. Администратор уведомлен.")
         except Exception as e:
-            logger.error(f"Ошибка при обработке подтверждения клиента: {e}")
             await query.edit_message_text("❌ Произошла ошибка при обработке вашего запроса.")
 
     @log_method_call
@@ -518,8 +502,7 @@ class DeliveryHandler:
             client_id = context.user_data.get('client_id')
             if not client_id or user_id != str(client_id):
                 # Если код пытается ввести не клиент
-                logger.warning(f"Попытка ввода кода не клиентом: user_id={user_id}, client_id={client_id}")
-                await update.message.reply_text("⚠️ Только клиент должен ввести код подтверждения.")
+                await update.message.reply_text("⚠️ Только клиент должен вводить код подтверждения.")
                 return ENTER_CONFIRMATION_CODE
             if not request_id:
                 await update.message.reply_text("❌ Ошибка: не найдена активная заявка.")
@@ -582,7 +565,6 @@ class DeliveryHandler:
                 )
                 return ENTER_CONFIRMATION_CODE
         except Exception as e:
-            logger.error(f"Ошибка при проверке кода подтверждения: {e}")
             await update.message.reply_text("❌ Произошла ошибка при проверке кода.")
             return ConversationHandler.END
 
@@ -638,7 +620,6 @@ class DeliveryHandler:
             save_delivery_tasks(delivery_tasks)
             sc_id = requests_data[request_id].get('assigned_sc')
             if not sc_id:
-                logger.error(f"СЦ не назначен для заявки {request_id}")
                 return
             # Находим telegram_id пользователя СЦ
             sc_telegram_id = None
@@ -647,69 +628,58 @@ class DeliveryHandler:
                     sc_telegram_id = int(user_id)
                     break
             if not sc_telegram_id:
-                logger.error(f"Не найден telegram_id для СЦ {sc_id}")
                 await update.message.reply_text("Ошибка: не удалось найти контакт СЦ")
                 return
             # Уведомляем СЦ
-            try:
-                sc_message = (
-                    f"🆕 Новый товар доставлен!\n"
-                    f"Заявка: #{request_id}\n"
-                    f"Описание: {requests_data[request_id].get('description', 'Нет описания')}\n"
-                    f"Статус: Ожидает приёмки"
-                )
-                keyboard = [[
-                    InlineKeyboardButton("Принять товар", callback_data=f"accept_item_{request_id}"),
-                    InlineKeyboardButton("Отказать в приёме", callback_data=f"reject_item_{request_id}")
-                ]]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                # Сначала отправляем фотографии
-                for photo_path in photos:
-                    if os.path.exists(photo_path):
-                        with open(photo_path, 'rb') as photo_file:
-                            await context.bot.send_photo(
-                                chat_id=sc_telegram_id,
-                                photo=photo_file,
-                                caption=f"Фото товара по заявке #{request_id}"
-                            )
-                # Затем отправляем текстовое сообщение с кнопками
-                await context.bot.send_message(
-                    chat_id=sc_telegram_id,
-                    text=sc_message,
-                    reply_markup=reply_markup
-                )
-            except Exception as e:
-                logger.error(f"Ошибка отправки уведомления в СЦ: {str(e)}")
+            sc_message = (
+                f"🆕 Новый товар доставлен!\n"
+                f"Заявка: #{request_id}\n"
+                f"Описание: {requests_data[request_id].get('description', 'Нет описания')}\n"
+                f"Статус: Ожидает приёмки"
+            )
+            keyboard = [[
+                InlineKeyboardButton("Принять товар", callback_data=f"accept_item_{request_id}"),
+                InlineKeyboardButton("Отказать в приёме", callback_data=f"reject_item_{request_id}")
+            ]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            # Сначала отправляем фотографии
+            for photo_path in photos:
+                if os.path.exists(photo_path):
+                    with open(photo_path, 'rb') as photo_file:
+                        await context.bot.send_photo(
+                            chat_id=sc_telegram_id,
+                            photo=photo_file,
+                            caption=f"Фото товара по заявке #{request_id}"
+                        )
+            # Затем отправляем текстовое сообщение с кнопками
+            await context.bot.send_message(
+                chat_id=sc_telegram_id,
+                text=sc_message,
+                reply_markup=reply_markup
+            )
             context.user_data.pop('photos_to_sc', None)
             context.user_data.pop('current_request', None)
             await update.message.reply_text("✅ Фотографии загружены и отправлены в СЦ")
             return ConversationHandler.END
         except Exception as e:
-            logger.error(f"Ошибка в handle_delivery_photos_done: {str(e)}")
             await update.message.reply_text("Произошла ошибка при обработке фотографий")
             return ConversationHandler.END
 
     @log_method_call
     async def update_delivery_messages(self, bot, task_id, task_data):
         """Обновляет сообщения для других доставщиков"""
-        try:
-            # Получаем ID доставщика, который взял заказ
-            assigned_delivery_id = task_data.get('assigned_delivery_id', '')
-            # Формируем сообщение об обновлении
-            message = f"Заказ #{task_id} был принят другим доставщиком и больше не доступен."
-            # Отправляем сообщение другим доставщикам
-            from config import DELIVERY_IDS
-            for delivery_id in DELIVERY_IDS:
-                if str(delivery_id) != str(assigned_delivery_id):
-                    try:
-                        await bot.send_message(
-                            chat_id=int(delivery_id), 
-                            text=message
-                        )
-                    except Exception as e:
-                        logger.error(f"Ошибка отправки уведомления доставщику {delivery_id}: {e}")
-        except Exception as e:
-            logger.error(f"Ошибка при обновлении сообщений доставщиков: {e}")
+        # Получаем ID доставщика, который взял заказ
+        assigned_delivery_id = task_data.get('assigned_delivery_id', '')
+        # Формируем сообщение об обновлении
+        message = f"Заказ #{task_id} был принят другим доставщиком и больше не доступен."
+        # Отправляем сообщение другим доставщикам
+        from config import DELIVERY_IDS
+        for delivery_id in DELIVERY_IDS:
+            if str(delivery_id) != str(assigned_delivery_id):
+                await bot.send_message(
+                    chat_id=int(delivery_id), 
+                    text=message
+                )
 
     @log_method_call
     async def show_available_tasks(self, update: Update, context: CallbackContext):
@@ -792,7 +762,6 @@ class DeliveryHandler:
                     )
                 await update.message.reply_text(message, reply_markup=reply_markup)
         except Exception as e:
-            logger.error(f"Ошибка при показе доступных заданий: {e}")
             await update.message.reply_text("Произошла ошибка при загрузке заданий.")
 
     @log_method_call
@@ -859,7 +828,6 @@ class DeliveryHandler:
                 reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
                 await update.message.reply_text(message, reply_markup=reply_markup)
         except Exception as e:
-            logger.error(f"Ошибка при показе заданий: {e}")
             await update.message.reply_text("Произошла ошибка при загрузке заданий.")
 
     @log_method_call
@@ -891,7 +859,6 @@ class DeliveryHandler:
                         'status': ORDER_STATUS_DELIVERY_TO_SC,
                         'assigned_delivery_id': delivery_id
                     })
-                    logger.info(f"Обновлена задача {task_id}: {task}")
                     break
             save_delivery_tasks(delivery_tasks)
             # Отправляем адрес СЦ
@@ -918,8 +885,6 @@ class DeliveryHandler:
             delivery_id = str(update.effective_user.id)
             delivery_tasks = load_delivery_tasks()
             requests_data = load_requests()
-            logger.info(f"Проверка задач доставщика {delivery_id}")
-            logger.info(f"Текущие задачи: {delivery_tasks}")
             active_tasks = {
                 task_id: task for task_id, task in delivery_tasks.items()
                 if isinstance(task, dict) and
@@ -927,7 +892,6 @@ class DeliveryHandler:
                 task.get('status') == ORDER_STATUS_DELIVERY_TO_SC
             }
             if not active_tasks:
-                logger.info(f"Нет активных задач для доставщика {delivery_id}")
                 await update.message.reply_text("У вас нет активных заданий для передачи в СЦ.")
                 return
             for task_id, task in active_tasks.items():
@@ -949,7 +913,6 @@ class DeliveryHandler:
                     )
                     await update.message.reply_text(message, reply_markup=reply_markup)
         except Exception as e:
-            logger.error(f"Ошибка при показе заданий для передачи в СЦ: {e}")
             await update.message.reply_text("Произошла ошибка при загрузке заданий.")
 
     @log_method_call
@@ -964,25 +927,16 @@ class DeliveryHandler:
             'current_request',
             'confirmation_code'
         }
-        try:
-            # Очищаем только нужные ключи, если они существуют
-            for key in keys_to_remove:
-                context.user_data.pop(key, None)
-            # Выбираем способ ответа в зависимости от типа update
-            reply_method = (
-                update.callback_query.edit_message_text 
-                if update.callback_query 
-                else update.message.reply_text
-            )
-            await reply_method("❌ Операция отменена. Вернитесь в меню доставщика.")
-        except Exception as e:
-            logger.error(f"Ошибка при отмене доставки: {e}", exc_info=True)
-            try:
-                await update.message.reply_text(
-                    "Произошла ошибка при отмене. Вернитесь в меню доставщика."
-                )
-            except Exception as fallback_error:
-                logger.error(f"Не удалось отправить сообщение об ошибке: {fallback_error}")
+        # Очищаем только нужные ключи, если они существуют
+        for key in keys_to_remove:
+            context.user_data.pop(key, None)
+        # Выбираем способ ответа в зависимости от типа update
+        reply_method = (
+            update.callback_query.edit_message_text 
+            if update.callback_query 
+            else update.message.reply_text
+        )
+        await reply_method("❌ Операция отменена. Вернитесь в меню доставщика.")
         return ConversationHandler.END
 
     @log_method_call
@@ -1063,6 +1017,5 @@ class DeliveryHandler:
                 await update.message.reply_text("✅ Фотографии загружены и отправлены клиенту для подтверждения")
                 return ConversationHandler.END
         except Exception as e:
-            logger.error(f"Ошибка в handle_pickup_photos_done: {str(e)}")
             await update.message.reply_text("Произошла ошибка при обработке фотографий")
             return ConversationHandler.END

@@ -118,55 +118,57 @@ async def notify_client(bot, client_id, message, reply_markup=None):
 
 async def get_address_from_coords(latitude, longitude):
     """
-    Асинхронно получает адрес по координатам с использованием Nominatim API.
+    Улучшенный метод определения адреса с проверкой дополнительных полей.
     """
     try:
-        # Формируем URL для прямого запроса к API
-        url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={latitude}&lon={longitude}&zoom=18&addressdetails=1&accept-language=ru"
-        
-        # Заголовки для запроса (важно указать User-Agent)
-        headers = {
-            "User-Agent": "mkplace_bot/1.0"
-        }
-        
-        # Асинхронный запрос с таймаутом
+        url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={latitude}&lon={longitude}&zoom=20&addressdetails=1&accept-language=ru"
+        headers = {"User-Agent": "mkplace_bot/1.0"}
         async with httpx.AsyncClient(timeout=3.0) as client:
             response = await client.get(url, headers=headers)
-            
             if response.status_code == 200:
                 data = response.json()
+                logger.debug(f"Полный ответ Nominatim: {data}")  # Для отладки
                 if "display_name" in data:
                     return data["display_name"]
-                elif "address" in data:
-                    # Собираем адрес из компонентов
+                if "address" in data:
                     components = []
-                    for key in ["road", "house_number", "city", "town", "village"]:
+                    # Основные компоненты адреса
+                    for key in ["road", "house_number", "house", "suburb", "city", "town", "village"]:
                         if key in data["address"]:
                             components.append(data["address"][key])
-                    return ", ".join(components) if components else "Адрес не определен"
-            
-            return "Адрес не определен"
-    except httpx.TimeoutException:
-        logger.error("Таймаут при получении адреса")
-        return "Адрес не определен"
+                    # Если нет номера дома, добавляем ориентир
+                    if not any(k in data["address"] for k in ["house_number", "house"]):
+                        for landmark_key in ["building", "amenity", "shop"]:
+                            if landmark_key in data["address"]:
+                                components.append(f"({data['address'][landmark_key]})")
+                                break
+                    return ", ".join(filter(None, components)) if components else None
     except Exception as e:
         logger.error(f"Ошибка получения адреса: {e}")
-        return "Адрес не определен"
+    return None
 
 def format_location_for_display(location):
     """Форматирует местоположение для отображения пользователю"""
     if not location:
         return "Местоположение не указано"
-    
-    if isinstance(location, dict):
-        if location.get('type') == 'coordinates':
-            address = location.get('address', 'Адрес не определен')
-            return f"{address}"  # Убираем координаты для компактности
-        return location.get('address', 'Адрес не указан')
     return str(location)
 
-def prepare_location_for_storage(location):
-    """Подготавливает местоположение для сохранения в БД"""
-    if isinstance(location, dict):
-        return location
-    return {"address": str(location), "type": "manual"}
+def prepare_location_for_storage(location_data):
+    """
+    Подготавливает местоположение для сохранения в БД.
+    Возвращает строку с адресом или координатами.
+    """
+    if isinstance(location_data, dict):
+        # Если уже пришел dict (например, из callback), берем адрес или формируем из координат
+        if 'address' in location_data:
+            return location_data['address']
+        elif 'latitude' in location_data and 'longitude' in location_data:
+            return f"{location_data['latitude']}, {location_data['longitude']}"
+        return str(location_data)
+        
+    if hasattr(location_data, 'latitude') and hasattr(location_data, 'longitude'):
+        # Это объект Location из Telegram
+        return f"{location_data.latitude}, {location_data.longitude}"
+    
+    # Ручной ввод адреса (строка) или другой формат
+    return str(location_data)

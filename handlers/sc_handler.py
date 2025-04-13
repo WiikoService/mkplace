@@ -19,6 +19,7 @@ from database import (
 import logging
 from handlers.sc_price_handler import SCPriceHandler
 from logging_decorator import log_method_call
+
 logger = logging.getLogger(__name__)
 
 
@@ -71,7 +72,6 @@ class SCHandler:
             )
             return ConversationHandler.END
         except Exception as e:
-            logger.error(f"Ошибка при показе заявок СЦ: {e}")
             await update.effective_message.reply_text("⚠️ Произошла ошибка при загрузке заявок")
             return ConversationHandler.END
 
@@ -85,17 +85,21 @@ class SCHandler:
         await query.answer()
         request_id = query.data.split('_')[-1]
         sc_requests = context.user_data.get('sc_requests', {})
+        
         if request_id not in sc_requests:
             await query.edit_message_text("❌ Заявка не найдена")
             return
         request_data = sc_requests[request_id]
+        # Получаем локацию (теперь это строка, а не словарь)
+        location = request_data.get('location', 'Адрес не указан')
         message_text = (
             f"📌 Заявка #{request_id}\n"
             f"🔧 Статус: {request_data['status']}\n"
             f"👤 Клиент: {request_data['user_name']}\n"
-            f"📞 Телефон: {request_data.get('client_phone', 'не указан')}\n"
+            f"📞 Телефон: {request_data.get('user_phone', 'не указан')}\n"
             f"📝 Описание: {request_data['description']}\n"
-            f"🏠 Адрес: {request_data['location_display']}"
+            f"🏠 Адрес: {location}\n"  # Используем строку напрямую
+            f"🕒 Предварительная стоимость: {request_data.get('delivery_cost', '0')} BYN"
         )
         # Добавляем информацию о цене, если она есть
         if 'final_price' in request_data:
@@ -115,7 +119,10 @@ class SCHandler:
             [InlineKeyboardButton("💰 Подтверждение цены", callback_data=f"confirm_price_{request_id}")],
             [InlineKeyboardButton("🔙 Вернуться к списку", callback_data="sc_back_to_list")]
         ]
-        await query.edit_message_text(message_text, reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text(
+            text=message_text,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
     @log_method_call
     async def handle_back_to_list(self, update: Update, context: CallbackContext):
@@ -200,7 +207,6 @@ class SCHandler:
                 datetime.now().strftime("%H:%M %d-%m-%Y")
             )
         except Exception as e:
-            logger.error(f"Ошибка отправки: {str(e)}")
             await message.reply_text("❌ Не удалось отправить сообщение")
         return 'HANDLE_SC_CHAT'
 
@@ -277,7 +283,6 @@ class SCHandler:
                 reply_markup=reply_markup
             )
         except Exception as e:
-            logger.error(f"Ошибка: {str(e)}")
             await message.reply_text("❌ Ошибка отправки")
         return 'HANDLE_CLIENT_REPLY'
 
@@ -377,15 +382,12 @@ class SCHandler:
             # Отправляем уведомление администраторам
             notification_sent = False
             for admin_id in ADMIN_IDS:
-                try:
-                    await context.bot.send_message(
-                        chat_id=admin_id,
-                        text=admin_message,
-                        reply_markup=reply_markup
-                    )
-                    notification_sent = True
-                except Exception as e:
-                    logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=admin_message,
+                    reply_markup=reply_markup
+                )
+                notification_sent = True
             if notification_sent:
                 await update.message.reply_text(
                     "✅ Комментарий отправлен на согласование администратору.\n"
@@ -543,12 +545,18 @@ class SCHandler:
         if "temp_delivery_date" in context.user_data:
             del context.user_data["temp_delivery_date"]
         # Уведомляем администраторов
-        keyboard = [[
+        keyboard = [
+            [
             InlineKeyboardButton(
-                "Создать задачу доставки из СЦ", 
+                "Создать задачу доставки из СЦ",
                 callback_data=f"create_sc_delivery_{request_id}"
             )
-        ]]
+        ],
+        InlineKeyboardButton(
+            "🗓️ Изменить дату",
+            callback_data=f"change_delivery_date_{request_id}"
+        ),
+        ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         admin_message = (
                 f"🔄 Запрос на доставку из СЦ\n\n"
@@ -557,18 +565,16 @@ class SCHandler:
                 f"Дата доставки: {request['delivery_date']}\n"
                 f"Статус: Ожидает доставку из СЦ"
         )
+
         # Отправляем уведомления админам
         notification_sent = False
         for admin_id in ADMIN_IDS:
-            try:
-                await context.bot.send_message(
-                    chat_id=admin_id,
-                    text=admin_message,
-                    reply_markup=reply_markup
-                )
-                notification_sent = True
-            except Exception as e:
-                logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+            await context.bot.send_message(
+                chat_id=admin_id,
+                text=admin_message,
+                reply_markup=reply_markup
+            )
+            notification_sent = True
             if notification_sent:
                 await query.edit_message_text(
                     f"✅ Заявка #{request_id} отправлена на рассмотрение администраторам.\n"
@@ -605,14 +611,11 @@ class SCHandler:
         )
         # Отправляем уведомление всем администраторам
         for admin_id in ADMIN_IDS:
-            try:
-                await context.bot.send_message(
-                    chat_id=admin_id,
-                    text=admin_message,
-                    parse_mode='HTML'
-                )
-            except Exception as e:
-                logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+            await context.bot.send_message(
+                chat_id=admin_id,
+                text=admin_message,
+                parse_mode='HTML'
+            )
         await update.message.reply_text(
             "✅ Запрос отправлен администраторам. Ожидайте ответа."
         )
@@ -663,20 +666,16 @@ class SCHandler:
                 if (other_user_data.get('role') == 'sc' and 
                     str(other_user_id) != str(user_id) and 
                     other_user_data.get('sc_id') != sc_id):
-                    try:
-                        await context.bot.send_message(
-                            chat_id=int(other_user_id),
-                            text=f"ℹ️ Заявка #{request_id} была принята другим сервисным центром."
-                        )
-                    except Exception as e:
-                        logger.error(f"Ошибка уведомления СЦ {other_user_id}: {e}")
+                    await context.bot.send_message(
+                        chat_id=int(other_user_id),
+                        text=f"ℹ️ Заявка #{request_id} была принята другим сервисным центром."
+                    )
             # Запрашиваем стоимость простым текстом без кнопок
             await query.edit_message_text(
                 f"Вы приняли заявку #{request_id}.\n\n"
                 f"Пожалуйста, укажите примерную стоимость ремонта:"
             )            
         except Exception as e:
-            logger.error(f"Ошибка при обработке запроса: {e}")
             await query.edit_message_text("Произошла ошибка при обработке запроса")
             return ConversationHandler.END
 
@@ -725,7 +724,6 @@ class SCHandler:
         # Извлекаем ID заявки
         parts = query.data.split('_')
         if len(parts) < 4 or parts[0] != "accept" or parts[1] != "request" or parts[2] != "price":
-            logger.error(f"Неверный формат callback_data: {query.data}")
             await query.edit_message_text("❌ Ошибка: неверный формат данных")
             return
         request_id = parts[3]
@@ -778,21 +776,17 @@ class SCHandler:
             )
             # Отправляем уведомления админам
             for admin_id in ADMIN_IDS:
-                try:
-                    await context.bot.send_message(
-                        chat_id=admin_id,
-                        text=admin_message,
-                        reply_markup=reply_markup
-                    )
-                except Exception as e:
-                    logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=admin_message,
+                    reply_markup=reply_markup
+                )
             # Отправляем подтверждение СЦ
             await query.edit_message_text(
                 f"✅ Заявка #{request_id} принята с указанной стоимостью {price_text} BYN\n"
                 f"Данные сохранены, ожидается согласование цены с клиентом."
             )
         except Exception as e:
-            logger.error(f"Ошибка при обработке подтверждения: {e}")
             await query.edit_message_text(f"❌ Произошла ошибка: {str(e)}")
 
     @log_method_call
@@ -849,6 +843,5 @@ class SCHandler:
                 f"СЦ: {sc_data.get('name', 'Не указан')}\n"
                 f"Адрес клиента: {location_str}"
             )
-        except Exception as e:
-            logger.error(f"Ошибка при создании обратной доставки: {e}")
+        except Exception:
             await query.edit_message_text("❌ Произошла ошибка при создании задачи доставки")

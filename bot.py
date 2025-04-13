@@ -406,6 +406,22 @@ def register_admin_handlers(application, admin_handler, user_handler, sc_handler
         filters.Regex("^Документы$"),
         sc_handler.docs
     ))
+    application.add_handler(CallbackQueryHandler(
+        admin_handler.show_tasks_for_date,
+        pattern="^calendar_date_"
+    ))
+    application.add_handler(CallbackQueryHandler(
+        admin_handler.reschedule_delivery,
+        pattern="^reschedule_delivery_"
+    ))
+    application.add_handler(CallbackQueryHandler(
+        admin_handler.select_new_delivery_date,
+        pattern="^select_new_date_"
+    ))
+    application.add_handler(CallbackQueryHandler(
+        admin_handler.select_new_delivery_time,
+        pattern="^select_new_time_"
+    ))
 
 def register_delivery_handlers(application, delivery_handler, admin_handler, user_handler, delivery_sc_handler, final_payment_handler):
     # Группа обработчиков для доставщиков (только для пользователей из DELIVERY_IDS)
@@ -891,10 +907,6 @@ def register_sc_handlers(application, sc_handler, sc_item_handler, sc_chat_handl
 def register_callbacks(application, delivery_handler, admin_handler, delivery_sc_handler, client_handler):
     # Обработчики для календаря задач доставки
     application.add_handler(CallbackQueryHandler(
-        admin_handler.show_tasks_by_date,
-        pattern="^calendar_date_"
-    ))
-    application.add_handler(CallbackQueryHandler(
         admin_handler.back_to_calendar,
         pattern="^back_to_calendar$"
     ))
@@ -967,7 +979,10 @@ def register_user_handlers(application, user_handler):
         fallbacks=[]
     )
     application.add_handler(delivery_date_handler)
-
+    application.add_handler(CallbackQueryHandler(
+        user_handler.handle_client_delivery_confirmation,
+        pattern="^delivery_(confirm|reject)_"
+    ))
 
 if __name__ == '__main__':
     main()

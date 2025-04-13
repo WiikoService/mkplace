@@ -2,7 +2,6 @@ import os
 from datetime import datetime, timedelta
 import locale
 import json
-import uuid
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, CallbackQuery, ReplyKeyboardMarkup
 from telegram.ext import CallbackContext, ConversationHandler
@@ -14,7 +13,7 @@ from config import (
     WAITING_PAYMENT, ORDER_STATUS_DELIVERY_TO_SC
 )
 from database import load_requests, load_users, save_requests, load_service_centers, load_delivery_tasks, save_delivery_tasks
-from utils import notify_admin, get_address_from_coords, format_location_for_display, prepare_location_for_storage
+from utils import get_address_from_coords, format_location_for_display, prepare_location_for_storage
 import logging
 from handlers.client_handler import ClientHandler
 
@@ -144,22 +143,23 @@ class RequestCreator(ClientHandler):
         """Обработка местоположения заявки."""
         try:
             if update.message.location:
-                latitude = update.message.location.latitude
-                longitude = update.message.location.longitude
+                # Получаем координаты
+                coords = f"{update.message.location.latitude}, {update.message.location.longitude}"
+                # Пытаемся получить адрес
                 status_message = await update.message.reply_text(
                     "⏳ Определяю адрес по локации...",
                     reply_markup=ReplyKeyboardRemove()
                 )
-                address = await get_address_from_coords(latitude, longitude)
+                address = await get_address_from_coords(
+                    update.message.location.latitude,
+                    update.message.location.longitude
+                )
+                # Сохраняем адрес или координаты
+                context.user_data["location"] = address or coords
                 try:
                     await status_message.delete()
                 except:
                     pass
-                context.user_data["location"] = {
-                    "latitude": latitude,
-                    "longitude": longitude,
-                    "address": address
-                }
                 return await self.show_date_buttons(update.message)
             elif update.message.text == "Ввести адрес вручную":
                 await update.message.reply_text(
@@ -212,10 +212,9 @@ class RequestCreator(ClientHandler):
             if not address:
                 await update.message.reply_text("Пожалуйста, введите корректный адрес.")
                 return CREATE_REQUEST_ADDRESS
-            context.user_data["location"] = {
-                "address": address
-            }
+            context.user_data["location"] = address
             return await self.show_date_buttons(update.message)
+            
         except Exception as e:
             logger.error(f"Error handling address: {e}")
             await update.message.reply_text(
@@ -453,12 +452,11 @@ class RequestCreator(ClientHandler):
             "description": context.user_data.get("description", "Не указано"),
             "photos": valid_photos,
             "location": context.user_data.get("location", {}),
-            "location_display": format_location_for_display(context.user_data.get("location", {})),
             "status": "Новая",
             "assigned_sc": None,
             "desired_date": desired_date_str,  # Уже строка
             "comment": context.user_data.get("comment", "Не указано"),
-            "created_at": datetime.now().strftime("%H:%M %d-%m-%Y")  # Строка
+            "created_at": datetime.now().strftime("%H:%M %d.%m.%Y")  # Строка
         }
         # Сохраняем заявку
         requests_data[request_id] = request_data
@@ -663,9 +661,14 @@ class PrePaymentHandler(ClientHandler):
         requests_data = load_requests()
         delivery_tasks = load_delivery_tasks()
         service_centers = load_service_centers()
+        users_data = load_users()
         # Получаем СЦ
         sc_id = request.get('assigned_sc')
         sc_data = service_centers.get(sc_id, {})
+        
+        # Получаем адрес клиента (учитываем новый формат location как строку)
+        client_address = request.get('location', 'Не указан')  # Теперь location — это строка
+        client_phone = users_data.get(request.get('user_id'), {}).get('phone', 'Не указан')
         # Создаем задачу доставки
         new_task_id = str(len(delivery_tasks) + 1)
         delivery_cost = Decimal(request.get('delivery_cost', '0'))
@@ -676,40 +679,47 @@ class PrePaymentHandler(ClientHandler):
             'sc_name': sc_data.get('name', 'Не указан'),
             'sc_address': sc_data.get('address', 'Не указан'),
             'client_name': request.get('user_name', 'Не указан'),
-            'client_address': request.get('location', {}).get('address', 'Не указан'),
-            'client_phone': request.get('user_phone', 'Не указан'),
+            'client_address': client_address,  # Используем строку напрямую
+            'client_phone': client_phone,
             'description': request.get('description', ''),
             'delivery_type': 'client_to_sc',
             'is_sc_to_client': False,
             'desired_date': request.get('desired_date', ''),
             'delivery_cost': str(delivery_cost)
         }
+        
         # Сохраняем задачу
         delivery_tasks[new_task_id] = new_task
         save_delivery_tasks(delivery_tasks)
+        
         # Обновляем статус заявки
         requests_data[request_id]['status'] = ORDER_STATUS_DELIVERY_TO_SC
         save_requests(requests_data)
+        
         # Отправляем подтверждение
         await query.edit_message_text(
             f"✅ Предоплата принята для заявки #{request_id}\n"
             f"Предоплата составила: {delivery_cost:.2f} BYN\n\n"
             f"Создана задача доставки\n"
             f"СЦ: {sc_data.get('name', 'Не указан')}\n"
-            f"Адрес клиента: {request.get('location', {}).get('address', 'Не указан')}"
+            f"Адрес клиента: {client_address}\n"  # Используем строку напрямую
+            f"Телефон клиента: {client_phone}"
         )
+        
         # Уведомляем администраторов
         for admin_id in ADMIN_IDS:
             try:
                 await context.bot.send_message(
                     chat_id=admin_id,
                     text=f"✅ Оплата принята для заявки #{request_id}\n"
-                         f"Стоимость доставки: {delivery_cost:.2f} BYN\n\n"
-                         f"Создана задача доставки #{new_task_id}\n"
-                         f"Тип: Доставка от клиента в СЦ\n"
-                         f"СЦ: {sc_data.get('name', 'Не указан')}\n"
-                         f"Адрес клиента: {request.get('location', {}).get('address', 'Не указан')}"
+                        f"Стоимость доставки: {delivery_cost:.2f} BYN\n\n"
+                        f"Создана задача доставки #{new_task_id}\n"
+                        f"Тип: Доставка от клиента в СЦ\n"
+                        f"СЦ: {sc_data.get('name', 'Не указан')}\n"
+                        f"Адрес клиента: {client_address}\n"  # Используем строку напрямую
+                        f"Телефон клиента: {client_phone}"
                 )
             except Exception as e:
                 self.logger.error(f"❌ Ошибка отправки уведомления админу {admin_id}: {e}")
+        
         return ConversationHandler.END
