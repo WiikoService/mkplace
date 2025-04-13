@@ -246,6 +246,7 @@ class ClientHandler:
             )
             return ConversationHandler.END
 
+    @log_method_call
     async def handle_client_confirmation(self, update: Update, context: CallbackContext):
         """Обработка подтверждения/отказа клиента о получении товара"""
         query = update.callback_query

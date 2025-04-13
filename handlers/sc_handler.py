@@ -19,6 +19,7 @@ from database import (
 import logging
 from handlers.sc_price_handler import SCPriceHandler
 from logging_decorator import log_method_call
+
 logger = logging.getLogger(__name__)
 
 
@@ -71,7 +72,6 @@ class SCHandler:
             )
             return ConversationHandler.END
         except Exception as e:
-            logger.error(f"Ошибка при показе заявок СЦ: {e}")
             await update.effective_message.reply_text("⚠️ Произошла ошибка при загрузке заявок")
             return ConversationHandler.END
 
@@ -201,7 +201,6 @@ class SCHandler:
                 datetime.now().strftime("%H:%M %d-%m-%Y")
             )
         except Exception as e:
-            logger.error(f"Ошибка отправки: {str(e)}")
             await message.reply_text("❌ Не удалось отправить сообщение")
         return 'HANDLE_SC_CHAT'
 
@@ -278,7 +277,6 @@ class SCHandler:
                 reply_markup=reply_markup
             )
         except Exception as e:
-            logger.error(f"Ошибка: {str(e)}")
             await message.reply_text("❌ Ошибка отправки")
         return 'HANDLE_CLIENT_REPLY'
 
@@ -378,15 +376,12 @@ class SCHandler:
             # Отправляем уведомление администраторам
             notification_sent = False
             for admin_id in ADMIN_IDS:
-                try:
-                    await context.bot.send_message(
-                        chat_id=admin_id,
-                        text=admin_message,
-                        reply_markup=reply_markup
-                    )
-                    notification_sent = True
-                except Exception as e:
-                    logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=admin_message,
+                    reply_markup=reply_markup
+                )
+                notification_sent = True
             if notification_sent:
                 await update.message.reply_text(
                     "✅ Комментарий отправлен на согласование администратору.\n"
@@ -568,15 +563,12 @@ class SCHandler:
         # Отправляем уведомления админам
         notification_sent = False
         for admin_id in ADMIN_IDS:
-            try:
-                await context.bot.send_message(
-                    chat_id=admin_id,
-                    text=admin_message,
-                    reply_markup=reply_markup
-                )
-                notification_sent = True
-            except Exception as e:
-                logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+            await context.bot.send_message(
+                chat_id=admin_id,
+                text=admin_message,
+                reply_markup=reply_markup
+            )
+            notification_sent = True
             if notification_sent:
                 await query.edit_message_text(
                     f"✅ Заявка #{request_id} отправлена на рассмотрение администраторам.\n"
@@ -613,14 +605,11 @@ class SCHandler:
         )
         # Отправляем уведомление всем администраторам
         for admin_id in ADMIN_IDS:
-            try:
-                await context.bot.send_message(
-                    chat_id=admin_id,
-                    text=admin_message,
-                    parse_mode='HTML'
-                )
-            except Exception as e:
-                logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+            await context.bot.send_message(
+                chat_id=admin_id,
+                text=admin_message,
+                parse_mode='HTML'
+            )
         await update.message.reply_text(
             "✅ Запрос отправлен администраторам. Ожидайте ответа."
         )
@@ -671,20 +660,16 @@ class SCHandler:
                 if (other_user_data.get('role') == 'sc' and 
                     str(other_user_id) != str(user_id) and 
                     other_user_data.get('sc_id') != sc_id):
-                    try:
-                        await context.bot.send_message(
-                            chat_id=int(other_user_id),
-                            text=f"ℹ️ Заявка #{request_id} была принята другим сервисным центром."
-                        )
-                    except Exception as e:
-                        logger.error(f"Ошибка уведомления СЦ {other_user_id}: {e}")
+                    await context.bot.send_message(
+                        chat_id=int(other_user_id),
+                        text=f"ℹ️ Заявка #{request_id} была принята другим сервисным центром."
+                    )
             # Запрашиваем стоимость простым текстом без кнопок
             await query.edit_message_text(
                 f"Вы приняли заявку #{request_id}.\n\n"
                 f"Пожалуйста, укажите примерную стоимость ремонта:"
             )            
         except Exception as e:
-            logger.error(f"Ошибка при обработке запроса: {e}")
             await query.edit_message_text("Произошла ошибка при обработке запроса")
             return ConversationHandler.END
 
@@ -733,7 +718,6 @@ class SCHandler:
         # Извлекаем ID заявки
         parts = query.data.split('_')
         if len(parts) < 4 or parts[0] != "accept" or parts[1] != "request" or parts[2] != "price":
-            logger.error(f"Неверный формат callback_data: {query.data}")
             await query.edit_message_text("❌ Ошибка: неверный формат данных")
             return
         request_id = parts[3]
@@ -786,21 +770,17 @@ class SCHandler:
             )
             # Отправляем уведомления админам
             for admin_id in ADMIN_IDS:
-                try:
-                    await context.bot.send_message(
-                        chat_id=admin_id,
-                        text=admin_message,
-                        reply_markup=reply_markup
-                    )
-                except Exception as e:
-                    logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=admin_message,
+                    reply_markup=reply_markup
+                )
             # Отправляем подтверждение СЦ
             await query.edit_message_text(
                 f"✅ Заявка #{request_id} принята с указанной стоимостью {price_text} BYN\n"
                 f"Данные сохранены, ожидается согласование цены с клиентом."
             )
         except Exception as e:
-            logger.error(f"Ошибка при обработке подтверждения: {e}")
             await query.edit_message_text(f"❌ Произошла ошибка: {str(e)}")
 
     @log_method_call
@@ -857,6 +837,5 @@ class SCHandler:
                 f"СЦ: {sc_data.get('name', 'Не указан')}\n"
                 f"Адрес клиента: {location_str}"
             )
-        except Exception as e:
-            logger.error(f"Ошибка при создании обратной доставки: {e}")
+        except Exception:
             await query.edit_message_text("❌ Произошла ошибка при создании задачи доставки")

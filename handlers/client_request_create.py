@@ -145,7 +145,6 @@ class RequestCreator(ClientHandler):
             if update.message.location:
                 # Получаем координаты
                 coords = f"{update.message.location.latitude}, {update.message.location.longitude}"
-                
                 # Пытаемся получить адрес
                 status_message = await update.message.reply_text(
                     "⏳ Определяю адрес по локации...",
@@ -155,24 +154,19 @@ class RequestCreator(ClientHandler):
                     update.message.location.latitude,
                     update.message.location.longitude
                 )
-                
                 # Сохраняем адрес или координаты
                 context.user_data["location"] = address or coords
-                
                 try:
                     await status_message.delete()
                 except:
                     pass
-                    
                 return await self.show_date_buttons(update.message)
-                
             elif update.message.text == "Ввести адрес вручную":
                 await update.message.reply_text(
                     "Пожалуйста, введите адрес:",
                     reply_markup=ReplyKeyboardRemove()
                 )
                 return CREATE_REQUEST_ADDRESS
-                
         except Exception as e:
             logger.error(f"Error handling location: {e}")
             await update.message.reply_text(
@@ -218,7 +212,6 @@ class RequestCreator(ClientHandler):
             if not address:
                 await update.message.reply_text("Пожалуйста, введите корректный адрес.")
                 return CREATE_REQUEST_ADDRESS
-                
             context.user_data["location"] = address
             return await self.show_date_buttons(update.message)
             

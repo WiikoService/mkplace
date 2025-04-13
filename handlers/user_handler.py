@@ -12,7 +12,6 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-logger = logging.getLogger(__name__)
 
 
 class UserHandler:
@@ -210,15 +209,11 @@ class UserHandler:
                     f"Адрес клиента: {location_str}"
                 )
                 for admin_id in ADMIN_IDS:
-                    try:
-                        await context.bot.send_message(
-                            chat_id=admin_id,
-                            text=admin_message
-                        )
-                    except Exception as e:
-                        logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+                    await context.bot.send_message(
+                        chat_id=admin_id,
+                        text=admin_message
+                    )
             except Exception as e:
-                logger.error(f"Ошибка при создании задачи доставки: {e}")
                 # Отправляем уведомление администраторам о необходимости создать задачу вручную
                 keyboard = [[
                     InlineKeyboardButton(
@@ -238,16 +233,12 @@ class UserHandler:
                     f"❗ Автоматическое создание задачи доставки не удалось. Создайте задачу вручную."
                 )
                 for admin_id in ADMIN_IDS:
-                    try:
-                        await context.bot.send_message(
-                            chat_id=admin_id,
-                            text=admin_message,
-                            reply_markup=reply_markup
-                        )
-                    except Exception as e:
-                        logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+                    await context.bot.send_message(
+                        chat_id=admin_id,
+                        text=admin_message,
+                        reply_markup=reply_markup
+                    )
         except Exception as e:
-            logger.error(f"Ошибка при обработке согласия с ценой: {e}")
             await query.edit_message_text("❌ Произошла ошибка при обработке запроса")
 
     async def handle_client_price_rejection(self, update: Update, context: CallbackContext):
@@ -298,15 +289,11 @@ class UserHandler:
                 f"Статус: Цена не согласована"
             )
             for admin_id in ADMIN_IDS:
-                try:
-                    await context.bot.send_message(
-                        chat_id=admin_id,
-                        text=admin_message
-                    )
-                except Exception as e:
-                    logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")       
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=admin_message
+                )
         except Exception as e:
-            logger.error(f"Ошибка при обработке отказа от цены: {e}")
             await query.edit_message_text("❌ Произошла ошибка при обработке запроса")
 
     async def handle_client_price_rejection(self, update: Update, context: CallbackContext):
@@ -346,15 +333,11 @@ class UserHandler:
                 f"Статус: Цена не согласована"
             )
             for admin_id in ADMIN_IDS:
-                try:
-                    await context.bot.send_message(
-                        chat_id=admin_id,
-                        text=admin_message
-                    )
-                except Exception as e:
-                    logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=admin_message
+                )
         except Exception as e:
-            logger.error(f"Ошибка при обработке отказа от цены: {e}")
             await query.edit_message_text("❌ Произошла ошибка при обработке запроса")
 
     async def handle_delivery_date_selection(self, update: Update, context: CallbackContext):
@@ -411,8 +394,7 @@ class UserHandler:
                 reply_markup=reply_markup
             )
             return 'CONFIRM_DELIVERY_TIME'
-        except Exception as e:
-            logger.error(f"Ошибка при обработке выбора даты: {e}")
+        except Exception:
             await query.edit_message_text(
                 "Произошла ошибка при обработке даты. Попробуйте еще раз."
             )
@@ -463,15 +445,12 @@ class UserHandler:
             # Отправляем уведомления админам
             notification_sent = False
             for admin_id in ADMIN_IDS:
-                try:
-                    await context.bot.send_message(
-                        chat_id=admin_id,
-                        text=admin_message,
-                        reply_markup=reply_markup
-                    )
-                    notification_sent = True
-                except Exception as e:
-                    logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=admin_message,
+                    reply_markup=reply_markup
+                )
+                notification_sent = True
             if notification_sent:
                 await query.edit_message_text(
                     f"✅ Дата доставки для заявки #{request_id} установлена:\n"
@@ -503,29 +482,21 @@ class UserHandler:
         if task_id not in delivery_tasks:
             await query.edit_message_text("❌ Задача доставки не найдена.")
             return
-        
         task = delivery_tasks[task_id]
-        
         if action == "confirm":
             # Подтверждаем новую дату
             task['status'] = "Новая"
             if 'previous_date' in task:
                 del task['previous_date']  # Удаляем временные данные
             save_delivery_tasks(delivery_tasks)
-            
             await query.edit_message_text("✅ Вы подтвердили новую дату доставки.")
-            
             # Уведомляем администратора
-            try:
-                for admin_id in ADMIN_IDS:
-                    await context.bot.send_message(
-                        chat_id=admin_id,
-                        text=f"Клиент подтвердил новую дату доставки для задачи #{task_id}:\n"
-                            f"Дата: {task['desired_date']}"
-                    )
-            except Exception as e:
-                logger.error(f"Не удалось уведомить администратора: {e}")
-                
+            for admin_id in ADMIN_IDS:
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=f"Клиент подтвердил новую дату доставки для задачи #{task_id}:\n"
+                        f"Дата: {task['desired_date']}"
+                )
         elif action == "reject":
             # Возвращаем предыдущую дату
             if 'previous_date' in task:
@@ -537,15 +508,11 @@ class UserHandler:
             await query.edit_message_text(
                 "❌ Вы отклонили новую дату доставки. Администратор свяжется с вами."
             )
-            
             # Уведомляем администратора
-            try:
-                for admin_id in ADMIN_IDS:
-                    await context.bot.send_message(
-                        chat_id=admin_id,
-                        text=f"⚠️ Клиент отклонил новую дату доставки для задачи #{task_id}.\n"
-                            f"Предложенная дата: {task['desired_date']}\n"
-                            f"Требуется ручное вмешательство."
-                    )
-            except Exception as e:
-                logger.error(f"Не удалось уведомить администратора: {e}")
+            for admin_id in ADMIN_IDS:
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=f"⚠️ Клиент отклонил новую дату доставки для задачи #{task_id}.\n"
+                        f"Предложенная дата: {task['desired_date']}\n"
+                        f"Требуется ручное вмешательство."
+                )
