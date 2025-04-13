@@ -668,7 +668,7 @@ class PrePaymentHandler(ClientHandler):
         
         # Получаем адрес клиента (учитываем новый формат location как строку)
         client_address = request.get('location', 'Не указан')  # Теперь location — это строка
-        client_phone = users_data.get('phone', 'Не указан')
+        client_phone = users_data.get(request.get('user_id'), {}).get('phone', 'Не указан')
         # Создаем задачу доставки
         new_task_id = str(len(delivery_tasks) + 1)
         delivery_cost = Decimal(request.get('delivery_cost', '0'))
@@ -702,7 +702,7 @@ class PrePaymentHandler(ClientHandler):
             f"Предоплата составила: {delivery_cost:.2f} BYN\n\n"
             f"Создана задача доставки\n"
             f"СЦ: {sc_data.get('name', 'Не указан')}\n"
-            f"Адрес клиента: {client_address}"  # Используем строку напрямую
+            f"Адрес клиента: {client_address}\n"  # Используем строку напрямую
             f"Телефон клиента: {client_phone}"
         )
         
@@ -716,7 +716,7 @@ class PrePaymentHandler(ClientHandler):
                         f"Создана задача доставки #{new_task_id}\n"
                         f"Тип: Доставка от клиента в СЦ\n"
                         f"СЦ: {sc_data.get('name', 'Не указан')}\n"
-                        f"Адрес клиента: {client_address}"  # Используем строку напрямую
+                        f"Адрес клиента: {client_address}\n"  # Используем строку напрямую
                         f"Телефон клиента: {client_phone}"
                 )
             except Exception as e:

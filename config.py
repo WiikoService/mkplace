@@ -9,7 +9,7 @@ SMS_TOKEN = 'c9afa2690ed58aeb83dec04833e0fe1c'
 PAYMENT_API_URL = "https://dombyta.by/tgbrqst01.php"
 
 ADMIN_IDS = [8195693077]  # 6213103612 -              8195693077 (я)
-DELIVERY_IDS = []  # 7843162799 -          993108283 (я)
+DELIVERY_IDS = [993108283]  # 7843162799 -          993108283 (я)
 
 
 category = [
