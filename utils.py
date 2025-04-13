@@ -118,26 +118,31 @@ async def notify_client(bot, client_id, message, reply_markup=None):
 
 async def get_address_from_coords(latitude, longitude):
     """
-    Асинхронно получает адрес по координатам с использованием Nominatim API.
-    Возвращает строку с адресом или None в случае ошибки.
+    Улучшенный метод определения адреса с проверкой дополнительных полей.
     """
     try:
-        url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={latitude}&lon={longitude}&zoom=18&addressdetails=1&accept-language=ru"
+        url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={latitude}&lon={longitude}&zoom=20&addressdetails=1&accept-language=ru"
         headers = {"User-Agent": "mkplace_bot/1.0"}
-        
         async with httpx.AsyncClient(timeout=3.0) as client:
             response = await client.get(url, headers=headers)
-            
             if response.status_code == 200:
                 data = response.json()
+                logger.debug(f"Полный ответ Nominatim: {data}")  # Для отладки
                 if "display_name" in data:
                     return data["display_name"]
-                elif "address" in data:
+                if "address" in data:
                     components = []
-                    for key in ["road", "house_number", "city", "town", "village"]:
+                    # Основные компоненты адреса
+                    for key in ["road", "house_number", "house", "suburb", "city", "town", "village"]:
                         if key in data["address"]:
                             components.append(data["address"][key])
-                    return ", ".join(components) if components else None
+                    # Если нет номера дома, добавляем ориентир
+                    if not any(k in data["address"] for k in ["house_number", "house"]):
+                        for landmark_key in ["building", "amenity", "shop"]:
+                            if landmark_key in data["address"]:
+                                components.append(f"({data['address'][landmark_key]})")
+                                break
+                    return ", ".join(filter(None, components)) if components else None
     except Exception as e:
         logger.error(f"Ошибка получения адреса: {e}")
     return None

@@ -661,14 +661,14 @@ class PrePaymentHandler(ClientHandler):
         requests_data = load_requests()
         delivery_tasks = load_delivery_tasks()
         service_centers = load_service_centers()
-        
+        users_data = load_users()
         # Получаем СЦ
         sc_id = request.get('assigned_sc')
         sc_data = service_centers.get(sc_id, {})
         
         # Получаем адрес клиента (учитываем новый формат location как строку)
         client_address = request.get('location', 'Не указан')  # Теперь location — это строка
-        
+        client_phone = users_data.get('phone', 'Не указан')
         # Создаем задачу доставки
         new_task_id = str(len(delivery_tasks) + 1)
         delivery_cost = Decimal(request.get('delivery_cost', '0'))
@@ -680,7 +680,7 @@ class PrePaymentHandler(ClientHandler):
             'sc_address': sc_data.get('address', 'Не указан'),
             'client_name': request.get('user_name', 'Не указан'),
             'client_address': client_address,  # Используем строку напрямую
-            'client_phone': request.get('user_phone', 'Не указан'),
+            'client_phone': client_phone,
             'description': request.get('description', ''),
             'delivery_type': 'client_to_sc',
             'is_sc_to_client': False,
@@ -703,6 +703,7 @@ class PrePaymentHandler(ClientHandler):
             f"Создана задача доставки\n"
             f"СЦ: {sc_data.get('name', 'Не указан')}\n"
             f"Адрес клиента: {client_address}"  # Используем строку напрямую
+            f"Телефон клиента: {client_phone}"
         )
         
         # Уведомляем администраторов
@@ -716,6 +717,7 @@ class PrePaymentHandler(ClientHandler):
                         f"Тип: Доставка от клиента в СЦ\n"
                         f"СЦ: {sc_data.get('name', 'Не указан')}\n"
                         f"Адрес клиента: {client_address}"  # Используем строку напрямую
+                        f"Телефон клиента: {client_phone}"
                 )
             except Exception as e:
                 self.logger.error(f"❌ Ошибка отправки уведомления админу {admin_id}: {e}")
