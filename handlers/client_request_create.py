@@ -2,7 +2,6 @@ import os
 from datetime import datetime, timedelta
 import locale
 import json
-import uuid
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, CallbackQuery, ReplyKeyboardMarkup
 from telegram.ext import CallbackContext, ConversationHandler
@@ -14,7 +13,7 @@ from config import (
     WAITING_PAYMENT, ORDER_STATUS_DELIVERY_TO_SC
 )
 from database import load_requests, load_users, save_requests, load_service_centers, load_delivery_tasks, save_delivery_tasks
-from utils import notify_admin, get_address_from_coords, format_location_for_display, prepare_location_for_storage
+from utils import get_address_from_coords, format_location_for_display, prepare_location_for_storage
 import logging
 from handlers.client_handler import ClientHandler
 
@@ -144,29 +143,36 @@ class RequestCreator(ClientHandler):
         """Обработка местоположения заявки."""
         try:
             if update.message.location:
-                latitude = update.message.location.latitude
-                longitude = update.message.location.longitude
+                # Получаем координаты
+                coords = f"{update.message.location.latitude}, {update.message.location.longitude}"
+                
+                # Пытаемся получить адрес
                 status_message = await update.message.reply_text(
                     "⏳ Определяю адрес по локации...",
                     reply_markup=ReplyKeyboardRemove()
                 )
-                address = await get_address_from_coords(latitude, longitude)
+                address = await get_address_from_coords(
+                    update.message.location.latitude,
+                    update.message.location.longitude
+                )
+                
+                # Сохраняем адрес или координаты
+                context.user_data["location"] = address or coords
+                
                 try:
                     await status_message.delete()
                 except:
                     pass
-                context.user_data["location"] = {
-                    "latitude": latitude,
-                    "longitude": longitude,
-                    "address": address
-                }
+                    
                 return await self.show_date_buttons(update.message)
+                
             elif update.message.text == "Ввести адрес вручную":
                 await update.message.reply_text(
                     "Пожалуйста, введите адрес:",
                     reply_markup=ReplyKeyboardRemove()
                 )
                 return CREATE_REQUEST_ADDRESS
+                
         except Exception as e:
             logger.error(f"Error handling location: {e}")
             await update.message.reply_text(
@@ -212,10 +218,10 @@ class RequestCreator(ClientHandler):
             if not address:
                 await update.message.reply_text("Пожалуйста, введите корректный адрес.")
                 return CREATE_REQUEST_ADDRESS
-            context.user_data["location"] = {
-                "address": address
-            }
+                
+            context.user_data["location"] = address
             return await self.show_date_buttons(update.message)
+            
         except Exception as e:
             logger.error(f"Error handling address: {e}")
             await update.message.reply_text(
@@ -453,7 +459,6 @@ class RequestCreator(ClientHandler):
             "description": context.user_data.get("description", "Не указано"),
             "photos": valid_photos,
             "location": context.user_data.get("location", {}),
-            "location_display": format_location_for_display(context.user_data.get("location", {})),
             "status": "Новая",
             "assigned_sc": None,
             "desired_date": desired_date_str,  # Уже строка

@@ -17,10 +17,12 @@ from config import DATA_DIR
 import time
 from handlers.client_request_create import PrePaymentHandler
 from datetime import timedelta
+from logging_decorator import log_method_call
 logger = logging.getLogger(__name__)
 
 class AdminHandler:
 
+    @log_method_call
     async def handle_assign_sc(self, update: Update, context: CallbackContext):
         """Обработка нажатия кнопки 'Привязать к СЦ'"""
         logger.info("🛠️ START handle_assign_sc")
@@ -105,6 +107,7 @@ class AdminHandler:
             logger.error(f"🔥 Traceback: {traceback.format_exc()}")
             await query.edit_message_text("Произошла ошибка при обработке заявки")
 
+    @log_method_call
     async def handle_send_to_sc(self, update: Update, context: CallbackContext):
         """Обработка рассылки СЦ"""
         logger.info("🛠️ START handle_send_to_sc")
@@ -216,6 +219,7 @@ class AdminHandler:
             except:
                 pass
 
+    @log_method_call
     async def update_delivery_info(self, context: CallbackContext, chat_id: int, message_id: int, request_id: str, delivery_info: dict):
         """Обновление информации о доставщике"""
         new_text = (
@@ -229,6 +233,7 @@ class AdminHandler:
             text=new_text
         )
 
+    @log_method_call
     async def create_delivery_task(self, update: Update, context: CallbackContext, request_id: str, sc_name: str):
         """Создание задачи доставки"""
         logger.info(f"Creating delivery task for request {request_id} to SC {sc_name}")
@@ -259,6 +264,7 @@ class AdminHandler:
         await notify_client(context.bot, DELIVERY_IDS, delivery_task, detailed=True)
         return task_id, delivery_task
 
+    @log_method_call
     async def notify_deliveries(self, context: CallbackContext, task_data: dict):
         """Отправка уведомлений доставщикам о новой задаче"""
         message = (
@@ -289,6 +295,7 @@ class AdminHandler:
             except Exception as e:
                 logger.error(f"Error sending notification to delivery {delivery_id}: {e}")
 
+    @log_method_call
     async def handle_accept_delivery(self, update: Update, context: CallbackContext):
         """Обработка принятия задачи доставщиком"""
         query = update.callback_query
@@ -330,6 +337,7 @@ class AdminHandler:
         else:
             await query.edit_message_text(f"Задача доставки #{task_id} не найдена")
 
+    @log_method_call
     async def view_requests(self, update: Update, context: CallbackContext):
         """Просмотр активных заявок"""
         requests_data = load_requests()
@@ -344,6 +352,7 @@ class AdminHandler:
                 reply += f"Район: {req.get('district', 'Не указан')}\n\n"
             await update.message.reply_text(reply)
 
+    @log_method_call
     async def assign_request(self, update: Update, context: CallbackContext):
         """Отправка заявки всем СЦ"""
         query = update.callback_query
@@ -392,6 +401,7 @@ class AdminHandler:
             await query.edit_message_text("❌ Произошла ошибка при отправке заявки")
             return ConversationHandler.END
 
+    @log_method_call
     async def view_service_centers(self, update: Update, context: CallbackContext):
         """Просмотр списка сервисных центров"""
         service_centers = load_service_centers()
@@ -407,6 +417,7 @@ class AdminHandler:
                 reply += "-------------------\n"        
             await update.message.reply_text(reply)
 
+    @log_method_call
     async def handle_create_delivery(self, update: Update, context: CallbackContext):
         """Обработчик создания задачи доставки"""
         query = update.callback_query
@@ -428,11 +439,13 @@ class AdminHandler:
             f"Доставщики уведомлены."
         )
 
+    @log_method_call
     async def handle_create_delivery_menu(self, update: Update, context: CallbackContext):
         """Обработчик кнопки создания задачи доставки из меню"""
         await update.message.reply_text("Введите номер заявки для создания задачи доставки:")
         return CREATE_DELIVERY_TASK
 
+    @log_method_call
     async def handle_reject_request(self, update: Update, context: CallbackContext):
         """Обработка отклонения заявки"""
         query = update.callback_query
@@ -460,6 +473,7 @@ class AdminHandler:
                 text=f"К сожалению мы не можем гарантировать ремонт,\nвы можете обратиться к нашему порталу с услугами\nдля самостоятельного поиска мастерской:\ndombyta.by"
             )
 
+    @log_method_call
     async def handle_block_user(self, update: Update, context: CallbackContext):
         """Обработка блокировки пользователя"""
         query = update.callback_query
@@ -487,6 +501,7 @@ class AdminHandler:
                     text="Ваш аккаунт был заблокирован администратором."
                 )
 
+    @log_method_call
     async def handle_create_sc_delivery(self, update: Update, context: CallbackContext):
         """Обработка создания задачи доставки из СЦ"""
         query = update.callback_query
@@ -540,6 +555,7 @@ class AdminHandler:
             logger.error(f"Ошибка при создании задачи доставки: {e}")
             await query.edit_message_text("❌ Произошла ошибка при создании задачи доставки.")
 
+    @log_method_call
     async def show_delivery_tasks(self, update: Update, context: CallbackContext):
         """Показ списка заявок для создания задачи доставки"""
         try:
@@ -575,6 +591,7 @@ class AdminHandler:
             logger.error(f"Ошибка при показе заявок для доставки: {e}")
             await update.message.reply_text("Произошла ошибка при загрузке заявок")
 
+    @log_method_call
     async def show_feedback(self, update: Update, context: CallbackContext):
         """Показывает статистику обратной связи"""
         if isinstance(update.callback_query, CallbackQuery):
@@ -642,6 +659,7 @@ class AdminHandler:
         else:
             await update.message.reply_text(message, reply_markup=reply_markup)
 
+    @log_method_call
     async def show_reviews(self, update: Update, context: CallbackContext):
         """Показывает список отзывов"""
         query = update.callback_query
@@ -674,6 +692,7 @@ class AdminHandler:
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(message, reply_markup=reply_markup)
 
+    @log_method_call
     async def show_new_requests(self, update: Update, context: CallbackContext):
         """Показывает список новых заявок, отсортированных по дате создания (новые сверху)"""
         logger.info("🔍 Показ новых заявок для назначения СЦ")
@@ -748,6 +767,7 @@ class AdminHandler:
             logger.error(f"🔥 Ошибка при показе заявок: {e}")
             await update.message.reply_text("❌ Произошла ошибка при загрузке заявок")
 
+    @log_method_call
     async def view_request_chat(self, update: Update, context: CallbackContext):
         """Показывает чат заявки по её номеру с фото"""
         if not context.user_data.get('waiting_for_request_id'):
@@ -810,6 +830,7 @@ class AdminHandler:
             context.user_data.pop('waiting_for_request_id', None)
             return ConversationHandler.END
 
+    @log_method_call
     async def handle_price_approval(self, update: Update, context: CallbackContext):
         """Обработка согласования цены с клиентом"""
         query = update.callback_query
@@ -854,6 +875,7 @@ class AdminHandler:
             logger.error(f"Ошибка при отправке запроса на согласование цены: {e}")
             await query.edit_message_text("❌ Произошла ошибка при обработке запроса")
 
+    @log_method_call
     async def handle_client_price_approved(self, update: Update, context: CallbackContext):
         """Обработка подтверждения цены клиентом (точка входа)"""
         query = update.callback_query
@@ -882,6 +904,7 @@ class AdminHandler:
         pre_payment_handler = PrePaymentHandler()
         return await pre_payment_handler.create_payment(update, context, request_id, request)
 
+    @log_method_call
     async def handle_comment_approval(self, update: Update, context: CallbackContext):
         """Обработка одобрения комментария от администратора"""
         query = update.callback_query
@@ -924,6 +947,7 @@ class AdminHandler:
             logger.error(f"Ошибка при одобрении комментария: {e}")
             await query.edit_message_text("❌ Произошла ошибка при обработке запроса")
 
+    @log_method_call
     async def handle_comment_rejection(self, update: Update, context: CallbackContext):
         """Обработка отклонения комментария от администратора"""
         query = update.callback_query
@@ -962,6 +986,7 @@ class AdminHandler:
             logger.error(f"Ошибка при отклонении комментария: {e}")
             await query.edit_message_text("❌ Произошла ошибка при обработке запроса")
 
+    @log_method_call
     async def handle_admin_delivery_request(self, update: Update, context: CallbackContext):
         """Обработка запроса на доставку от администратора"""
         query = update.callback_query
@@ -1018,6 +1043,7 @@ class AdminHandler:
         else:
             await query.edit_message_text("❌ Заявка не найдена.")
 
+    @log_method_call
     async def handle_contact_client(self, update: Update, context: CallbackContext):
         """Обработка запроса администратора на связь с клиентом"""
         query = update.callback_query
@@ -1054,6 +1080,7 @@ class AdminHandler:
             logger.error(f"Ошибка при связи с клиентом: {e}")
             await query.edit_message_text("❌ Произошла ошибка при отправке запроса клиенту")
 
+    @log_method_call
     async def show_delivery_calendar(self, update: Update, context: CallbackContext):
         """Показывает календарь задач доставки"""
         logger.info("📅 Показ календаря задач доставки")
@@ -1104,7 +1131,8 @@ class AdminHandler:
         except Exception as e:
             logger.error(f"🔥 Ошибка при показе календаря: {e}")
             await update.message.reply_text("❌ Произошла ошибка при загрузке календаря.")
-            
+
+    @log_method_call
     async def show_tasks_for_date(self, update: Update, context: CallbackContext):
         """Показывает задачи доставки на выбранную дату"""
         query = update.callback_query
@@ -1151,6 +1179,7 @@ class AdminHandler:
             logger.error(f"Ошибка при показе задач на дату: {e}")
             await query.edit_message_text("❌ Произошла ошибка при загрузке задач.")
 
+    @log_method_call
     async def reschedule_delivery(self, update: Update, context: CallbackContext):
         """Начинает процесс изменения даты доставки"""
         query = update.callback_query
@@ -1179,6 +1208,7 @@ class AdminHandler:
             reply_markup=reply_markup
         )
 
+    @log_method_call
     async def select_new_delivery_date(self, update: Update, context: CallbackContext):
         """Обрабатывает выбор новой даты"""
         query = update.callback_query
@@ -1204,6 +1234,7 @@ class AdminHandler:
             reply_markup=reply_markup
         )
 
+    @log_method_call
     async def select_new_delivery_time(self, update: Update, context: CallbackContext):
         """Обрабатывает выбор нового времени и отправляет запрос на подтверждение клиенту"""
         query = update.callback_query
@@ -1297,6 +1328,7 @@ class AdminHandler:
             logger.error(error_msg, exc_info=True)
             await query.edit_message_text("❌ Произошла критическая ошибка. Пожалуйста, попробуйте позже.")
 
+    @log_method_call
     async def back_to_calendar(self, update: Update, context: CallbackContext):
         """Возврат к календарю"""
         query = update.callback_query
