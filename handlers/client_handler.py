@@ -168,7 +168,7 @@ class ClientHandler:
                 "✅ Спасибо за ваш отзыв! Мы учтем ваши комментарии для улучшения нашего сервиса."
             )
             return ConversationHandler.END
-        except Exception as e:
+        except Exception:
             await update.message.reply_text(
                 "❌ Произошла ошибка при сохранении отзыва. Пожалуйста, попробуйте еще раз."
             )
@@ -183,7 +183,7 @@ class ClientHandler:
                     feedback_data = json.load(f)
             else:
                 feedback_data = {'ratings': [], 'reviews': []}
-        except Exception as e:
+        except Exception:
             feedback_data = {'ratings': [], 'reviews': []}
         feedback_data['ratings'].append({
             'rating': rating,
@@ -192,7 +192,7 @@ class ClientHandler:
         try:
             with open(feedback_file, 'w', encoding='utf-8') as f:
                 json.dump(feedback_data, f, ensure_ascii=False, indent=2)
-        except Exception as e:
+        except Exception:
             return
 
     def _save_feedback(self, feedback_text):
@@ -204,7 +204,7 @@ class ClientHandler:
                     feedback_data = json.load(f)
             else:
                 feedback_data = {'ratings': [], 'reviews': []}
-        except Exception as e:
+        except Exception:
             feedback_data = {'ratings': [], 'reviews': []}
         feedback_data['reviews'].append({
             'id': len(feedback_data['reviews']) + 1,
@@ -214,7 +214,7 @@ class ClientHandler:
         try:
             with open(feedback_file, 'w', encoding='utf-8') as f:
                 json.dump(feedback_data, f, ensure_ascii=False, indent=2)
-        except Exception as e:
+        except Exception:
             return
 
     async def cancel_operation(self, update: Update, context: CallbackContext):

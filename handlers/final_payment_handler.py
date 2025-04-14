@@ -256,6 +256,7 @@ class FinalPaymentHandler(DeliverySCHandler):
                                 requests_data[request_id]['sms_id'] = sms_response.get('sms_id')
                                 requests_data[request_id]['confirmation_code'] = sms_response['code']
                                 await save_requests(requests_data)
+                                logger.info(f"Код подтверждения для заявки #{request_id}: {requests_data[request_id]['confirmation_code']}")
                                 # Сообщаем КЛИЕНТУ, чтобы он ввёл код из SMS
                                 await context.bot.send_message(
                                     chat_id=client_data['user_id'],

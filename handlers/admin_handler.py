@@ -64,7 +64,6 @@ class AdminHandler:
                     message_text += f"🕒 Желаемая дата: {request['desired_date'].strftime('%d.%m.%Y %H:%M')}"
                 else:
                     message_text += f"🕒 Желаемая дата: {request.get('desired_date', 'Не указана')}"
-                    
                 logger.debug("📝 Message text formed successfully")
             except Exception as e:
                 logger.error(f"❌ Error forming message text: {str(e)}")
@@ -74,6 +73,10 @@ class AdminHandler:
                 InlineKeyboardButton(
                     "📨 Разослать СЦ",
                     callback_data=f"send_to_sc_{request_id}"
+                ),
+                InlineKeyboardButton(
+                    "🚫 Отклонить заявку",
+                    callback_data=f"reject_request_{request_id}"
                 )
             ]]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -139,7 +142,6 @@ class AdminHandler:
                     location_str = location.get('address', 'Адрес не указан')
             else:
                 location_str = str(location)
-            logger.debug(f"📄 Request data: {json.dumps(request, indent=2, ensure_ascii=False)}")
             # Поиск СЦ
             users_data = await load_users()
             sc_users = [
@@ -192,6 +194,10 @@ class AdminHandler:
                             InlineKeyboardButton(
                                 "✅ Принять заявку", 
                                 callback_data=f"sc_accept_{rid}"
+                            ),
+                            InlineKeyboardButton(
+                                "🚫 Отклонить заявку",
+                                callback_data=f"reject_request_{rid}"
                             )
                         ]])
                     )
@@ -203,7 +209,7 @@ class AdminHandler:
             if success_count > 0:
                 # Обновляем заявку
                 requests_data[rid]['status'] = 'Отправлена в СЦ'
-                save_requests(requests_data)
+                await save_requests(requests_data)
                 await query.edit_message_text(f"✅ Заявка отправлена в {success_count} сервисных центров")
                 logger.info(f"✅ Request sent to {success_count} service centers")
             else:
@@ -237,12 +243,13 @@ class AdminHandler:
     async def create_delivery_task(self, update: Update, context: CallbackContext, request_id: str, sc_name: str):
         """Создание задачи доставки"""
         logger.info(f"Creating delivery task for request {request_id} to SC {sc_name}")
-        delivery_tasks = await load_delivery_tasks() or {}
+        delivery_tasks = await load_delivery_tasks()
         task_id = str(len(delivery_tasks) + 1)
         requests_data = await load_requests()
         request = requests_data.get(request_id, {})
         client_id = request.get('user_id')
-        client_data = load_users().get(str(client_id), {})
+        users_data = await load_users()
+        client_data = users_data.get(str(client_id), {})
         # Извлекаем фотографии из заявки
         delivery_photos = request.get('photos', [])
         delivery_task = {
@@ -313,11 +320,12 @@ class AdminHandler:
             delivery_task['delivery_id'] = query.from_user.id
             await save_delivery_tasks(delivery_tasks)
             # Обновляем сообщение о заявке
-            requests_data = load_requests()
+            requests_data = await load_requests()
             request_id = delivery_task['request_id']
             if request_id in requests_data:
                 request = requests_data[request_id]
-                user = await load_users().get(str(query.from_user.id), {})
+                users_data = await load_users()
+                user = users_data.get(str(query.from_user.id), {})
                 delivery_name = user.get('name', 'Неизвестный доставщик')
                 delivery_phone = user.get('phone', 'Номер не указан')
                 new_text = f"{query.message.text}\n\n_Задание взял доставщик: {delivery_name} - +{delivery_phone}_"
@@ -332,7 +340,7 @@ class AdminHandler:
                                 parse_mode='Markdown'
                             )
                     except Exception as e:
-                        print(f"Ошибка при обновлении сообщения для админа {admin_id}: {e}")
+                        logger.error(f"Ошибка при обновлении сообщения для админа {admin_id}: {e}")
             await query.edit_message_text(f"Вы приняли задачу доставки #{task_id}")
         else:
             await query.edit_message_text(f"Задача доставки #{task_id} не найдена")
@@ -433,7 +441,7 @@ class AdminHandler:
             await query.edit_message_text("Сервисный центр не найден")
             return
         service_center = service_centers[sc_id]
-        task_id, task_data = await self.create_delivery_task(update, context, request_id, service_center['name'])
+        task_id, _ = await self.create_delivery_task(update, context, request_id, service_center['name'])
         await query.edit_message_text(
             f"Задача доставки #{task_id} для заявки #{request_id} создана.\n"
             f"Доставщики уведомлены."
@@ -463,14 +471,14 @@ class AdminHandler:
         request = requests_data.get(request_id)
         if request:
             request['status'] = 'Отклонена'
-            save_requests(requests_data)
+            await save_requests(requests_data)
             await query.edit_message_text(
                 f"Заявка #{request_id} отклонена.\n\nЗаблокировать клиента {request.get('user_name', 'Неизвестный')}?",
                 reply_markup=reply_markup
             )
             await context.bot.send_message(
                 chat_id=request['user_id'],
-                text=f"К сожалению, мы не можем найти подходящий сервисный центр, вы можете обратиться к нашему порталу с услугами для самостоятельного поиска мастерской:\ndombyta.by"
+                text=f"К сожалению, мы не можем найти подходящего исполнителя, вы можете обратиться к нашему порталу с услугами для самостоятельного поиска мастерской:\ndombyta.by"
             )
 
     @log_method_call
@@ -1093,7 +1101,6 @@ class AdminHandler:
             if not delivery_tasks:
                 await update.message.reply_text("📭 Нет активных задач доставки.")
                 return
-                
             tasks_by_date = {}
             for task_id, task in delivery_tasks.items():
                 desired_date = task.get('desired_date', '')
@@ -1109,14 +1116,11 @@ class AdminHandler:
                 except (ValueError, IndexError) as e:
                     logger.error(f"Ошибка при обработке даты {desired_date}: {e}")
                     continue
-
             if not tasks_by_date:
                 await update.message.reply_text("📭 Нет задач доставки с указанной датой.")
                 return
-
             sorted_dates = sorted(tasks_by_date.keys(), 
                                 key=lambda x: datetime.strptime(x, "%d.%m.%Y"))
-            
             keyboard = []
             for date in sorted_dates:
                 task_count = len(tasks_by_date[date])
@@ -1126,7 +1130,6 @@ class AdminHandler:
                         callback_data=f"calendar_date_{date}"
                     )
                 ])
-                
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
                 "📅 Выберите дату для просмотра задач доставки:",
@@ -1281,7 +1284,7 @@ class AdminHandler:
                 delivery_tasks[task_id]['status'] = "Требует согласования"
                 delivery_tasks[task_id]['previous_date'] = old_date
                 delivery_tasks[task_id]['user_id'] = user_id  # Сохраняем user_id в задаче доставки
-                save_delivery_tasks(delivery_tasks)
+                await save_delivery_tasks(delivery_tasks)
                 logger.info(f"Задача {task_id} обновлена, старая дата: {old_date}, новая дата: {new_time} {new_date}")
                 logger.debug(f"ID клиента для уведомления: {user_id}")
                 try:

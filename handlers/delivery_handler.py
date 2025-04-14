@@ -387,6 +387,7 @@ class DeliveryHandler:
                                     context.user_data['awaiting_confirmation_code'] = request_id
                                     context.user_data['current_request'] = request_id
                                     context.user_data['client_id'] = client_id
+                                    logger.info(f"Код подтверждения для заявки #{request_id}: {requests_data[request_id]['confirmation_code']}")
                                     return ENTER_CONFIRMATION_CODE
                                 else:
                                     raise Exception("Не удалось отправить SMS")

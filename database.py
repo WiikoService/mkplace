@@ -6,8 +6,7 @@ from config import (
     SERVICE_CENTERS_JSON,
     DELIVERY_TASKS_JSON,
     DATA_DIR,
-    PAYMENT_JSON,
-    CHAT_HISTORY_FILE
+    PAYMENT_JSON
 )
 import logging
 import aiofiles

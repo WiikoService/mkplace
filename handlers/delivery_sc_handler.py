@@ -231,7 +231,7 @@ class DeliverySCHandler(DeliveryHandler):
                 await update.message.reply_text("❌ Не найдена активная заявка.")
                 return ConversationHandler.END
             # Загружаем данные
-            requests_data = load_requests()
+            requests_data = await load_requests()
             if request_id not in requests_data:
                 await update.message.reply_text("❌ Заявка не найдена.")
                 return ConversationHandler.END
@@ -750,6 +750,7 @@ class DeliverySCHandler(DeliveryHandler):
                         )
                         # Уведомляем клиента
                         client_id = request.get('user_id')
+                        logger.info(f"Код подтверждения для заявки #{request_id}: {requests_data[request_id]['sc_confirmation_code']}")
                         if client_id:
                             await context.bot.send_message(
                                 chat_id=client_id,
@@ -968,7 +969,8 @@ class DeliverySCHandler(DeliveryHandler):
                                 # Сохраняем код в данных заявки
                                 requests_data[request_id]['sms_id'] = sms_response.get('sms_id')
                                 requests_data[request_id]['confirmation_code'] = sms_response['code']
-                                save_requests(requests_data)
+                                await save_requests(requests_data)
+                                logger.info(f"Код подтверждения для заявки #{request_id}: {requests_data[request_id]['confirmation_code']}")
                                 # Сообщаем клиенту, чтобы он ввёл код из SMS
                                 await context.bot.send_message(
                                     chat_id=int(client_id),

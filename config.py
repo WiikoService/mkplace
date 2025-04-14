@@ -8,8 +8,8 @@ SMS_TOKEN = 'c9afa2690ed58aeb83dec04833e0fe1c'
 
 PAYMENT_API_URL = "https://dombyta.by/tgbrqst01.php"
 
-ADMIN_IDS = [8195693077]  # 6213103612 -              8195693077 (я)
-DELIVERY_IDS = [993108283]  # 7843162799 -          993108283 (я)
+ADMIN_IDS = [993108283]  # 6647011349 -            8195693077 (я)
+DELIVERY_IDS = []  # 1130459136 -          993108283 (я)
 
 
 category = [
@@ -29,7 +29,6 @@ REQUESTS_JSON = f"{DATA_DIR}/requests.json"
 SERVICE_CENTERS_JSON = f"{DATA_DIR}/service_centers.json"
 DELIVERY_TASKS_JSON = f"{DATA_DIR}/delivery_tasks.json"
 PAYMENT_JSON = f"{DATA_DIR}/payment.json"
-CHAT_HISTORY_FILE = f"{DATA_DIR}/chat_sc_client.json"
 # Состояния для ConversationHandler
 CREATE_REQUEST_LOCATION, ADMIN_PANEL, REGISTER, CREATE_REQUEST_DESC, CREATE_REQUEST_PHOTOS, ASSIGN_REQUEST, CREATE_DELIVERY_TASK, ENTER_NAME, ENTER_PHONE = range(9)
 
