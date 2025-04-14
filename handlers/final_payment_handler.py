@@ -444,7 +444,7 @@ class FinalPaymentHandler(DeliverySCHandler):
         try:
             request_id = query.data.split('_')[-1]
             logger.info(f"📊 Проверка статуса финального платежа для заявки #{request_id}")
-            requests_data = load_requests()
+            requests_data = await load_requests()
             if request_id not in requests_data:
                 await query.edit_message_text("❌ Заявка не найдена")
                 return ConversationHandler.END
@@ -485,7 +485,7 @@ class FinalPaymentHandler(DeliverySCHandler):
                         # Платеж успешен
                         request['status'] = "Доставлено клиенту"
                         request['payment_status'] = "paid"
-                        save_requests(requests_data)
+                        await save_requests(requests_data)
                         # Уведомляем клиента
                         await context.bot.send_message(
                             chat_id=int(client_id),
@@ -567,7 +567,7 @@ class FinalPaymentHandler(DeliverySCHandler):
             request_id = query.data.split('_')[-1]
             delivery_id = None
             # Загружаем данные заявки
-            requests_data = load_requests()
+            requests_data = await load_requests()
             if request_id in requests_data:
                 request = requests_data[request_id]
                 delivery_id = request.get('assigned_delivery')
@@ -622,8 +622,8 @@ class FinalPaymentHandler(DeliverySCHandler):
                 await update.message.reply_text("❌ Необходимо добавить хотя бы одно фото!")
                 return CREATE_REQUEST_PHOTOS
             # Загружаем данные
-            requests_data = load_requests()
-            delivery_tasks = load_delivery_tasks()
+            requests_data = await load_requests()
+            delivery_tasks = await load_delivery_tasks()
             if request_id not in requests_data:
                 await update.message.reply_text("❌ Заявка не найдена.")
                 return ConversationHandler.END

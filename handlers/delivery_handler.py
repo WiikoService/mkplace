@@ -243,7 +243,8 @@ class DeliveryHandler:
                             text=client_message
                         )
             # Уведомляем администраторов
-            user = await load_users().get(str(query.from_user.id), {})
+            users_data = await load_users()
+            user = users_data.get(str(query.from_user.id), {})
             delivery_name = user.get('name', user_name)
             delivery_phone = user.get('phone', 'Номер не указан')
             admin_message = (
@@ -524,7 +525,7 @@ class DeliveryHandler:
                 for _, task in delivery_tasks.items():
                     if isinstance(task, dict) and task.get('request_id') == request_id:
                         task['status'] = ORDER_STATUS_DELIVERY_TO_SC
-                        save_delivery_tasks(delivery_tasks)
+                        await save_delivery_tasks(delivery_tasks)
                         break
                 # Уведомляем клиента
                 await update.message.reply_text(
@@ -535,7 +536,7 @@ class DeliveryHandler:
                 if delivery_id:
                     # Получаем данные СЦ
                     sc_id = request.get('assigned_sc')
-                    service_centers = load_service_centers()
+                    service_centers = await load_service_centers()
                     sc_data = service_centers.get(sc_id, {})
                     await context.bot.send_message(
                         chat_id=delivery_id,

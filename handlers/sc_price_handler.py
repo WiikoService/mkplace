@@ -215,7 +215,7 @@ class SCPriceHandler:
 
     async def _notify_admin_and_sc_approval(self, context: CallbackContext, request_id: str, price: int, approved: bool):
         """Уведомляет админа и СЦ о подтверждении/отклонении цены клиентом"""
-        requests_data = load_requests()
+        requests_data = await load_requests()
         request = requests_data.get(request_id)
         if not request:
             return   

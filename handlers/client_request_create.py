@@ -406,70 +406,70 @@ class RequestCreator(ClientHandler):
 
     async def get_next_request_id(self):
         """Генерирует следующий ID заявки на основе существующих"""
-        requests_data = await load_requests()  # Загружаем текущие данные
+        requests_data = await load_requests()
         if not requests_data:
-            return "1"
-        # Ищем максимальный числовой ID среди существующих заявок
+            return "1"  # Всегда возвращаем строку
+        
         max_id = 0
         for request_id in requests_data.keys():
             try:
-                current_id = int(request_id)
+                # Убеждаемся, что ключ - строка, и преобразуем в int
+                current_id = int(str(request_id))
                 if current_id > max_id:
                     max_id = current_id
-            except ValueError:
+            except (ValueError, TypeError):
                 continue
-        return str(max_id + 1)
+        
+        return str(max_id + 1)  # Всегда возвращаем строку
 
     async def create_request_final(self, update: Update, context: CallbackContext):
         """Финальная обработка создания заявки."""
         query = update.callback_query
         await query.answer()
+        
         requests_data = await load_requests()
-        request_id = self.get_next_request_id()
-        user_id = str(update.effective_user.id)
-        # Копируем фото во временную переменную перед очисткой user_data
-        photos = context.user_data.get('photos', [])
-        # Проверяем и нормализуем пути к фото
-        valid_photos = []
-        for photo_path in photos:
-            if isinstance(photo_path, str):
-                # Сохраняем относительные пути
-                rel_path = os.path.relpath(photo_path, start=os.getcwd())
-                valid_photos.append(rel_path)
-        # Преобразуем все даты в строки
-        desired_date = context.user_data.get("desired_date")
-        if isinstance(desired_date, datetime):
-            desired_date_str = desired_date.strftime("%H:%M %d.%m.%Y")
-        else:
-            desired_date_str = str(desired_date) if desired_date else "Не указана"
-        # Формируем структуру заявки с преобразованными датами
+        request_id = await self.get_next_request_id()
+        
+        # Обработка location - теперь просто строка
+        location_data = context.user_data.get("location")
+        processed_location = str(location_data) if location_data else ""
+
         request_data = {
             "id": request_id,
-            "user_id": user_id,
+            "user_id": str(update.effective_user.id),
             "user_name": f"{update.effective_user.first_name or ''} {update.effective_user.last_name or ''}".strip(),
-            "user_phone": context.user_data.get("user_phone", "Не указан"),
-            "category": context.user_data.get("category", "Не указана"),
-            "description": context.user_data.get("description", "Не указано"),
-            "photos": valid_photos,
-            "location": context.user_data.get("location", {}),
+            "user_phone": str(context.user_data.get("user_phone", "Не указан")),
+            "category": str(context.user_data.get("category", "Не указана")),
+            "description": str(context.user_data.get("description", "Не указано")),
+            "photos": [
+                os.path.relpath(p, start=os.getcwd()) 
+                for p in context.user_data.get('photos', []) 
+                if isinstance(p, str)
+            ],
+            "location": processed_location,  # Простая строка
             "status": "Новая",
             "assigned_sc": None,
-            "desired_date": desired_date_str,  # Уже строка
-            "comment": context.user_data.get("comment", "Не указано"),
-            "created_at": datetime.now().strftime("%H:%M %d.%m.%Y")  # Строка
+            "desired_date": (
+                context.user_data["desired_date"].strftime("%H:%M %d.%m.%Y") 
+                if isinstance(context.user_data.get("desired_date"), datetime)
+                else str(context.user_data.get("desired_date", "Не указана"))
+            ),
+            "comment": str(context.user_data.get("comment", "Не указано")),
+            "created_at": datetime.now().strftime("%H:%M %d.%m.%Y")
         }
-        # Сохраняем заявку
+
         requests_data[request_id] = request_data
         await save_requests(requests_data)
-        # Полная очистка данных пользователя
+        
         context.user_data.clear()
         await query.edit_message_text(f"✅ Заявка #{request_id} создана!")
-        admin_msg = f"🆕 #{request_id}"
-        for admin_id in ADMIN_IDS:  # ADMIN_IDS - обычный список ID админов
+        
+        for admin_id in ADMIN_IDS:
             try:
-                await context.bot.send_message(chat_id=admin_id, text=admin_msg)
+                await context.bot.send_message(chat_id=admin_id, text=f"🆕 #{request_id}")
             except Exception as e:
-                logger.error(f"Не удалось уведомить админа {admin_id}: {e}")
+                logger.error(f"Ошибка уведомления админа {admin_id}: {e}")
+        
         return ConversationHandler.END
 
 
