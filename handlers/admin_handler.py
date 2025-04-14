@@ -31,7 +31,7 @@ class AdminHandler:
         try:
             request_id = query.data.split('_')[-1]
             logger.debug(f"📝 Processing request {request_id}")
-            requests_data = load_requests()
+            requests_data = await load_requests()
             logger.debug(f"📦 Loaded {len(requests_data)} requests")
             request = requests_data.get(request_id)
             logger.debug(f"📄 Request data found: {request is not None}")
@@ -117,7 +117,7 @@ class AdminHandler:
             rid = query.data.split('_')[-1]
             logger.debug(f"📩 Processing request {rid}")
             # Загрузка данных
-            requests_data = load_requests()
+            requests_data = await load_requests()
             logger.debug(f"📥 Loaded {len(requests_data)} requests")
             if rid not in requests_data:
                 logger.error(f"🚫 Request {rid} not found")
@@ -141,7 +141,7 @@ class AdminHandler:
                 location_str = str(location)
             logger.debug(f"📄 Request data: {json.dumps(request, indent=2, ensure_ascii=False)}")
             # Поиск СЦ
-            users_data = load_users()
+            users_data = await load_users()
             sc_users = [
                 (uid, u_data['sc_id']) 
                 for uid, u_data in users_data.items() 
@@ -237,9 +237,9 @@ class AdminHandler:
     async def create_delivery_task(self, update: Update, context: CallbackContext, request_id: str, sc_name: str):
         """Создание задачи доставки"""
         logger.info(f"Creating delivery task for request {request_id} to SC {sc_name}")
-        delivery_tasks = load_delivery_tasks() or {}
+        delivery_tasks = await load_delivery_tasks() or {}
         task_id = str(len(delivery_tasks) + 1)
-        requests_data = load_requests()
+        requests_data = await load_requests()
         request = requests_data.get(request_id, {})
         client_id = request.get('user_id')
         client_data = load_users().get(str(client_id), {})
@@ -260,7 +260,7 @@ class AdminHandler:
             'assigned_delivery_id': None
         }
         delivery_tasks[task_id] = delivery_task
-        save_delivery_tasks(delivery_tasks)
+        await save_delivery_tasks(delivery_tasks)
         await notify_client(context.bot, DELIVERY_IDS, delivery_task, detailed=True)
         return task_id, delivery_task
 
@@ -306,18 +306,18 @@ class AdminHandler:
         else:
             await query.edit_message_text("Неверный формат данных")
             return
-        delivery_tasks = load_delivery_tasks()
+        delivery_tasks = await load_delivery_tasks()
         if task_id in delivery_tasks:
             delivery_task = delivery_tasks[task_id]
             delivery_task['status'] = 'Принято'
             delivery_task['delivery_id'] = query.from_user.id
-            save_delivery_tasks(delivery_tasks)
+            await save_delivery_tasks(delivery_tasks)
             # Обновляем сообщение о заявке
             requests_data = load_requests()
             request_id = delivery_task['request_id']
             if request_id in requests_data:
                 request = requests_data[request_id]
-                user = load_users().get(str(query.from_user.id), {})
+                user = await load_users().get(str(query.from_user.id), {})
                 delivery_name = user.get('name', 'Неизвестный доставщик')
                 delivery_phone = user.get('phone', 'Номер не указан')
                 new_text = f"{query.message.text}\n\n_Задание взял доставщик: {delivery_name} - +{delivery_phone}_"
@@ -340,7 +340,7 @@ class AdminHandler:
     @log_method_call
     async def view_requests(self, update: Update, context: CallbackContext):
         """Просмотр активных заявок"""
-        requests_data = load_requests()
+        requests_data = await load_requests()
         if not requests_data:
             await update.message.reply_text("Нет активных заявок.")
         else:
@@ -358,9 +358,9 @@ class AdminHandler:
         query = update.callback_query
         request_id = query.data.split('_')[-1]
         try:
-            requests_data = load_requests()
+            requests_data = await load_requests()
             request = requests_data[request_id]
-            users_data = load_users()
+            users_data = await load_users()
             # Формируем сообщение для СЦ
             message = (
                 f"📦 Новая заявка #{request_id}\n\n"
@@ -404,7 +404,7 @@ class AdminHandler:
     @log_method_call
     async def view_service_centers(self, update: Update, context: CallbackContext):
         """Просмотр списка сервисных центров"""
-        service_centers = load_service_centers()
+        service_centers = await load_service_centers()
         logger.info(f"Loaded service centers: {service_centers}")
         if not service_centers:
             await update.message.reply_text("Список СЦ пуст.")
@@ -428,7 +428,7 @@ class AdminHandler:
             return
         request_id = parts[2]
         sc_id = parts[3]
-        service_centers = load_service_centers()
+        service_centers = await load_service_centers()
         if sc_id not in service_centers:
             await query.edit_message_text("Сервисный центр не найден")
             return
@@ -459,7 +459,7 @@ class AdminHandler:
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        requests_data = load_requests()
+        requests_data = await load_requests()
         request = requests_data.get(request_id)
         if request:
             request['status'] = 'Отклонена'
@@ -484,14 +484,14 @@ class AdminHandler:
         if action == 'cancel':
             await query.edit_message_text(f"Заявка #{request_id} отклонена. Клиент не заблокирован.")
             return
-        requests_data = load_requests()
+        requests_data = await load_requests()
         request = requests_data.get(request_id)
         if request and action == 'confirm':
-            users_data = load_users()
+            users_data = await load_users()
             user_id = request['user_id']
             if user_id in users_data:
                 users_data[user_id]['blocked'] = True
-                save_users(users_data)
+                await save_users(users_data)
                 await query.edit_message_text(
                     f"Заявка #{request_id} отклонена.\n"
                     f"Клиент {request.get('user_name', 'Неизвестный')} заблокирован."
@@ -508,9 +508,9 @@ class AdminHandler:
         await query.answer()
         try:
             request_id = query.data.split('_')[-1]
-            requests_data = load_requests()
-            delivery_tasks = load_delivery_tasks()
-            service_centers = load_service_centers()
+            requests_data = await load_requests()
+            delivery_tasks = await load_delivery_tasks()
+            service_centers = await load_service_centers()
             if request_id not in requests_data:
                 await query.edit_message_text("❌ Ошибка: заявка не найдена.")
                 return
@@ -537,10 +537,10 @@ class AdminHandler:
                 "desired_date": request.get('desired_date', '')  # Копируем дату из заявки
             }
             delivery_tasks[new_task_id] = new_task
-            save_delivery_tasks(delivery_tasks)
+            await save_delivery_tasks(delivery_tasks)
             # Обновляем статус заявки
             requests_data[request_id]['status'] = ORDER_STATUS_PICKUP_FROM_SC
-            save_requests(requests_data)
+            await save_requests(requests_data)
             await query.edit_message_text(
                 f"✅ Задача доставки #{new_task_id} создана.\n"
                 f"Заявка: #{request_id}\n"
@@ -559,7 +559,7 @@ class AdminHandler:
     async def show_delivery_tasks(self, update: Update, context: CallbackContext):
         """Показ списка заявок для создания задачи доставки"""
         try:
-            requests_data = load_requests()
+            requests_data = await load_requests()
             available_requests = {}
             # Фильтруем заявки со статусом "Ожидает доставку"
             for request_id, request in requests_data.items():
@@ -697,8 +697,8 @@ class AdminHandler:
         """Показывает список новых заявок, отсортированных по дате создания (новые сверху)"""
         logger.info("🔍 Показ новых заявок для назначения СЦ")
         try:
-            requests_data = load_requests()
-            users_data = load_users()  # Загружаем данные пользователей
+            requests_data = await load_requests()
+            users_data = await load_users()  # Загружаем данные пользователей
             # Фильтруем и сортируем заявки
             new_requests = sorted(
                 (
@@ -841,7 +841,7 @@ class AdminHandler:
         await query.answer()
         request_id = query.data.split('_')[-1]
         try:
-            requests_data = load_requests()
+            requests_data = await load_requests()
             if request_id not in requests_data:
                 await query.edit_message_text("❌ Заявка не найдена")
                 return
@@ -885,14 +885,14 @@ class AdminHandler:
         query = update.callback_query
         await query.answer()
         request_id = query.data.split('_')[-1]
-        requests_data = load_requests()
+        requests_data = await load_requests()
         if request_id not in requests_data:
             await query.edit_message_text("❌ Заявка не найдена")
             return ConversationHandler.END
         request = requests_data[request_id]
         # Устанавливаем флаг одобрения цены
         request['price_approved'] = True
-        save_requests(requests_data)
+        await save_requests(requests_data)
         logger.info(f"Клиент подтвердил цену для заявки #{request_id}")
         # Если в режиме отладки, сразу создаем задачу доставки
         if DEBUG:
@@ -901,7 +901,7 @@ class AdminHandler:
             pre_payment_handler = PrePaymentHandler()
             # Устанавливаем фиксированную стоимость для отладки
             request['delivery_cost'] = '100.00'
-            save_requests(requests_data)
+            await save_requests(requests_data)
             return await pre_payment_handler.create_delivery_task(update, context, request_id, request)
         # В обычном режиме переходим к созданию платежа
         logger.info(f"Переходим к созданию платежа для заявки #{request_id}")
@@ -918,25 +918,25 @@ class AdminHandler:
         request_id = parts[2]
         comment = parts[3]  # Комментарий теперь в callback_data
         try:
-            requests_data = load_requests()
+            requests_data = await load_requests()
             request = requests_data[request_id]
             # Получаем данные СЦ
             sc_id = request.get('assigned_sc')
-            service_centers = load_service_centers()
+            service_centers = await load_service_centers()
             sc_data = service_centers.get(sc_id, {})
             sc_name = sc_data.get('name', 'Неизвестный СЦ')
             # Сохраняем комментарий в заявку
             request['comment'] = comment
             # Обновляем данные заявки
             requests_data[request_id] = request
-            save_requests(requests_data)
+            await save_requests(requests_data)
             # Обновляем сообщение администратора
             await query.edit_message_text(
                 f"✅ Комментарий от СЦ '{sc_name}' для заявки #{request_id} одобрен.\n"
                 f"Комментарий: {comment}"
             )            
             # Уведомляем СЦ
-            users_data = load_users()
+            users_data = await load_users()
             sc_user_id = next(
                 (uid for uid, u_data in users_data.items() 
                 if str(u_data.get('sc_id')) == str(sc_id) and u_data.get('role') == 'sc'),
@@ -958,14 +958,14 @@ class AdminHandler:
         await query.answer()
         request_id = query.data.split('_')[-1]
         try:
-            requests_data = load_requests()
+            requests_data = await load_requests()
             if request_id not in requests_data:
                 await query.edit_message_text("❌ Заявка не найдена")
                 return
             request = requests_data[request_id]
             # Получаем данные СЦ
             sc_id = request.get('assigned_sc')
-            service_centers = load_service_centers()
+            service_centers = await load_service_centers()
             sc_data = service_centers.get(sc_id, {})
             sc_name = sc_data.get('name', 'Неизвестный СЦ')
             # Обновляем сообщение администратора
@@ -974,7 +974,7 @@ class AdminHandler:
                 f"Комментарий: {request.get('comment', 'Нет комментария')}"
             )            
             # Уведомляем СЦ
-            users_data = load_users()
+            users_data = await load_users()
             sc_user_id = next(
                 (uid for uid, u_data in users_data.items() 
                 if str(u_data.get('sc_id')) == str(sc_id) and u_data.get('role') == 'sc'),
@@ -996,10 +996,10 @@ class AdminHandler:
         query = update.callback_query
         await query.answer()
         request_id = query.data.split('_')[-1]
-        requests_data = load_requests()
-        delivery_tasks = load_delivery_tasks()
-        users_data = load_users()
-        service_centers = load_service_centers()
+        requests_data = await load_requests()
+        delivery_tasks = await load_delivery_tasks()
+        users_data = await load_users()
+        service_centers = await load_service_centers()
         if request_id in requests_data:
             request = requests_data[request_id]
             sc_id = request.get('assigned_sc')
@@ -1034,10 +1034,10 @@ class AdminHandler:
                 'desired_date': request.get('desired_date', '')  # Копируем дату из заявки
             }
             delivery_tasks[task_id] = delivery_task
-            save_delivery_tasks(delivery_tasks)
+            await save_delivery_tasks(delivery_tasks)
             # Обновляем статус заявки
             request['status'] = ORDER_STATUS_NEW
-            save_requests(requests_data)
+            await save_requests(requests_data)
             await query.edit_message_text(
                 f"✅ Задача доставки #{task_id} создана.\n"
                 f"Заявка: #{request_id}\n"
@@ -1054,7 +1054,7 @@ class AdminHandler:
         await query.answer()
         try:
             request_id = query.data.split('_')[-1]
-            requests_data = load_requests()
+            requests_data = await load_requests()
             if request_id not in requests_data:
                 await query.edit_message_text("❌ Заявка не найдена")
                 return
@@ -1089,7 +1089,7 @@ class AdminHandler:
         """Показывает календарь задач доставки"""
         logger.info("📅 Показ календаря задач доставки")
         try:
-            delivery_tasks = load_delivery_tasks()
+            delivery_tasks = await load_delivery_tasks()
             if not delivery_tasks:
                 await update.message.reply_text("📭 Нет активных задач доставки.")
                 return
@@ -1143,7 +1143,7 @@ class AdminHandler:
         await query.answer()
         try:
             date_str = query.data.split('_')[2]
-            delivery_tasks = load_delivery_tasks()
+            delivery_tasks = await load_delivery_tasks()
             tasks_for_date = []
             # Собираем задачи для выбранной даты
             for task_id, task in delivery_tasks.items():
@@ -1257,8 +1257,8 @@ class AdminHandler:
                 await query.edit_message_text(error_msg)
                 return
             # Загружаем данные
-            delivery_tasks = load_delivery_tasks()
-            requests_data = load_requests()
+            delivery_tasks = await load_delivery_tasks()
+            requests_data = await load_requests()
             logger.debug(f"Загружено {len(delivery_tasks)} задач доставки и {len(requests_data)} заявок")
             if task_id in delivery_tasks:
                 # Получаем request_id из задачи доставки

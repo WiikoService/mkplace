@@ -56,14 +56,14 @@ class SCPriceHandler:
             await query.edit_message_text("❌ Ошибка: данные о цене не найдены")
             return CONFIRMATION
         # Обновляем данные заявки
-        requests_data = load_requests()
+        requests_data = await load_requests()
         if request_id not in requests_data:
             await query.edit_message_text("❌ Заявка не найдена")
             return CONFIRMATION
         request = requests_data[request_id]
         request['final_price'] = price
         request['price_status'] = 'pending_client_approval'  # Добавляем статус ожидания подтверждения клиентом
-        save_requests(requests_data)
+        await save_requests(requests_data)
         # Отправляем запрос на подтверждение цены клиенту
         await self._request_client_approval(update, context, request_id, price)
         await query.edit_message_text(f"✅ Окончательная стоимость {price} BYN отправлена клиенту на подтверждение")
@@ -73,19 +73,18 @@ class SCPriceHandler:
         """Запрашивает повторный ввод цены"""
         query = update.callback_query
         await query.answer()
-        request_id = query.data.split('_')[-1]
         await query.edit_message_text("💰 Введите новую стоимость ремонта (целое число):")
         return ENTER_REPAIR_PRICE
 
     async def _request_client_approval(self, update: Update, context: CallbackContext, request_id: str, price: int):
         """Отправляет запрос клиенту на подтверждение цены"""
-        requests_data = load_requests()
+        requests_data = await load_requests()
         request = requests_data.get(request_id)
         if not request:
             return
         # Формируем сообщение для клиента
         client_id = request.get('user_id')
-        service_centers = load_service_centers()
+        service_centers = await load_service_centers()
         sc_id = request.get('assigned_sc')
         sc_data = service_centers.get(sc_id, {})
         sc_name = sc_data.get('name', 'Неизвестный СЦ')
@@ -118,7 +117,7 @@ class SCPriceHandler:
         await query.answer()
         request_id = query.data.split('_')[-1]
         # Обновляем данные заявки
-        requests_data = load_requests()
+        requests_data = await load_requests()
         if request_id not in requests_data:
             await query.edit_message_text("❌ Заявка не найдена")
             return
@@ -130,7 +129,7 @@ class SCPriceHandler:
         # Обновляем статус цены и заявки
         request['price_status'] = 'approved_by_client'
         request['status'] = 'Ремонт завершен, ожидает доставки'
-        save_requests(requests_data)
+        await save_requests(requests_data)
         # Уведомляем админа и СЦ
         await self._notify_admin_and_sc_approval(context, request_id, price, True)
         # Уведомляем клиента - просто сообщение о подтверждении, без дальнейших действий
@@ -147,7 +146,7 @@ class SCPriceHandler:
         await query.answer()
         request_id = query.data.split('_')[-1]
         # Обновляем данные заявки
-        requests_data = load_requests()
+        requests_data = await load_requests()
         if request_id not in requests_data:
             await query.edit_message_text("❌ Заявка не найдена")
             return
@@ -159,12 +158,12 @@ class SCPriceHandler:
         # Обновляем статус цены
         request['price_status'] = 'rejected_by_client'
         request['status'] = 'Цена не согласована'
-        save_requests(requests_data)
+        await save_requests(requests_data)
         # Уведомляем админа и СЦ
         await self._notify_admin_and_sc_approval(context, request_id, price, False)
         # Готовим данные для чата
         sc_id = request.get('assigned_sc')
-        users_data = load_users()
+        users_data = await load_users()
         client_id = str(update.effective_user.id)
         # Ищем пользователя СЦ
         sc_user_id = None
@@ -188,7 +187,7 @@ class SCPriceHandler:
         timestamp = datetime.now().strftime("%H:%M %d.%m.%Y")
         disagreement_message = f"Система: Клиент не согласен с предложенной окончательной стоимостью ремонта {price} BYN."
         # Сохраняем в историю чата
-        save_chat_history(
+        await save_chat_history(
             request_id, 
             [{
                 'sender': 'system',
@@ -198,7 +197,6 @@ class SCPriceHandler:
         )
         # Отправляем сообщение СЦ
         try:
-            client_name = users_data.get(client_id, {}).get('name', 'Клиент')
             await context.bot.send_message(
                 chat_id=int(sc_user_id),
                 text=f"📩 *Системное уведомление по заявке #{request_id}:*\n"
@@ -240,7 +238,7 @@ class SCPriceHandler:
                 logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
         # Отправляем уведомление СЦ
         sc_id = request.get('assigned_sc')
-        users_data = load_users()
+        users_data = await load_users()
         # Получаем данные клиента
         client_id = request.get('user_id')
         client_data = users_data.get(client_id, {})

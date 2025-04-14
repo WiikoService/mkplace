@@ -42,13 +42,13 @@ class SCHandler:
         """Показывает список заявок сервисного центра"""
         try:
             user_id = str(update.effective_user.id)
-            users_data = load_users()
+            users_data = await load_users()
             current_user = users_data.get(user_id, {})
             if current_user.get('role') != 'sc' or 'sc_id' not in current_user:
                 await update.effective_message.reply_text("❌ Доступ запрещен!")
                 return ConversationHandler.END
             sc_id = current_user['sc_id']
-            requests_data = load_requests()
+            requests_data = await load_requests()
             sc_requests = {
                 req_id: req
                 for req_id, req in requests_data.items()
@@ -145,7 +145,7 @@ class SCHandler:
                 'client_id': None
             }
         }
-        requests_data = load_requests()
+        requests_data = await load_requests()
         request_data = requests_data.get(request_id, {})
         client_id = request_data.get('user_id')
         if not client_id:
@@ -172,7 +172,7 @@ class SCHandler:
         request_id = chat_data.get('request_id')
         client_id = chat_data['participants']['client_id']
         # Получаем данные заявки для форматирования адреса
-        requests_data = load_requests()
+        requests_data = await load_requests()
         request = requests_data.get(request_id, {})
         # Форматируем адрес
         location = request.get('location', {})
@@ -206,7 +206,7 @@ class SCHandler:
                 message.text,
                 datetime.now().strftime("%H:%M %d-%m-%Y")
             )
-        except Exception as e:
+        except Exception:
             await message.reply_text("❌ Не удалось отправить сообщение")
         return 'HANDLE_SC_CHAT'
 
@@ -217,10 +217,10 @@ class SCHandler:
         await query.answer()
         context.user_data.pop('active_client_chat', None)
         request_id = query.data.split('_')[-1]
-        requests_data = load_requests()
+        requests_data = await load_requests()
         request_data = requests_data.get(request_id, {})
         sc_id = request_data.get('assigned_sc')
-        users_data = load_users()
+        users_data = await load_users()
         sc_user_id = next(
             (uid for uid, u_data in users_data.items() 
             if str(u_data.get('sc_id')) == str(sc_id) and u_data.get('role') == 'sc'),
@@ -282,14 +282,14 @@ class SCHandler:
                 "✅ Сообщение доставлено:",
                 reply_markup=reply_markup
             )
-        except Exception as e:
+        except Exception:
             await message.reply_text("❌ Ошибка отправки")
         return 'HANDLE_CLIENT_REPLY'
 
     @log_method_call
-    def save_chat_history(self, request_id, sender, message, timestamp):
+    async def save_chat_history(self, request_id, sender, message, timestamp):
         """Сохранение истории переписки"""
-        chat_history = load_chat_history()
+        chat_history = await load_chat_history()
         entry = {
             'sender': sender,
             'message': message,
@@ -298,7 +298,7 @@ class SCHandler:
         if request_id not in chat_history:
             chat_history[request_id] = []
         chat_history[request_id].append(entry)
-        save_chat_history(chat_history)
+        await save_chat_history(chat_history)
 
     @log_method_call
     async def close_chat(self, update: Update, context: CallbackContext):
@@ -324,7 +324,7 @@ class SCHandler:
         query = update.callback_query
         await query.answer()
         request_id = query.data.split('_')[-1]
-        chat_history = load_chat_history().get(request_id, [])
+        chat_history = await load_chat_history().get(request_id, [])
         if not chat_history:
             await query.message.reply_text("История переписки пуста.")
             return
@@ -352,15 +352,15 @@ class SCHandler:
         """Отправляет комментарий на согласование администратору"""
         user_comment = update.message.text
         request_id = context.user_data.get('current_request_id')
-        requests_data = load_requests()
+        requests_data = await load_requests()
         if request_id in requests_data:
             request_data = requests_data[request_id]
             # Получаем данные СЦ
             user_id = str(update.effective_user.id)
-            users_data = load_users()
+            users_data = await load_users()
             sc_user = users_data.get(user_id, {})
             sc_center_id = sc_user.get('sc_id')
-            service_centers = load_service_centers()
+            service_centers = await load_service_centers()
             sc_data = service_centers.get(sc_center_id, {})
             sc_name = sc_data.get('name', 'Неизвестный СЦ')
             # Формируем сообщение для администратора
@@ -405,9 +405,9 @@ class SCHandler:
     @log_method_call
     async def assign_to_delivery(self, update: Update, context: CallbackContext):
         """Назначить товар в доставку из СЦ"""
-        users_data = load_users()
+        users_data = await load_users()
         user_id = str(update.effective_user.id)   
-        requests_data = load_requests()
+        requests_data = await load_requests()
         if not requests_data:
             await update.message.reply_text("Нет активных заявок для отправки в доставку.")
             return ConversationHandler.END
@@ -440,7 +440,7 @@ class SCHandler:
         await query.answer()
         parts = query.data.split('_')
         request_id = parts[2]
-        requests_data = load_requests()
+        requests_data = await load_requests()
         request = requests_data.get(request_id, {})
         # Проверяем наличие финальной цены
         if 'final_price' not in request or request['final_price'] is None:
@@ -459,7 +459,7 @@ class SCHandler:
         # Обновляем статус заявки
         request['status'] = 'Ожидает выбора даты доставки'
         requests_data[request_id] = request
-        save_requests(requests_data)
+        await save_requests(requests_data)
         # Уведомляем клиента о необходимости выбрать дату доставки
         client_id = request.get('user_id')
         if client_id:
@@ -534,28 +534,30 @@ class SCHandler:
             minute=time_obj.minute
         )
         # Получаем данные заявки
-        requests_data = load_requests()
+        requests_data = await load_requests()
         request = requests_data.get(request_id, {})
         # Обновляем статус и добавляем дату доставки
         request['status'] = 'Ожидает доставку из СЦ'
         request['delivery_date'] = final_datetime.strftime("%H:%M %d.%m.%Y")
         requests_data[request_id] = request
-        save_requests(requests_data)
+        await save_requests(requests_data)
         # Очищаем временные данные
         if "temp_delivery_date" in context.user_data:
             del context.user_data["temp_delivery_date"]
         # Уведомляем администраторов
         keyboard = [
             [
-            InlineKeyboardButton(
-                "Создать задачу доставки из СЦ",
-                callback_data=f"create_sc_delivery_{request_id}"
-            )
-        ],
-        InlineKeyboardButton(
-            "🗓️ Изменить дату",
-            callback_data=f"change_delivery_date_{request_id}"
-        ),
+                InlineKeyboardButton(
+                    "Создать задачу доставки из СЦ",
+                    callback_data=f"create_sc_delivery_{request_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "🗓️ Изменить дату",
+                    callback_data=f"change_delivery_date_{request_id}"
+                )
+            ],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         admin_message = (
@@ -583,7 +585,7 @@ class SCHandler:
             else:
                 request['status'] = ORDER_STATUS_DELIVERY_TO_SC
                 requests_data[request_id] = request
-                save_requests(requests_data)
+                await save_requests(requests_data)
         await query.edit_message_text(
                     f"❌ Не удалось отправить заявку #{request_id} в доставку. Попробуйте позже."
         )    
@@ -593,8 +595,8 @@ class SCHandler:
     async def call_to_admin(self, update: Update, context: CallbackContext):
         """Связаться с администратором"""
         user_id = str(update.effective_user.id)
-        users_data = load_users()
-        service_centers = load_service_centers()
+        users_data = await load_users()
+        service_centers = await load_service_centers()
         # Получаем данные СЦ
         sc_id = users_data[user_id].get('sc_id')
         sc_data = service_centers.get(sc_id, {})
@@ -639,7 +641,7 @@ class SCHandler:
         request_id = query.data.split('_')[-1]        
         try:
             user_id = update.effective_user.id
-            requests_data = load_requests()
+            requests_data = await load_requests()
             request = requests_data.get(request_id)   
             # Проверяем, не была ли заявка уже принята
             if request.get('assigned_sc'):
@@ -648,14 +650,14 @@ class SCHandler:
                 )
                 return ConversationHandler.END
             # Получаем данные СЦ
-            users_data = load_users()
+            users_data = await load_users()
             sc_user = users_data.get(str(user_id), {})
             sc_id = sc_user.get('sc_id')
             # Обновляем статус заявки и назначаем СЦ
             request['status'] = 'Принята СЦ'
             request['assigned_sc'] = sc_id
             requests_data[request_id] = request
-            save_requests(requests_data)
+            await save_requests(requests_data)
             # Сохраняем ID заявки в контексте пользователя
             context.user_data['current_request'] = request_id
             # Добавляем флаг, что ожидаем ввод стоимости и время начала ожидания
@@ -675,7 +677,7 @@ class SCHandler:
                 f"Вы приняли заявку #{request_id}.\n\n"
                 f"Пожалуйста, укажите примерную стоимость ремонта:"
             )            
-        except Exception as e:
+        except Exception:
             await query.edit_message_text("Произошла ошибка при обработке запроса")
             return ConversationHandler.END
 
@@ -699,7 +701,8 @@ class SCHandler:
         context.user_data['repair_price_text'] = price_text
         context.user_data.pop('waiting_for_price', None)
         # Формируем ответ
-        request = load_requests().get(request_id)
+        requests_data = await load_requests()
+        request = requests_data.get(request_id)
         if not request:
             await update.message.reply_text("❌ Заявка не найдена")
             return
@@ -736,12 +739,12 @@ class SCHandler:
         sc_id = str(update.effective_user.id)
         try:
             # Получаем данные заявки
-            requests_data = load_requests()
+            requests_data = await load_requests()
             if request_id not in requests_data:
                 await query.edit_message_text("❌ Заявка не найдена")
                 return
             # Получаем данные о сервисном центре
-            users_data = load_users()
+            users_data = await load_users()
             sc_user = users_data.get(sc_id, {})
             sc_center_id = sc_user.get('sc_id')
             if not sc_center_id:
@@ -754,9 +757,9 @@ class SCHandler:
             request['repair_price'] = price_text
             request['accepted_at'] = int(time.time())
             # Сохраняем обновленные данные
-            save_requests(requests_data)
+            await save_requests(requests_data)
             # Отправляем уведомление администраторам для согласования цены
-            service_centers = load_service_centers()
+            service_centers = await load_service_centers()
             sc_data = service_centers.get(sc_center_id, {})
             sc_name = sc_data.get('name', 'Неизвестный СЦ')
             keyboard = [[
@@ -796,9 +799,9 @@ class SCHandler:
         await query.answer()
         request_id = query.data.split('_')[-1]
         try:
-            requests_data = load_requests()
-            delivery_tasks = load_delivery_tasks()
-            service_centers = load_service_centers()
+            requests_data = await load_requests()
+            delivery_tasks = await load_delivery_tasks()
+            service_centers = await load_service_centers()
             request = requests_data.get(request_id)
             if not request:
                 await query.edit_message_text("❌ Заявка не найдена")
@@ -833,10 +836,10 @@ class SCHandler:
                 'desired_date': request.get('desired_date', '')
             }
             delivery_tasks[new_task_id] = new_task
-            save_delivery_tasks(delivery_tasks)
+            await save_delivery_tasks(delivery_tasks)
             # Обновляем статус заявки
             request['status'] = ORDER_STATUS_SC_TO_CLIENT  # Статус: готово к доставке клиенту
-            save_requests(requests_data)
+            await save_requests(requests_data)
             await query.edit_message_text(
                 f"✅ Создана задача доставки #{new_task_id}\n"
                 f"Тип: Доставка из СЦ клиенту\n"

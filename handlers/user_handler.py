@@ -22,7 +22,7 @@ class UserHandler:
         Можно тестировать один id по двум ролям
         """
         user_id = str(update.message.from_user.id)
-        users_data = load_users()
+        users_data = await load_users()
         sc_ids = [int(user_id) for user_id, data in users_data.items() 
                  if data.get("role") == "sc"]
         if user_id in users_data:
@@ -38,15 +38,15 @@ class UserHandler:
         else:
             if int(user_id) in ADMIN_IDS:
                 users_data[user_id] = {"role": "admin", "name": update.message.from_user.first_name}
-                save_users(users_data)
+                await save_users(users_data)
                 return await self.show_admin_menu(update, context)
             elif int(user_id) in DELIVERY_IDS:
                 users_data[user_id] = {"role": "delivery", "name": update.message.from_user.first_name}
-                save_users(users_data)
+                await save_users(users_data)
                 return await self.show_delivery_menu(update, context)
             elif int(user_id) in sc_ids:
                 users_data[user_id] = {"role": "sc", "name": update.message.from_user.first_name}
-                save_users(users_data)
+                await save_users(users_data)
                 return await self.show_sc_menu(update, context)
             else:
                 await update.message.reply_text(
@@ -59,11 +59,11 @@ class UserHandler:
     async def handle_contact(self, update: Update, context: CallbackContext):
         contact = update.message.contact
         user_id = str(update.message.from_user.id)
-        users_data = load_users()
+        users_data = await load_users()
         phone_number = contact.phone_number.lstrip('+')
         sc_id = None
         sc_name = None
-        service_centers = load_service_centers()
+        service_centers = await load_service_centers()
         for center_id, center_data in service_centers.items():
             center_phone = center_data.get('phone', '').lstrip('+')
             if center_phone == phone_number:
@@ -88,7 +88,7 @@ class UserHandler:
         if role == "sc" and sc_id:
             users_data[user_id]["sc_id"] = sc_id
             users_data[user_id]["sc_name"] = sc_name
-        save_users(users_data)  # Сохраняем данные пользователя
+        await save_users(users_data)  # Сохраняем данные пользователя
         # Отправляем подтверждающее сообщение
         if role == "sc" and sc_id:
             await update.message.reply_text(f"Спасибо, {contact.first_name}! Вы зарегистрированы как представитель СЦ '{sc_name}'.")
@@ -146,7 +146,7 @@ class UserHandler:
         await query.answer()
         request_id = query.data.split('_')[-1]
         try:
-            requests_data = load_requests()
+            requests_data = await load_requests()
             if request_id not in requests_data:
                 await query.edit_message_text("❌ Заявка не найдена")
                 return
@@ -165,7 +165,7 @@ class UserHandler:
             # Обновляем статус заявки
             request['status'] = 'Ожидает доставку'
             request['price_approved'] = True
-            save_requests(requests_data)
+            await save_requests(requests_data)
             # Отправляем подтверждение клиенту
             await query.edit_message_text(
                 f"✅ Вы согласились с предложенной стоимостью ремонта:\n"
@@ -174,8 +174,8 @@ class UserHandler:
             )
             # Создаем задачу доставки автоматически
             try:
-                delivery_tasks = load_delivery_tasks()
-                service_centers = load_service_centers()   
+                delivery_tasks = await load_delivery_tasks()
+                service_centers = await load_service_centers()   
                 # Получаем данные СЦ
                 sc_id = request.get('assigned_sc')
                 sc_data = service_centers.get(sc_id, {})
@@ -196,10 +196,10 @@ class UserHandler:
                     'desired_date': request.get('desired_date', '')
                 }
                 delivery_tasks[new_task_id] = new_task
-                save_delivery_tasks(delivery_tasks)
+                await save_delivery_tasks(delivery_tasks)
                 # Обновляем статус заявки
                 request['status'] = ORDER_STATUS_DELIVERY_TO_SC
-                save_requests(requests_data)
+                await save_requests(requests_data)
                 # Отправляем уведомление администраторам
                 admin_message = (
                     f"✅ Клиент подтвердил цену для заявки #{request_id}\n"
@@ -213,7 +213,7 @@ class UserHandler:
                         chat_id=admin_id,
                         text=admin_message
                     )
-            except Exception as e:
+            except Exception:
                 # Отправляем уведомление администраторам о необходимости создать задачу вручную
                 keyboard = [[
                     InlineKeyboardButton(
@@ -238,7 +238,7 @@ class UserHandler:
                         text=admin_message,
                         reply_markup=reply_markup
                     )
-        except Exception as e:
+        except Exception:
             await query.edit_message_text("❌ Произошла ошибка при обработке запроса")
 
     async def handle_client_price_rejection(self, update: Update, context: CallbackContext):
@@ -247,7 +247,7 @@ class UserHandler:
         await query.answer()
         request_id = query.data.split('_')[-1]
         try:
-            requests_data = load_requests()
+            requests_data = await load_requests()
             if request_id not in requests_data:
                 await query.edit_message_text("❌ Заявка не найдена")
                 return
@@ -266,7 +266,7 @@ class UserHandler:
             # Обновляем статус заявки
             request['status'] = 'Цена не согласована'
             request['price_approved'] = False
-            save_requests(requests_data)
+            await save_requests(requests_data)
             # Отправляем сообщение клиенту
             await query.edit_message_text(
                 f"❌ Вы отказались от предложенной стоимости ремонта:\n"
@@ -275,7 +275,7 @@ class UserHandler:
                 f"Сервисный центр уведомлен о вашем решении и свяжется с вами."
             )
             # Отправляем уведомление администраторам
-            service_centers = load_service_centers()
+            service_centers = await load_service_centers()
             sc_id = request.get('assigned_sc')
             sc_data = service_centers.get(sc_id, {})
             sc_name = sc_data.get('name', 'Неизвестный СЦ')
@@ -293,7 +293,7 @@ class UserHandler:
                     chat_id=admin_id,
                     text=admin_message
                 )
-        except Exception as e:
+        except Exception:
             await query.edit_message_text("❌ Произошла ошибка при обработке запроса")
 
     async def handle_client_price_rejection(self, update: Update, context: CallbackContext):
@@ -302,7 +302,7 @@ class UserHandler:
         await query.answer()
         request_id = query.data.split('_')[-1]
         try:
-            requests_data = load_requests()
+            requests_data = await load_requests()
             if request_id not in requests_data:
                 await query.edit_message_text("❌ Заявка не найдена")
                 return
@@ -311,7 +311,7 @@ class UserHandler:
             # Обновляем статус заявки
             request['status'] = 'Цена не согласована'
             request['price_approved'] = False
-            save_requests(requests_data)
+            await save_requests(requests_data)
             # Отправляем сообщение клиенту
             await query.edit_message_text(
                 f"❌ Вы отказались от предложенной стоимости ремонта:\n"
@@ -320,7 +320,7 @@ class UserHandler:
                 f"Сервисный центр уведомлен о вашем решении и свяжется с вами."
             )
             # Отправляем уведомление администраторам
-            service_centers = load_service_centers()
+            service_centers = await load_service_centers()
             sc_id = request.get('assigned_sc')
             sc_data = service_centers.get(sc_id, {})
             sc_name = sc_data.get('name', 'Неизвестный СЦ')
@@ -337,7 +337,7 @@ class UserHandler:
                     chat_id=admin_id,
                     text=admin_message
                 )
-        except Exception as e:
+        except Exception:
             await query.edit_message_text("❌ Произошла ошибка при обработке запроса")
 
     async def handle_delivery_date_selection(self, update: Update, context: CallbackContext):
@@ -417,13 +417,13 @@ class UserHandler:
                 minute=time_obj.minute
             )
             # Получаем данные заявки
-            requests_data = load_requests()
+            requests_data = await load_requests()
             request = requests_data.get(request_id, {})
             # Обновляем статус и добавляем дату доставки
             request['status'] = 'Ожидает доставку из СЦ'
             request['delivery_date'] = final_datetime.strftime("%H:%M %d.%m.%Y")
             requests_data[request_id] = request
-            save_requests(requests_data)
+            await save_requests(requests_data)
             # Очищаем временные данные
             if "temp_delivery_date" in context.user_data:
                 del context.user_data["temp_delivery_date"]
@@ -460,7 +460,7 @@ class UserHandler:
             else:
                 request['status'] = ORDER_STATUS_DELIVERY_TO_SC
                 requests_data[request_id] = request
-                save_requests(requests_data)
+                await save_requests(requests_data)
                 await query.edit_message_text(
                     f"❌ Не удалось установить дату доставки для заявки #{request_id}. Попробуйте позже."
                 )
@@ -475,10 +475,8 @@ class UserHandler:
         """Обрабатывает подтверждение/отклонение новой даты клиентом"""
         query = update.callback_query
         await query.answer()
-        
+        delivery_tasks = await load_delivery_tasks()
         action, task_id = query.data.split('_')[1:3]
-        delivery_tasks = load_delivery_tasks()
-        
         if task_id not in delivery_tasks:
             await query.edit_message_text("❌ Задача доставки не найдена.")
             return
@@ -488,7 +486,7 @@ class UserHandler:
             task['status'] = "Новая"
             if 'previous_date' in task:
                 del task['previous_date']  # Удаляем временные данные
-            save_delivery_tasks(delivery_tasks)
+            await save_delivery_tasks(delivery_tasks)
             await query.edit_message_text("✅ Вы подтвердили новую дату доставки.")
             # Уведомляем администратора
             for admin_id in ADMIN_IDS:
@@ -503,8 +501,7 @@ class UserHandler:
                 task['desired_date'] = task['previous_date']
                 del task['previous_date']
             task['status'] = "Требует изменения"
-            save_delivery_tasks(delivery_tasks)
-            
+            await save_delivery_tasks(delivery_tasks)
             await query.edit_message_text(
                 "❌ Вы отклонили новую дату доставки. Администратор свяжется с вами."
             )

@@ -25,7 +25,7 @@ class SCChatHandler(SCHandler):
                 'client_id': None
             }
         }
-        requests_data = load_requests()
+        requests_data = await load_requests()
         request_data = requests_data.get(request_id, {})
         client_id = request_data.get('user_id')
         if not client_id:
@@ -131,10 +131,10 @@ class SCChatHandler(SCHandler):
         query = update.callback_query
         await query.answer()
         request_id = query.data.split('_')[-1]
-        requests_data = load_requests()
+        requests_data = await load_requests()
         request_data = requests_data.get(request_id, {})
         sc_id = request_data.get('assigned_sc')
-        users_data = load_users()
+        users_data = await load_users()
         sc_user_id = next(
             (uid for uid, u_data in users_data.items() 
             if str(u_data.get('sc_id')) == str(sc_id) and u_data.get('role') == 'sc'),
@@ -232,7 +232,7 @@ class SCChatHandler(SCHandler):
         context.user_data.pop('active_client_chat', None)
         # Возвращаем пользователя в соответствующее меню
         user_id = str(update.effective_user.id)
-        users_data = load_users()
+        users_data = await load_users()
         role = users_data.get(user_id, {}).get("role")
         if role == "sc":
             await self.show_sc_menu(update, context)
@@ -241,9 +241,9 @@ class SCChatHandler(SCHandler):
         await query.edit_message_text("Чат закрыт")
         return ConversationHandler.END
 
-    def save_chat_history(self, request_id, sender, message, timestamp, photo_path=None):
+    async def save_chat_history(self, request_id, sender, message, timestamp, photo_path=None):
         """Сохранение истории переписки"""
-        chat_history = load_chat_history()
+        chat_history = await load_chat_history()
         entry = {
             'sender': sender,
             'message': message,
@@ -254,7 +254,7 @@ class SCChatHandler(SCHandler):
         if request_id not in chat_history:
             chat_history[request_id] = []
         chat_history[request_id].append(entry)
-        save_chat_history(chat_history)
+        await save_chat_history(chat_history)
 
     async def show_chat_history(self, update: Update, context: CallbackContext):
         """Показывает историю переписки по заявке"""
@@ -269,7 +269,7 @@ class SCChatHandler(SCHandler):
 
     async def _show_chat_history(self, update: Update, context: CallbackContext, request_id, is_callback=True):
         """Универсальный метод для отображения истории чата"""
-        chat_history = load_chat_history().get(request_id, [])
+        chat_history = await load_chat_history().get(request_id, [])
         if not chat_history:
             if is_callback:
                 await update.callback_query.message.reply_text("История переписки пуста.")
@@ -356,14 +356,14 @@ class SCChatHandler(SCHandler):
         await query.answer()
         request_id = query.data.split('_')[-1]
         # Загружаем данные о заявке
-        requests_data = load_requests()
+        requests_data = await load_requests()
         request_data = requests_data.get(request_id)
         if not request_data:
             await query.edit_message_text("Ошибка: заявка не найдена")
             return
         # Получаем ID сервисного центра и соответствующего пользователя
         sc_id = request_data.get('assigned_sc')
-        users_data = load_users()
+        users_data = await load_users()
         sc_user_id = next(
             (uid for uid, u_data in users_data.items() 
             if str(u_data.get('sc_id')) == str(sc_id) and u_data.get('role') == 'sc'),

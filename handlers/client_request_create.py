@@ -38,7 +38,7 @@ class RequestCreator(ClientHandler):
     async def create_request(self, update: Update, context: CallbackContext):
         """Создание заявки."""
         user_id = str(update.effective_user.id)
-        users_data = load_users()
+        users_data = await load_users()
         user = users_data.get(user_id, {})
         if user.get('blocked'):
             await update.message.reply_text(
@@ -404,9 +404,9 @@ class RequestCreator(ClientHandler):
             await query.edit_message_text("Выберите категорию:", reply_markup=reply_markup)
             return CREATE_REQUEST_CATEGORY
 
-    def get_next_request_id(self):
+    async def get_next_request_id(self):
         """Генерирует следующий ID заявки на основе существующих"""
-        requests_data = load_requests()  # Загружаем текущие данные
+        requests_data = await load_requests()  # Загружаем текущие данные
         if not requests_data:
             return "1"
         # Ищем максимальный числовой ID среди существующих заявок
@@ -424,7 +424,7 @@ class RequestCreator(ClientHandler):
         """Финальная обработка создания заявки."""
         query = update.callback_query
         await query.answer()
-        requests_data = load_requests()
+        requests_data = await load_requests()
         request_id = self.get_next_request_id()
         user_id = str(update.effective_user.id)
         # Копируем фото во временную переменную перед очисткой user_data
@@ -460,7 +460,7 @@ class RequestCreator(ClientHandler):
         }
         # Сохраняем заявку
         requests_data[request_id] = request_data
-        save_requests(requests_data)
+        await save_requests(requests_data)
         # Полная очистка данных пользователя
         context.user_data.clear()
         await query.edit_message_text(f"✅ Заявка #{request_id} создана!")
@@ -531,9 +531,9 @@ class PrePaymentHandler(ClientHandler):
                     request['payment_order_id'] = result['order_id']
                     request['delivery_cost'] = str(delivery_cost)
                     # Загружаем и сохраняем обновленные данные
-                    requests_data = load_requests()
+                    requests_data = await load_requests()
                     requests_data[request_id] = request
-                    save_requests(requests_data)
+                    await save_requests(requests_data)
                     self.logger.info(f"💾 Сохранен order_id: {result['order_id']} для заявки #{request_id}")
                     # Отправляем кнопку оплаты
                     keyboard = [
@@ -571,7 +571,7 @@ class PrePaymentHandler(ClientHandler):
         # Получаем ID заявки из callback_data
         request_id = query.data.split('_')[-1]
         self.logger.info(f"📊 Проверка статуса платежа для заявки #{request_id}")
-        requests_data = load_requests()
+        requests_data = await load_requests()
         if request_id not in requests_data:
             self.logger.error(f"❌ Заявка #{request_id} не найдена при проверке статуса платежа")
             await query.edit_message_text("❌ Заявка не найдена")
@@ -658,10 +658,10 @@ class PrePaymentHandler(ClientHandler):
         """Создание задачи доставки после оплаты"""
         query = update.callback_query
         # Загружаем необходимые данные
-        requests_data = load_requests()
-        delivery_tasks = load_delivery_tasks()
-        service_centers = load_service_centers()
-        users_data = load_users()
+        requests_data = await load_requests()
+        delivery_tasks = await load_delivery_tasks()
+        service_centers = await load_service_centers()
+        users_data = await load_users()
         # Получаем СЦ
         sc_id = request.get('assigned_sc')
         sc_data = service_centers.get(sc_id, {})
@@ -690,11 +690,11 @@ class PrePaymentHandler(ClientHandler):
         
         # Сохраняем задачу
         delivery_tasks[new_task_id] = new_task
-        save_delivery_tasks(delivery_tasks)
+        await save_delivery_tasks(delivery_tasks)
         
         # Обновляем статус заявки
         requests_data[request_id]['status'] = ORDER_STATUS_DELIVERY_TO_SC
-        save_requests(requests_data)
+        await save_requests(requests_data)
         
         # Отправляем подтверждение
         await query.edit_message_text(

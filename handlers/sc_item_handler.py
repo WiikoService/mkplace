@@ -24,7 +24,7 @@ class SCItemHandler(SCHandler):
         parts = query.data.split('_')
         action = parts[0]  # accept или reject
         request_id = parts[-1]
-        requests_data = load_requests()
+        requests_data = await load_requests()
         if request_id not in requests_data:
             await query.edit_message_text("Заявка не найдена.")
             return ConversationHandler.END
@@ -56,7 +56,7 @@ class SCItemHandler(SCHandler):
         if not request_id:
             await update.message.reply_text("Ошибка: заявка не найдена.")
             return ConversationHandler.END
-        requests_data = load_requests()
+        requests_data = await load_requests()
         if request_id not in requests_data:
             await update.message.reply_text("Заявка не найдена.")
             return ConversationHandler.END
@@ -87,7 +87,7 @@ class SCItemHandler(SCHandler):
                 await update.message.reply_text("Необходимо добавить хотя бы одно фото!")
                 return CREATE_REQUEST_PHOTOS
             # Загрузка данных
-            requests_data = load_requests()
+            requests_data = await load_requests()
             # Проверка существования заявки
             if request_id not in requests_data:
                 await update.message.reply_text("Ошибка: заявка не найдена.")
@@ -98,14 +98,14 @@ class SCItemHandler(SCHandler):
                 'status': ORDER_STATUS_IN_SC,
                 'sc_acceptance_photos': photos
             })
-            save_requests(requests_data)
+            await save_requests(requests_data)
             # Обновление задач доставки
-            delivery_tasks = load_delivery_tasks()
+            delivery_tasks = await load_delivery_tasks()
             for task in delivery_tasks.values():
                 if isinstance(task, dict) and task.get('request_id') == request_id:
                     task['status'] = ORDER_STATUS_IN_SC
                     break
-            save_delivery_tasks(delivery_tasks)
+            await save_delivery_tasks(delivery_tasks)
             # Уведомление клиента
             client_id = request_data.get('user_id')
             if client_id:
@@ -153,13 +153,13 @@ class SCItemHandler(SCHandler):
         query = update.callback_query
         await query.answer()
         request_id = query.data.split('_')[-1]
-        requests_data = load_requests()
+        requests_data = await load_requests()
         if request_id not in requests_data:
             await query.edit_message_text("Заявка не найдена.")
             return
         # Обновляем статус заявки
         requests_data[request_id]['status'] = "Отказано в приёмке СЦ"
-        save_requests(requests_data)
+        await save_requests(requests_data)
         # Уведомляем клиента
         client_id = requests_data[request_id]['user_id']
         await notify_client(
