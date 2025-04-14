@@ -36,8 +36,8 @@ class FinalPaymentHandler(DeliverySCHandler):
             request_id = query.data.split('_')[-1]
             context.user_data['current_request'] = request_id
             # Загружаем данные
-            requests_data = load_requests()
-            users_data = load_users()
+            requests_data = await load_requests()
+            users_data = await load_users()
             if request_id not in requests_data:
                 await query.edit_message_text("❌ Заявка не найдена.")
                 return ConversationHandler.END
@@ -47,14 +47,14 @@ class FinalPaymentHandler(DeliverySCHandler):
             client_phone = client_data.get('phone')
             # Обновляем статус заявки
             requests_data[request_id]['status'] = ORDER_STATUS_SC_TO_CLIENT
-            save_requests(requests_data)
+            await save_requests(requests_data)
             # Обновляем статус задачи доставки
             await self._update_delivery_task_status(request_id, ORDER_STATUS_SC_TO_CLIENT)
             # Генерируем код подтверждения
             confirmation_code = ''.join(random.choices('0123456789', k=4))
             context.user_data['client_confirmation_code'] = confirmation_code
             requests_data[request_id]['confirmation_code'] = confirmation_code
-            save_requests(requests_data)
+            await save_requests(requests_data)
             # Определяем режим отправки кода (тестовый или боевой)
             if DEBUG:
                 # В тестовом режиме отправляем код доставщику
@@ -110,7 +110,7 @@ class FinalPaymentHandler(DeliverySCHandler):
                                 # Сохраняем данные SMS
                                 requests_data[request_id]['sms_id'] = sms_response.get('sms_id')
                                 requests_data[request_id]['confirmation_code'] = sms_response['code']
-                                save_requests(requests_data)
+                                await save_requests(requests_data)
                                 # Уведомляем клиента
                                 await context.bot.send_message(
                                     chat_id=int(client_id),
@@ -125,7 +125,7 @@ class FinalPaymentHandler(DeliverySCHandler):
                                 raise Exception("Не удалось отправить SMS")
                         else:
                             raise Exception("Нет доступных альфа-имен для отправки SMS")
-                    except Exception as e:
+                    except Exception:
                         # В случае ошибки отправляем код через бота
                         await query.edit_message_text(
                             f"❌ Не удалось отправить SMS. Используйте код: {confirmation_code}\n\n"
@@ -145,19 +145,19 @@ class FinalPaymentHandler(DeliverySCHandler):
             # Уведомляем администраторов
             await self._notify_admins_about_delivery(context, update.effective_user.first_name, request_id)
             return ENTER_CONFIRMATION_CODE
-        except Exception as e:
+        except Exception:
             await query.edit_message_text("❌ Произошла ошибка. Попробуйте еще раз.")
             return ConversationHandler.END
 
     @log_method_call
     async def _update_delivery_task_status(self, request_id, status):
         """Обновление статуса задачи доставки"""
-        delivery_tasks = load_delivery_tasks()
+        delivery_tasks = await load_delivery_tasks()
         for _, task in delivery_tasks.items():
             if task.get('request_id') == request_id:
                 task['status'] = status
                 break
-        save_delivery_tasks(delivery_tasks)
+        await save_delivery_tasks(delivery_tasks)
 
     @log_method_call
     async def _notify_client_about_delivery(self, context, client_id, request_id, requests_data):
@@ -255,7 +255,8 @@ class FinalPaymentHandler(DeliverySCHandler):
                                 # Сохраняем код в данных заявки
                                 requests_data[request_id]['sms_id'] = sms_response.get('sms_id')
                                 requests_data[request_id]['confirmation_code'] = sms_response['code']
-                                save_requests(requests_data)
+                                await save_requests(requests_data)
+                                logger.info(f"Код подтверждения для заявки #{request_id}: {requests_data[request_id]['confirmation_code']}")
                                 # Сообщаем КЛИЕНТУ, чтобы он ввёл код из SMS
                                 await context.bot.send_message(
                                     chat_id=client_data['user_id'],
@@ -273,7 +274,7 @@ class FinalPaymentHandler(DeliverySCHandler):
                                 raise Exception("Не удалось отправить SMS")
                         else:
                             raise Exception("Нет доступных альфа-имен для отправки SMS")
-                    except Exception as e:
+                    except Exception:
                         # Если SMS не удалось отправить, используем код из интерфейса
                         await context.bot.send_message(
                             chat_id=client_data['user_id'],
@@ -351,7 +352,7 @@ class FinalPaymentHandler(DeliverySCHandler):
                 await update.message.reply_text("❌ Не найдена активная заявка.")
                 return ConversationHandler.END
             # Загружаем данные
-            requests_data = load_requests()
+            requests_data = await load_requests()
             if request_id not in requests_data:
                 await update.message.reply_text("❌ Заявка не найдена.")
                 return ConversationHandler.END
@@ -378,7 +379,7 @@ class FinalPaymentHandler(DeliverySCHandler):
                             )
                             # Сохраняем данные платежа
                             request['final_payment_order_id'] = result['order_id']
-                            save_requests(requests_data)
+                            await save_requests(requests_data)
                             # Отправляем кнопку оплаты клиенту
                             keyboard = [
                                 [InlineKeyboardButton("✅ Оплатить", url=result['payment_url'])],
@@ -422,7 +423,6 @@ class FinalPaymentHandler(DeliverySCHandler):
     @log_method_call
     async def _request_delivery_photos(self, update, context, request_id, request):
         """Запрос фотографий у доставщика после подтверждения клиентом"""
-        client_id = request.get('user_id')
         delivery_id = request.get('assigned_delivery')
         # Уведомляем клиента об успешном подтверждении
         await update.message.reply_text(
@@ -445,7 +445,7 @@ class FinalPaymentHandler(DeliverySCHandler):
         try:
             request_id = query.data.split('_')[-1]
             logger.info(f"📊 Проверка статуса финального платежа для заявки #{request_id}")
-            requests_data = load_requests()
+            requests_data = await load_requests()
             if request_id not in requests_data:
                 await query.edit_message_text("❌ Заявка не найдена")
                 return ConversationHandler.END
@@ -486,7 +486,7 @@ class FinalPaymentHandler(DeliverySCHandler):
                         # Платеж успешен
                         request['status'] = "Доставлено клиенту"
                         request['payment_status'] = "paid"
-                        save_requests(requests_data)
+                        await save_requests(requests_data)
                         # Уведомляем клиента
                         await context.bot.send_message(
                             chat_id=int(client_id),
@@ -522,7 +522,7 @@ class FinalPaymentHandler(DeliverySCHandler):
                         if current_text != new_message or current_markup != reply_markup:
                             try:
                                 await query.edit_message_text(new_message, reply_markup=reply_markup)
-                            except Exception as edit_error:
+                            except Exception:
                                 # Если не удалось отредактировать, отправляем новое
                                 await context.bot.send_message(
                                     chat_id=query.message.chat_id,
@@ -536,7 +536,7 @@ class FinalPaymentHandler(DeliverySCHandler):
                                 text="Статус платежа не изменился. Попробуйте проверить позже."
                             )
                         return WAITING_FINAL_PAYMENT
-        except Exception as e:
+        except Exception:
             error_message = f"❌ Ошибка при проверке финального платежа: {str(e)}"
             logger.error(error_message)
             logger.exception(e)  # Выводим полный стектрейс
@@ -568,7 +568,7 @@ class FinalPaymentHandler(DeliverySCHandler):
             request_id = query.data.split('_')[-1]
             delivery_id = None
             # Загружаем данные заявки
-            requests_data = load_requests()
+            requests_data = await load_requests()
             if request_id in requests_data:
                 request = requests_data[request_id]
                 delivery_id = request.get('assigned_delivery')
@@ -583,7 +583,7 @@ class FinalPaymentHandler(DeliverySCHandler):
                     text=f"⚠️ Клиент отменил онлайн-оплату для заявки #{request_id}. Возможно, клиент предпочитает оплатить наличными."
                 )
             return ConversationHandler.END
-        except Exception as e:
+        except Exception:
             await query.edit_message_text("❌ Произошла ошибка при отмене платежа.")
             return ConversationHandler.END
 
@@ -609,7 +609,7 @@ class FinalPaymentHandler(DeliverySCHandler):
                 f"Отправьте еще фотографии или нажмите\n\n/DONE"
             )
             return CREATE_REQUEST_PHOTOS
-        except Exception as e:
+        except Exception:
             await update.message.reply_text("❌ Произошла ошибка при сохранении фото. Попробуйте еще раз.")
             return CREATE_REQUEST_PHOTOS
 
@@ -623,8 +623,8 @@ class FinalPaymentHandler(DeliverySCHandler):
                 await update.message.reply_text("❌ Необходимо добавить хотя бы одно фото!")
                 return CREATE_REQUEST_PHOTOS
             # Загружаем данные
-            requests_data = load_requests()
-            delivery_tasks = load_delivery_tasks()
+            requests_data = await load_requests()
+            delivery_tasks = await load_delivery_tasks()
             if request_id not in requests_data:
                 await update.message.reply_text("❌ Заявка не найдена.")
                 return ConversationHandler.END
@@ -632,12 +632,12 @@ class FinalPaymentHandler(DeliverySCHandler):
             request = requests_data[request_id]
             request['status'] = "Доставлено клиенту"
             request['delivery_photos'] = photos
-            save_requests(requests_data)
+            await save_requests(requests_data)
             # Обновляем статус задачи доставки
             for _, task in delivery_tasks.items():
                 if task.get('request_id') == request_id:
                     task['status'] = "Завершено"
-                    save_delivery_tasks(delivery_tasks)
+                    await save_delivery_tasks(delivery_tasks)
                     break
             # Отправляем уведомления всем участникам
             await self._send_completion_notifications(update, context, request_id, photos)
@@ -646,7 +646,7 @@ class FinalPaymentHandler(DeliverySCHandler):
             context.user_data.pop('delivery_photos', None)
             context.user_data.pop('awaiting_delivery_photos', None)
             return ConversationHandler.END
-        except Exception as e:
+        except Exception:
             await update.message.reply_text("❌ Произошла ошибка. Попробуйте еще раз.")
             return ConversationHandler.END
 
@@ -654,7 +654,7 @@ class FinalPaymentHandler(DeliverySCHandler):
     async def _send_completion_notifications(self, update, context, request_id, photos):
         """Отправка уведомлений о завершении доставки всем участникам"""
         # Загружаем данные
-        requests_data = load_requests()
+        requests_data = await load_requests()
         if request_id not in requests_data:
             return
         request = requests_data[request_id]

@@ -1,0 +1,37 @@
+# Игнорируем всё, что не нужно в контейнере
+
+# Системные файлы
+.git/
+.gitignore
+.DS_Store
+.venv/
+venv/
+env/
+*.swp
+*.swo
+
+# Локальные данные и кеши
+data/*.json
+data/*.bak
+photos/
+*.log
+logs/
+*.sqlite
+*.sqlite3
+
+# Питоновские артефакты
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+
+# Конфиги IDE
+.vscode/
+.idea/
+
+# Исключения (что нужно КОПИРОВАТЬ, несмотря на игноры)
+!handlers/
+!bot.py
+!requirements.txt

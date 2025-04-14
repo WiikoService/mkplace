@@ -50,7 +50,7 @@ class SCManagementHandler(AdminHandler):
             return SC_MANAGEMENT_ADD_PHONE
         sc_name = context.user_data.get('sc_name')
         sc_address = context.user_data.get('sc_address')
-        service_centers = load_service_centers() or {}
+        service_centers = await load_service_centers() or {}
         sc_id = str(len(service_centers) + 1)
         service_centers[sc_id] = {
             'id': sc_id,
@@ -58,7 +58,7 @@ class SCManagementHandler(AdminHandler):
             'address': sc_address,
             'phone': sc_phone
         }
-        save_service_centers(service_centers)
+        await save_service_centers(service_centers)
         await update.message.reply_text(
             f"Сервисный центр успешно добавлен:\n"
             f"ID: {sc_id}\n"
@@ -74,7 +74,7 @@ class SCManagementHandler(AdminHandler):
 
     async def handle_delete_sc(self, update: Update, context: CallbackContext):
         """Начало процесса удаления СЦ"""
-        service_centers = load_service_centers()
+        service_centers = await load_service_centers()
         if not service_centers:
             await update.message.reply_text("Список сервисных центров пуст.")
             return ConversationHandler.END
@@ -102,7 +102,7 @@ class SCManagementHandler(AdminHandler):
             await query.edit_message_text("Неверный формат данных")
             return
         sc_id = parts[2]
-        service_centers = load_service_centers()
+        service_centers = await load_service_centers()
         if sc_id not in service_centers:
             await query.edit_message_text("Сервисный центр не найден")
             return
@@ -131,13 +131,13 @@ class SCManagementHandler(AdminHandler):
             await query.edit_message_text("Неверный формат данных")
             return
         sc_id = parts[3]
-        service_centers = load_service_centers()
+        service_centers = await load_service_centers()
         if sc_id not in service_centers:
             await query.edit_message_text("Сервисный центр не найден")
             return
         sc_name = service_centers[sc_id]['name']
         del service_centers[sc_id]
-        save_service_centers(service_centers)
+        await save_service_centers(service_centers)
         await query.edit_message_text(f"Сервисный центр '{sc_name}' успешно удален.")
 
     async def cancel(self, update: Update, context: CallbackContext):

@@ -27,7 +27,7 @@ class ClientHandler:
     async def show_client_profile(self, update: Update, context: CallbackContext):
         """Отображение профиля клиента."""
         user_id = str(update.message.from_user.id)
-        users_data = load_users()
+        users_data = await load_users()
         user = users_data.get(user_id, {})
         reply = "Ваш профиль:\n\n"
         reply += f"Имя: {user.get('name', 'Не указано')}\n"
@@ -43,7 +43,7 @@ class ClientHandler:
     async def show_client_requests(self, update: Update, context: CallbackContext):
         """Показать заявки клиента с кнопками под каждой заявкой"""
         user_id = str(update.effective_user.id)
-        requests_data = load_requests()
+        requests_data = await load_requests()
         user_requests = {
             req_id: req_data for req_id, req_data in requests_data.items()
             if req_data.get('user_id') == user_id
@@ -140,7 +140,6 @@ class ClientHandler:
         await query.answer()
         data_parts = query.data.split('_')
         rating = int(data_parts[1])
-        request_id = data_parts[2]
         self._save_rating(rating)
         if rating < 4:
             await query.edit_message_text(
@@ -169,7 +168,7 @@ class ClientHandler:
                 "✅ Спасибо за ваш отзыв! Мы учтем ваши комментарии для улучшения нашего сервиса."
             )
             return ConversationHandler.END
-        except Exception as e:
+        except Exception:
             await update.message.reply_text(
                 "❌ Произошла ошибка при сохранении отзыва. Пожалуйста, попробуйте еще раз."
             )
@@ -184,7 +183,7 @@ class ClientHandler:
                     feedback_data = json.load(f)
             else:
                 feedback_data = {'ratings': [], 'reviews': []}
-        except Exception as e:
+        except Exception:
             feedback_data = {'ratings': [], 'reviews': []}
         feedback_data['ratings'].append({
             'rating': rating,
@@ -193,7 +192,7 @@ class ClientHandler:
         try:
             with open(feedback_file, 'w', encoding='utf-8') as f:
                 json.dump(feedback_data, f, ensure_ascii=False, indent=2)
-        except Exception as e:
+        except Exception:
             return
 
     def _save_feedback(self, feedback_text):
@@ -205,7 +204,7 @@ class ClientHandler:
                     feedback_data = json.load(f)
             else:
                 feedback_data = {'ratings': [], 'reviews': []}
-        except Exception as e:
+        except Exception:
             feedback_data = {'ratings': [], 'reviews': []}
         feedback_data['reviews'].append({
             'id': len(feedback_data['reviews']) + 1,
@@ -215,8 +214,9 @@ class ClientHandler:
         try:
             with open(feedback_file, 'w', encoding='utf-8') as f:
                 json.dump(feedback_data, f, ensure_ascii=False, indent=2)
-        except Exception as e:
+        except Exception:
             return
+
     async def cancel_operation(self, update: Update, context: CallbackContext):
         """Отмена операции оценки"""
         await update.message.reply_text("Операция отменена.")
@@ -253,7 +253,7 @@ class ClientHandler:
         await query.answer()
         try:
             action, request_id = query.data.split('_')[1:]
-            requests_data = load_requests()
+            requests_data = await load_requests()
             if request_id not in requests_data:
                 await query.edit_message_text("❌ Заявка не найдена")
                 return
@@ -261,7 +261,7 @@ class ClientHandler:
             if action == 'confirm':
                 request['status'] = ORDER_STATUS_DELIVERY_TO_SC
                 request['client_confirmed'] = True
-                save_requests(requests_data)
+                await save_requests(requests_data)
                 delivery_id = request.get('assigned_delivery')
                 if delivery_id:
                     await context.bot.send_message(
@@ -311,6 +311,6 @@ class ClientHandler:
                                 text=f"⚠️ Клиент отказался от товара по заявке #{request_id}",
                                 reply_markup=reply_markup
                             )
-                save_requests(requests_data)
-        except Exception as e:
+                await save_requests(requests_data)
+        except Exception:
             await query.edit_message_text("Произошла ошибка при обработке вашего запроса.")

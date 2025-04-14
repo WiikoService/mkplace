@@ -1,0 +1,20 @@
+services:
+  bot:
+    build: .
+    restart: unless-stopped
+    network_mode: host  # Для минимальных задержек с Telegram API
+    deploy:
+      resources:
+        limits:
+          cpus: '0.8'  # 80% vCPU
+          memory: 1.5G  # Оставляем 500MB для ОС + Zabbix
+    volumes:
+      - bot_data:/app/data  # Для JSON (Named Volume)
+      - /mnt/photos:/app/photos  # Прямой доступ к SSD
+    environment:
+      - TZ=Europe/Moscow  # Ваша таймзона
+      - PYTHONPATH=/app
+
+volumes:
+  bot_data:
+    driver: local
